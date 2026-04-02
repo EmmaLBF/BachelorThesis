@@ -3,9 +3,10 @@ name:               lambdaemma
 version:            0.1.0.0
 
 executable lambdaemma
-    main-is:          eval.hs
+    main-is:          Main.hs
+    other-modules:    AbsLang, NamedLang
     build-depends:
-        base   >= 4.14 && < 5,
-        HMap   >= 1.3.0
+        containers ^>=0.6.7,
+        base   >= 4.14 && < 5
     default-language: Haskell2010
     ghc-options:      -Wall

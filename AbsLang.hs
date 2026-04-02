@@ -1,44 +1,39 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Main where
+module AbsLang where
 
 import Control.Monad.Fix
-import qualified Data.HMap as HMap
+import Data.Dynamic
+import Data.Map (Map)
+import qualified Data.Map as Map
 
-data BinOp = Plus | Min | Times | Div | Mod
+data BinOp = Plus | Min | Times | Div | Mod 
+  deriving Show
 
 data CmpOp = Eq | Lt | Gt
+  deriving Show
 
 -- ─────────────────────────────────────────────
 --  The Language (GADT, typed via phantom param)
 -- ─────────────────────────────────────────────
 
 data Lang a where
-  -- | Free variable – looked up in the environment at eval time
-  Var :: HMap.HKey s a -> Lang a
-  -- | Lambda abstraction, using Higher order abstract syntax
-  Abs :: (Lang a -> Lang b) -> Lang (a -> b)
-  -- | Function application
-  Apply :: Lang (a -> b) -> Lang a -> Lang b
-  -- | Boolean literal
-  LBool :: Bool -> Lang Bool
-  -- | If-then-else
-  If :: Lang Bool -> Lang a -> Lang a -> Lang a
-  -- | Integer literal
-  LInt :: Int -> Lang Int
-  -- | Binary integer operation
-  LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int
-  -- | Integer comparison
-  LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool
-  -- | Make a tuple
-  Prod :: Lang a -> Lang b -> Lang (a, b)
-  -- | Project left
-  Fst :: Lang (a, b) -> Lang a
-  -- | Project right
-  Snd :: Lang (a, b) -> Lang b
-  -- | Add recursion (for mutual recursion combine with tuples)
-  Fix :: Lang (a -> a) -> Lang a
+  Var :: (Typeable a) => Int -> Lang a -- | Free variable – looked up in the environment at eval time
+  Abs :: (Typeable a) => (Lang a -> Lang b) -> Lang (a -> b) -- | Lambda abstraction, using Higher order abstract syntax
+  Apply :: Lang (a -> b) -> Lang a -> Lang b -- | Function application
+  Fix :: Lang (a -> a) -> Lang a -- | Add recursion (for mutual recursion combine with tuples)
+  If :: Lang Bool -> Lang a -> Lang a -> Lang a -- | If-then-else
+  -- | LITERALS
+  LInt :: Int -> Lang Int  -- | Integer literal
+  LBool :: Bool -> Lang Bool -- | Boolean literal
+  -- | OPERATIONS
+  LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int -- | Binary integer operation
+  LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool -- | Integer comparison
+  -- | TUPLES
+  Prod :: Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
+  Fst :: Lang (a, b) -> Lang a -- | Project left
+  Snd :: Lang (a, b) -> Lang b -- | Project right
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
@@ -53,36 +48,41 @@ cmpop Eq = (==)
 cmpop Gt = (>)
 
 eval :: Lang a -> a
-eval = ev HMap.empty
+eval = ev 0 Map.empty
   where
-    ev :: HMap.HMap -> Lang a -> a
-    ev env (Var k) = env HMap.! k
-    ev env (Abs f) = HMap.withKey $ \k v ->
-      let env' = HMap.insert k v env
-       in ev env' (f (Var k))
-    ev env (Apply f x) =
-      let v = ev env x
-          fn = ev env f
+    ev :: Int -> Map Int Dynamic -> Lang a -> a
+    ev _ env (Var k) =
+      case Map.lookup k env of
+        Just dyn -> case fromDynamic dyn of
+          Just v -> v
+          Nothing -> error "Type mismatch in env"
+        Nothing -> error "Variable not found"
+    ev fresh env (Abs f) = \v ->
+      let env' = Map.insert fresh (toDyn v) env
+       in ev (fresh + 1) env' (f (Var fresh))
+    ev fresh env (Apply f x) =
+      let v = ev fresh env x
+          fn = ev fresh env f
        in fn v
-    ev _ (LBool b) = b
-    ev env (If c t e) =
-      if ev env c then ev env t else ev env e
-    ev _ (LInt i) = i
-    ev env (LIntOp op l r) =
-      let l' = ev env l
-          r' = ev env r
+    ev _ _ (LBool b) = b
+    ev fresh env (If c t e) =
+      if ev fresh env c then ev fresh env t else ev fresh env e
+    ev _ _ (LInt i) = i
+    ev fresh env (LIntOp op l r) =
+      let l' = ev fresh env l
+          r' = ev fresh env r
        in binop op l' r'
-    ev env (LCmpOp op l r) =
-      let l' = ev env l
-          r' = ev env r
+    ev fresh env (LCmpOp op l r) =
+      let l' = ev fresh env l
+          r' = ev fresh env r
        in cmpop op l' r'
-    ev env (Prod l r) = (ev env l, ev env r)
-    ev env (Fst p) = fst (ev env p)
-    ev env (Snd p) = snd (ev env p)
-    ev env (Fix f) = fix (ev env f)
+    ev fresh env (Prod l r) = (ev fresh env l, ev fresh env r)
+    ev fresh env (Fst p) = fst (ev fresh env p)
+    ev fresh env (Snd p) = snd (ev fresh env p)
+    ev fresh env (Fix f) = fix (ev fresh env f)
 
 -- Syntactic Sugar
-lam :: (Lang a -> Lang b) -> Lang (a -> b)
+lam :: (Typeable a) => (Lang a -> Lang b) -> Lang (a -> b)
 lam = Abs
 
 app :: Lang (a -> b) -> Lang a -> Lang b
@@ -91,7 +91,7 @@ app = Apply
 -- | Syntactic sugar for Let bindings `let x = v in e`.
 -- In lambda calculus this is mathematically equivalent to `(\x -> e) v`.
 -- Thus, we can easily express local variables using only `Apply` and `Abs`!
-let_ :: Lang a -> (Lang a -> Lang b) -> Lang b
+let_ :: (Typeable a) => Lang a -> (Lang a -> Lang b) -> Lang b
 let_ val body = app (lam body) val
 
 (+:), (-:), (*:), (/:), (%:) :: Lang Int -> Lang Int -> Lang Int
@@ -141,7 +141,7 @@ gcdLang = Fix $ lam $ \f -> lam $ \p ->
         (f `app` Prod b (a %: b))
 
 -- 5. Higher-Order Functions: apply a function twice
-twice :: Lang ((a -> a) -> (a -> a))
+twice :: (Typeable a) => Lang ((a -> a) -> (a -> a))
 twice = lam $ \f -> lam $ \x -> f `app` (f `app` x)
 
 inc :: Lang (Int -> Int)
