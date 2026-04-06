@@ -30,6 +30,16 @@
   (major1) == 0 && (major2) <  6 || \
   (major1) == 0 && (major2) == 6 && (minor) <= 8)
 #endif /* MIN_VERSION_containers */
+/* package llvm-hs-pure-12.0.0 */
+#ifndef VERSION_llvm_hs_pure
+#define VERSION_llvm_hs_pure "12.0.0"
+#endif /* VERSION_llvm_hs_pure */
+#ifndef MIN_VERSION_llvm_hs_pure
+#define MIN_VERSION_llvm_hs_pure(major1,major2,minor) (\
+  (major1) <  12 || \
+  (major1) == 12 && (major2) <  0 || \
+  (major1) == 12 && (major2) == 0 && (minor) <= 0)
+#endif /* MIN_VERSION_llvm_hs_pure */
 
 /* tool gcc-13 */
 #ifndef TOOL_VERSION_gcc

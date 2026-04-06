@@ -4,9 +4,14 @@ version:            0.1.0.0
 
 executable lambdaemma
     main-is:          Main.hs
-    other-modules:    AbsLang, NamedLang, FirstOrderLang
+    other-modules:    AbsLang, NamedLang, FirstOrderLang, LlvmLang
+
     build-depends:
-        base >= 4.14 && < 4.16,
-        containers ^>=0.6.7
+        base >= 4.14 && < 4.15,
+        containers ^>=0.6.7,
+        llvm-hs-pure >= 12.0 && < 13
+
     default-language: Haskell2010
     ghc-options:      -Wall
+
+-- LLVM_CONFIG=llvm-config-14 cabal build
