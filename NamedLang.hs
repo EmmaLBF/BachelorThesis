@@ -11,7 +11,7 @@ import qualified AbsLang as AL
 
 data NamedLang a where
   Var :: (Typeable a) => Int -> NamedLang a -- | Free variable
-  Lam :: (Typeable a) => (Int -> NamedLang b) -> NamedLang (a -> b) -- | Lambda abstraction
+  Lam :: (Typeable a) => Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
   Apply :: NamedLang (a -> b) -> NamedLang a -> NamedLang b -- | Function application
   Fix :: NamedLang (a -> a) -> NamedLang a -- | Recursion
   If :: NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a -- | If-then-else
@@ -27,8 +27,8 @@ data NamedLang a where
   Snd :: NamedLang (a, b) -> NamedLang b -- | Project right
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
-translate c (AL.Abs f) = (Lam (\x -> let (body, _) = translate (c+1) (f (AL.Var x))
-                                      in body), c + 1)
+translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
+                         in (Lam c body, c') -- (Lam c (fst (translate (c+1) (f (AL.Var c)))), c + 1)
 translate c (AL.Var x) = (Var x, c)
 translate c (AL.LInt x) = (LInt x, c)
 translate c (AL.LBool x) = (LBool x, c)
@@ -68,12 +68,12 @@ pretty expr = go [] expr
             Just name -> name
             Nothing   -> "x" ++ show x
 
-        Lam f ->
+        Lam i f ->
           -- find next unused Int for naming
-          let x = nextFree env
+          let x = i
               name = "x" ++ show x
               env' = (x, name) : env
-              body = f x  -- **use the same Int** translate would have used
+              body = f  -- **use the same Int** translate would have used
           in "(\\" ++ name ++ " ->\n\t " ++ go env' body ++ ")"
 
         Apply f a ->

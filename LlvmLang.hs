@@ -1,5 +1,7 @@
 -- Requires: llvm-hs-pure, llvm-hs, and LLVM installed on your system.
 
+module LLVMLang where
+
 import qualified AbsLang as AL
 import qualified FirstOrderLang as FOL
 
@@ -13,10 +15,6 @@ import qualified LLVM.IRBuilder.Monad as LLVM
 
 import Data.String (fromString)
 
--- main :: IO ()
--- main = do
---     let astModule = simpleModule "myModule" [mainFunction]
---     putStrLn (show (Pretty.ppll astModule))
 
 -- Create a simple LLVM module
 -- simpleModule :: String -> [Definition] -> AST.Module
