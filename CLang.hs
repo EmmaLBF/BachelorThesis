@@ -6,6 +6,7 @@ module CLang where
 import Data.Dynamic
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Control.Monad.Reader (ReaderT (..), MonadReader (ask))
 
 import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
@@ -26,27 +27,40 @@ data CStatement a where
     Return :: CExpression a -> CStatement a
     Seq :: CStatement a -> (CValue a -> CStatement b) -> CStatement b
     If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-    Def :: (CValue a -> CStatement b) -> CStatement (a -> b)
+    Def :: (CValue a -> Either String (CStatement b)) -> CStatement (a -> b)
     Fix :: CStatement (a -> a) -> CStatement a
     While :: CExpression Bool -> CStatement a -> CStatement a -- condition + body
     Call :: CStatement (a -> b) -> CExpression a -> CStatement b
 
-translateExpr :: NL.NamedLang a -> Map Int Dynamic -> CExpression a
-translateExpr (NL.Var x) _ = Var x
-translateExpr (NL.LInt x) _ = Val (IntV x)
-translateExpr (NL.LBool x) _ = Val (BoolV x)
-translateExpr (NL.LIntOp x y z) m = LIntOp x (translateExpr y m) (translateExpr z m)
-translateExpr (NL.LCmpOp x y z) m = LCmpOp x (translateExpr y m) (translateExpr z m)
+type TransM a = ReaderT (Map Int Dynamic) (Either String) a
 
-translateStmt :: NL.NamedLang a -> CStatement a
-translateStmt lang = trans lang Map.empty
-    where
-    trans :: NL.NamedLang a -> Map Int Dynamic -> CStatement a
-    trans (NL.Lam i body) m = Def (\x -> trans body (Map.insert i (toDyn x) m))
-    trans (NL.Fix f) m = Fix (trans f m)
-    trans (NL.Apply x y) m = Call (trans x m) (translateExpr y m)
-    trans (NL.If x y z) m = If (translateExpr x m) (trans y m) (trans z m)
-    trans x m = Return (translateExpr x m)
+translateExpr :: NL.NamedLang a -> TransM (CExpression a)
+translateExpr (NL.Var x) = Right (Var x)
+translateExpr (NL.LInt x) = Right (Val (IntV x))
+translateExpr (NL.LBool x) = Right (Val (BoolV x))
+translateExpr (NL.LIntOp x y z) = do p <- translateExpr y
+                                     q <- translateExpr z
+                                     return (LIntOp x p q)
+translateExpr (NL.LCmpOp x y z) = do p <- translateExpr y
+                                     q <- translateExpr z
+                                     return (LCmpOp x p q)
+translateExpr _ = Left "expected expression, got statement"
+
+
+translateStmt :: NL.NamedLang a -> TransM (CStatement a)
+translateStmt (NL.Lam i body) = do  m <- ask
+                                    return (Def (\x -> runReaderT (translateStmt body) (Map.insert i (toDyn x) m)))
+translateStmt (NL.Fix f) = do p <- translateStmt f
+                              return (Fix p)
+translateStmt (NL.Apply x y) = do x' <- translateStmt x
+                                  y' <- translateExpr y
+                                  return (Call x' y')
+translateStmt (NL.If x y z) = do p <- translateExpr x
+                                 q <- translateStmt y
+                                 r <- translateStmt z
+                                 return (If p q r)
+translateStmt x = do p <- translateExpr x 
+                     return (Return p)
 -- translateStmt (NL.Prod x y) = ()
 -- translateStmt (NL.Fst x) = ()
 -- translateStmt (NL.Snd x) = ()
@@ -82,10 +96,12 @@ showCStatement (If c t e) = "if " ++ showCExpression c ++ " then " ++ showCState
 showCStatement (Def _) = "def <function>"
 showCStatement (Fix s) = "fix (" ++ showCStatement s ++ ")"
 showCStatement (While c b) = "while " ++ showCExpression c ++ " do " ++ showCStatement b
-showCStatement (Call f x) = showCStatement f ++ " (" ++ showCExpression x ++ ")"
+showCStatement (Call f x) = showCExpression f ++ " (" ++ showCExpression x ++ ")"
 
 main :: IO ()
 main = do
   putStrLn "--- Translating FO ---"
-  putStrLn $ "Factorial 5 = " ++ showCStatement (translateStmt (fst (NL.translate 0 AL.fac)))
+  putStrLn $ "Factorial 5 = " ++ case translateStmt (fst (NL.translate 0 AL.fac)) of
+    (Left err) -> show err
+    (Right val) -> showCStatement val
  
