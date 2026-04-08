@@ -4,6 +4,9 @@
 
 module CLang where
 import Data.Dynamic
+import Data.Map (Map)
+import qualified Data.Map as Map
+
 import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
 import qualified NamedLang as NL
@@ -26,55 +29,63 @@ data CStatement a where
     Def :: (CValue a -> CStatement b) -> CStatement (a -> b)
     Fix :: CStatement (a -> a) -> CStatement a
     While :: CExpression Bool -> CStatement a -> CStatement a -- condition + body
-    Call :: CExpression (a -> b) -> CExpression a -> CStatement b
+    Call :: CStatement (a -> b) -> CExpression a -> CStatement b
 
--- data CLangTerm a = CExpr (CExpression a) | CStmt (CStatement a)
--- data CExpr a where
---     FuncV :: (CExpr a -> CExpr b) -> CExpr (a -> b)
---     LInt :: Int -> CExpr Int
---     LBool :: Bool -> CExpr Bool
---     Var :: Int -> CExpr a
---     LIntOp :: AL.BinOp -> CExpr Int -> CExpr Int -> CExpr Int
---     LCmpOp :: AL.CmpOp -> CExpr a -> CExpr a -> CExpr Bool
+translateExpr :: NL.NamedLang a -> Map Int Dynamic -> CExpression a
+translateExpr (NL.Var x) _ = Var x
+translateExpr (NL.LInt x) _ = Val (IntV x)
+translateExpr (NL.LBool x) _ = Val (BoolV x)
+translateExpr (NL.LIntOp x y z) m = LIntOp x (translateExpr y m) (translateExpr z m)
+translateExpr (NL.LCmpOp x y z) m = LCmpOp x (translateExpr y m) (translateExpr z m)
 
--- data CStatement a where
---     Return :: CExpr a -> CStatement a
---     Seq :: CStatement a -> (CExpr a -> CStatement b) -> CStatement b
---     If :: CExpr Bool -> CStatement a -> CStatement a -> CStatement a
---     Def :: (CExpr a -> CStatement b) -> CStatement (a -> b)
---     Fix :: CStatement (a -> a) -> CStatement a
---     While :: CExpr Bool -> CStatement a -> CStatement a -- condition + body
+translateStmt :: NL.NamedLang a -> CStatement a
+translateStmt lang = trans lang Map.empty
+    where
+    trans :: NL.NamedLang a -> Map Int Dynamic -> CStatement a
+    trans (NL.Lam i body) m = Def (\x -> trans body (Map.insert i (toDyn x) m))
+    trans (NL.Fix f) m = Fix (trans f m)
+    trans (NL.Apply x y) m = Call (trans x m) (translateExpr y m)
+    trans (NL.If x y z) m = If (translateExpr x m) (trans y m) (trans z m)
+    trans x m = Return (translateExpr x m)
+-- translateStmt (NL.Prod x y) = ()
+-- translateStmt (NL.Fst x) = ()
+-- translateStmt (NL.Snd x) = ()
 
-translate :: Int -> NL.NamedLang a -> (CStatement a, Int)
-translate c (NL.Lam i body) = let (body', c') = translate (c+1) body
-                             in ( Def (\x -> body'), c')
-translate c (NL.Fix f) = let (f', c') = translate c f
-                         in ( Fix f', c')
-translate c (NL.Apply x y) = let (x', c1) = translate c x
-                                 (y', c2) = translate c1 y
-                            in ( Call x' y', c2)
-translate c (NL.Var x) = (Return (Var x), c)
-translate c (NL.LInt x) = (Return (Val (IntV x)), c)
-translate c (NL.LBool x) = (Return (Val (BoolV x)), c)
-translate c (NL.If x y z) = let (p, c1) = translate c x
-                                (q, c2) = translate c1 y
-                                (r, c3) = translate c2 z
-                            in (If p q r, c3)
-translate c (NL.LIntOp x y z) = let (p, c1) = translate c y
-                                    (q, c2) = translate c1 z
-                                in (Return (LIntOp x p q), c2)
-translate c (NL.LCmpOp x y z) = let (p, c1) = translate c y
-                                    (q, c2) = translate c1 z
-                                in (Return (LCmpOp x p q), c2)
-translate c (NL.Prod x y) = ((), c)
-translate c (NL.Fst x) = ((), c)
-translate c (NL.Snd x) = ((), c)
 
--- toStatement :: CLangTerm a -> CStatement a
--- toStatement (CExpr x) = Return x
--- toStatement (CStmt x) = x
+showBinOp :: AL.BinOp -> String
+showBinOp Plus  = "+"
+showBinOp Min   = "-"
+showBinOp Times = "*"
+showBinOp Div   = "/"
+showBinOp Mod   = "%"
+
+showCmpOp :: AL.CmpOp -> String
+showCmpOp Eq = "=="
+showCmpOp Lt = "<"
+showCmpOp Gt = ">"
+
+showCValue :: CValue a -> String
+showCValue (IntV n)  = show n
+showCValue (BoolV b) = show b
+showCValue (FuncV _) = "<func>"
+
+showCExpression :: CExpression a -> String
+showCExpression (Var i) = "v" ++ show i
+showCExpression (LIntOp op x y) = "(" ++ showCExpression x ++ " " ++ showBinOp op ++ " " ++ showCExpression y ++ ")"
+showCExpression (LCmpOp op x y) = "(" ++ showCExpression x ++ " " ++ showCmpOp op ++ " " ++ showCExpression y ++ ")"
+showCExpression (Val v) = showCValue v
+
+showCStatement :: CStatement a -> String
+showCStatement (Return e) = "return " ++ showCExpression e
+showCStatement (Seq s _) = "seq (" ++ showCStatement s ++ ") <function>"
+showCStatement (If c t e) = "if " ++ showCExpression c ++ " then " ++ showCStatement t ++ " else " ++ showCStatement e
+showCStatement (Def _) = "def <function>"
+showCStatement (Fix s) = "fix (" ++ showCStatement s ++ ")"
+showCStatement (While c b) = "while " ++ showCExpression c ++ " do " ++ showCStatement b
+showCStatement (Call f x) = showCStatement f ++ " (" ++ showCExpression x ++ ")"
 
 main :: IO ()
 main = do
   putStrLn "--- Translating FO ---"
-  putStrLn $ "Factorial 5 = " ++ show (fst (translate 0 (fst (NL.translate 0 AL.fac))))
+  putStrLn $ "Factorial 5 = " ++ showCStatement (translateStmt (fst (NL.translate 0 AL.fac)))
+ 
