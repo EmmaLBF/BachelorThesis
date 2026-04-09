@@ -13,7 +13,7 @@ import qualified AbsLang as AL
 import qualified NamedLang as NL
 
 data CFunc a where
-    Func :: (CValue a -> CValue b) -> CFunc (a -> b)
+    Func :: (CValue a -> Either String (CStatement b)) -> CFunc (a -> b)
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -30,10 +30,10 @@ data CStatement a where
     Return :: CExpression a -> CStatement a
     Seq :: CStatement a -> (CValue a -> CStatement b) -> CStatement b
     If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-    Def :: (CValue a -> Either String (CStatement b)) -> CStatement (a -> b)
-    Fix :: (CValue a -> Either String (CStatement a)) -> CStatement a
+    Def :: CFunc (a -> b) -> CStatement (a -> b)
+    Fix :: CFunc (a -> a) -> CStatement a
     While :: CExpression Bool -> CStatement a -> CStatement a -- condition + body
-    Call :: CStatement (a -> b) -> CExpression a -> CStatement b
+    Call :: CFunc (a -> b) -> CExpression a -> CStatement b
 
 translateExpr :: NL.NamedLang a -> Either String (CExpression a)
 translateExpr (NL.Var x) = Right (Var x)
@@ -51,13 +51,13 @@ translateStmt :: NL.NamedLang a -> Either String (CStatement a)
 translateStmt lang = trans lang Map.empty
     where
     trans :: NL.NamedLang a -> Map Int Dynamic -> Either String (CStatement a)
-    trans (NL.Lam i body) m = Right (Def (\x -> let m' = Map.insert i (toDyn x) m
-                                                in trans body m'))
-    trans (NL.Fix (NL.Lam i body)) m = Right (Fix (\x -> let m' = Map.insert i (toDyn x) m
-                                                          in trans body m'))
+    trans (NL.Lam i body) m = Right (Def (Func (\x -> let m' = Map.insert i (toDyn x) m
+                                                in trans body m')))
+    trans (NL.Fix (NL.Lam i body)) m = Right (Fix (Func (\x -> let m' = Map.insert i (toDyn x) m
+                                                          in trans body m')))
     trans (NL.Apply x y) m = do x' <- trans x m
                                 y' <- translateExpr y
-                                return (Call x' y')
+                                return (Call (Func x') y')
     trans (NL.If x y z) m = do p <- translateExpr x
                                q <- trans y m
                                r <- trans z m
@@ -85,6 +85,14 @@ evalExpr (LIntOp op lhs rhs) m = let (lhs', m1) = evalExpr lhs m
 evalExpr (LCmpOp op lhs rhs) m = let (lhs', m1) = evalExpr lhs m
                                      (rhs', m2) = evalExpr rhs m1
                                     in (BoolV (AL.cmpop op (valueToLiteral lhs') (valueToLiteral rhs')), m2)
+
+evalFunc :: CStatement (a -> b) -> Map Int Dynamic -> Either String (CFunc (a -> b))
+evalFunc (Def f) m = (\x -> fst (eval (case body x of
+                                        (Left e) -> error e
+                                        (Right v) -> v) m), m)
+evalFunc (Fix f) m = ()
+evalFunc (Call f arg) m = ()
+evalFunc _ _ = ()
 
 eval :: CStatement a -> Map Int Dynamic -> (CValue a, Map Int Dynamic)
 eval (Return x) m = evalExpr x m
