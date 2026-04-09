@@ -4,7 +4,7 @@
 module AbsLang where
 
 import Control.Monad.Fix
-import Data.Dynamic
+import Data.Dynamic ( toDyn, Typeable, Dynamic, fromDynamic )
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -65,9 +65,9 @@ eval = ev 0 Map.empty
           fn = ev fresh env f
        in fn v
     ev _ _ (LBool b) = b
+    ev _ _ (LInt i) = i
     ev fresh env (If c t e) =
       if ev fresh env c then ev fresh env t else ev fresh env e
-    ev _ _ (LInt i) = i
     ev fresh env (LIntOp op l r) =
       let l' = ev fresh env l
           r' = ev fresh env r
