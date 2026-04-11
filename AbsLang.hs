@@ -8,7 +8,7 @@ import Data.Dynamic ( toDyn, Typeable, Dynamic, fromDynamic )
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-data BinOp = Plus | Min | Times | Div | Mod 
+data BinOp = Plus | Min | Times | Div | Mod
   deriving Show
 
 data CmpOp = Eq | Lt | Gt
@@ -20,10 +20,10 @@ data CmpOp = Eq | Lt | Gt
 
 data Lang a where
   Var :: (Typeable a) => Int -> Lang a -- | Free variable – looked up in the environment at eval time
-  Abs :: (Typeable a) => (Lang a -> Lang b) -> Lang (a -> b) -- | Lambda abstraction, using Higher order abstract syntax
-  Apply :: Lang (a -> b) -> Lang a -> Lang b -- | Function application
-  Fix :: Lang (a -> a) -> Lang a -- | Add recursion (for mutual recursion combine with tuples)
-  If :: Lang Bool -> Lang a -> Lang a -> Lang a -- | If-then-else
+  Abs :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b) -- | Lambda abstraction, using Higher order abstract syntax
+  Apply :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b -- | Function application
+  Fix :: (Typeable a) => Lang (a -> a) -> Lang a -- | Add recursion (for mutual recursion combine with tuples)
+  If :: (Typeable a) => Lang Bool -> Lang a -> Lang a -> Lang a -- | If-then-else
   -- | LITERALS
   LInt :: Int -> Lang Int  -- | Integer literal
   LBool :: Bool -> Lang Bool -- | Boolean literal
@@ -31,9 +31,9 @@ data Lang a where
   LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int -- | Binary integer operation
   LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool -- | Integer comparison
   -- | TUPLES
-  Prod :: Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
-  Fst :: Lang (a, b) -> Lang a -- | Project left
-  Snd :: Lang (a, b) -> Lang b -- | Project right
+  Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
+  Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a -- | Project left
+  Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b -- | Project right
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
@@ -82,16 +82,16 @@ eval = ev 0 Map.empty
     ev fresh env (Fix f) = fix (ev fresh env f)
 
 -- Syntactic Sugar
-lam :: (Typeable a) => (Lang a -> Lang b) -> Lang (a -> b)
+lam :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
 lam = Abs
 
-app :: Lang (a -> b) -> Lang a -> Lang b
+app :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b
 app = Apply
 
 -- | Syntactic sugar for Let bindings `let x = v in e`.
 -- In lambda calculus this is mathematically equivalent to `(\x -> e) v`.
 -- Thus, we can easily express local variables using only `Apply` and `Abs`!
-let_ :: (Typeable a) => Lang a -> (Lang a -> Lang b) -> Lang b
+let_ :: (Typeable a, Typeable b) => Lang a -> (Lang a -> Lang b) -> Lang b
 let_ val body = app (lam body) val
 
 (+:), (-:), (*:), (/:), (%:) :: Lang Int -> Lang Int -> Lang Int
@@ -234,7 +234,7 @@ isqrt = lam $ \n ->
     (isqrtHelper `app` Prod n ((n /: int 2) +: int 1))
 
 -- 11. Mutual Recursion using Tuples of Functions (isEven, isOdd)
-evenOddPair :: Lang ((Int -> Bool), (Int -> Bool))
+evenOddPair :: Lang (Int -> Bool, Int -> Bool)
 evenOddPair = Fix $ lam $ \f ->
   let isEvn = Fst f
       isOdd = Snd f
@@ -284,7 +284,7 @@ main = do
   putStrLn $ "Power 2^10 = " ++ show (eval (power `app` p2))
   putStrLn $ "Collatz Steps for 27 = " ++ show (eval (collatzSteps `app` int 27))
   putStrLn $ "Fast Fibonacci 30 = " ++ show (eval (fibFast `app` int 30))
-  putStrLn $ "Ackermann (3, 4) = " ++ show (eval (ackermann `app` (Prod (int 3) (int 4))))
+  putStrLn $ "Ackermann (3, 4) = " ++ show (eval (ackermann `app` Prod (int 3) (int 4)))
   putStrLn $ "Integer Sqrt 144 = " ++ show (eval (isqrt `app` int 144))
   putStrLn $ "Integer Sqrt 1000 = " ++ show (eval (isqrt `app` int 1000))
   putStrLn $ "Is 42 Even? = " ++ show (eval (isEvenLang `app` int 42))

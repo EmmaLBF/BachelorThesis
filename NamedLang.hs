@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Eta reduce" #-}
 {- HLINT ignore "Use first" -}
 
 module NamedLang where
@@ -11,10 +13,10 @@ import qualified AbsLang as AL
 
 data NamedLang a where
   Var :: (Typeable a) => Int -> NamedLang a -- | Free variable
-  Lam :: (Typeable a) => Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
-  Apply :: NamedLang (a -> b) -> NamedLang a -> NamedLang b -- | Function application
-  Fix :: NamedLang (a -> a) -> NamedLang a -- | Recursion
-  If :: NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a -- | If-then-else
+  Lam :: (Typeable a, Typeable b) => Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
+  Apply :: (Typeable a, Typeable b) => NamedLang (a -> b) -> NamedLang a -> NamedLang b -- | Function application
+  Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a -- | Recursion
+  If :: (Typeable a) => NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a -- | If-then-else
   -- | LITERALS
   LInt :: Int -> NamedLang Int  -- | Integer literal
   LBool :: Bool -> NamedLang Bool -- | Boolean literal
@@ -22,9 +24,9 @@ data NamedLang a where
   LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int -- | Binary integer operation
   LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool -- | Integer comparison
   -- | TUPLES
-  Prod :: NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
-  Fst :: NamedLang (a, b) -> NamedLang a -- | Project left
-  Snd :: NamedLang (a, b) -> NamedLang b -- | Project right
+  Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
+  Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a -- | Project left
+  Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b -- | Project right
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
 translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
@@ -82,10 +84,10 @@ pretty expr = go [] expr
         Fix f ->
           "(fix " ++ go env f ++ ")"
 
-        If cond t e ->
+        If cond t el ->
           "(if " ++ go env cond
           ++ "\n\tthen " ++ go env t
-          ++ "\n\telse " ++ go env e ++ ")"
+          ++ "\n\telse " ++ go env el ++ ")"
 
         LInt n -> show n
         LBool b -> show b
