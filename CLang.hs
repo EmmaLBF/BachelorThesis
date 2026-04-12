@@ -24,7 +24,6 @@ data CExpression a where
     Var :: (Typeable a) => Int -> CExpression a
     LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
     LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
-    Not :: CExpression Bool -> CExpression Bool
     Val :: CValue a -> CExpression a
     CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
     Return :: (Typeable a) => CExpression a -> CExpression a
@@ -33,6 +32,8 @@ data CExpression a where
 
     DefFun :: (Typeable a, Typeable b) => Int -> CExpression b -> CExpression (a -> b) -- define a function of 1 parameter, use the Int as the name of the parameter
     -- FixExpr :: (Typeable a) => CExpression (a -> a) -> CExpression a
+
+    Not :: CExpression Bool -> CExpression Bool
 
     DefVar :: (Typeable a) => CExpression a -> CExpression a -- Define a variable
     UpdateVar :: (Typeable a) => Int -> CExpression a -> CExpression ()  -- Update variable 
@@ -74,7 +75,10 @@ translate m c (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond thn els)))) =
         (els', c''') = translate m c'' els
         body''      = rewriteRecCall i1 i2 els'
         v = Var i1 :: CExpression (a -> a)
-    in (DefFun i2 (Bind (DefVar v) c' (Seq (UpdateVar i1 thn') (While (Not cond') body''))), c')
+    in (DefFun i2 (Bind (DefVar v) c' (Seq (Seq (UpdateVar i1 thn') (While (Not cond') body'')) (Return (Var i1)))), c')
+
+
+
 -- translate m c (NL.Fix (NL.Lam i1 (NL.Lam i2 body))) =
 --     let (body', c') = translate m i2 body
 --         body''      = rewriteRecCall i1 i2 body'
@@ -114,6 +118,12 @@ translate m c (NL.Fix f) =
 rewriteRecCall :: Int -> Int -> CExpression a -> CExpression a
 rewriteRecCall f n (CallExpr (Var i) newArg)
     | i == f = Seq (UpdateVar n (rewriteRecCall f n newArg)) (Var n)
+rewriteRecCall f n (LIntOp op (CallExpr (Var il) newArgl) (CallExpr (Var ir) newArgr))
+    | il == f && ir == f = let rewriteLeft = rewriteRecCall f n newArgl
+                               rewriteRight = rewriteRecCall f n newArgr
+                               lhs = Seq (UpdateVar f (LIntOp op (Var f) (Var n))) (UpdateVar n rewriteLeft)
+                               rhs = Seq (Seq (UpdateVar f (LIntOp op (Var f) (Var n))) (UpdateVar n rewriteRight)) (Var f)
+                            in Seq lhs rhs
 rewriteRecCall f n (LIntOp op (CallExpr (Var i) newArg) y)
     | i == f = Seq (UpdateVar f (LIntOp op (Var f) (rewriteRecCall f n y))) (Seq (UpdateVar n (rewriteRecCall f n newArg)) (Var n))
 rewriteRecCall f n (LIntOp op x (CallExpr (Var i) newArg))
@@ -261,13 +271,13 @@ showCExpression indent (LCmpOp op x y) m = "(" ++ showCExpression indent x m ++ 
 showCExpression _ (Val v) _ = showCValue v
 showCExpression indent (CallExpr f arg) m = indentStr indent ++ showCExpression indent f m ++ "(" ++ showCExpression indent arg m ++ ")"
 showCExpression indent (Return x) m = indentStr indent ++ "[Return " ++ showCExpression indent x m ++ "]"
-showCExpression indent (If cond t f) m = "\n" ++ indentStr indent ++ "if " ++ showCExpression 0 cond m ++ "\n" ++ indentStr indent ++ "then " ++ showCExpression 0 t m ++ "\n" ++ indentStr indent ++ "else " ++ showCExpression 0 f m
-showCExpression indent (While cond body) m = "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n" ++ indentStr (indent + 1) ++ showCExpression (indent + 1) body m ++ "\n" ++ indentStr indent ++ "}"
-showCExpression indent (Bind x i y) m = indentStr indent ++ showCExpression indent x m ++ showCExpression indent y m
+showCExpression indent (If cond t f) m = "\n" ++ indentStr indent ++ "if " ++ showCExpression 0 cond m ++ " {\n" ++ indentStr (indent + 1) ++ showCExpression 0 t m ++ "\n} else {\n" ++ showCExpression 0 f m
+showCExpression indent (While cond body) m = "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n" ++ showCExpression (indent + 1) body m ++ "\n" ++ indentStr indent ++ "}"
+showCExpression indent (Bind x i y) m = indentStr indent ++ showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
 showCExpression indent (Seq x y) m = indentStr indent ++ showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
 showCExpression indent (DefFun i f) m = "\n" ++ indentStr indent ++ "function (v" ++ show i ++ ") {\n" ++ showCExpression (indent + 1) f m ++ "\n" ++ indentStr indent ++ "}"
-showCExpression indent (DefVar f) m   = "\n" ++ indentStr indent ++ "def " ++ showCExpression (indent + 1) f m
-showCExpression indent (UpdateVar i x) m   = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m
+showCExpression indent (DefVar f) m   = "def " ++ showCExpression indent f m
+showCExpression indent (UpdateVar i x) m   = "v" ++ show i ++ " =~ " ++ showCExpression indent x m
 showCExpression indent (Prod l r) m = "(" ++ showCExpression indent l m ++ "," ++ showCExpression indent r m ++ ")"
 showCExpression indent (Fst p) m = showCExpression indent p m ++ "[0]"
 showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
@@ -275,7 +285,7 @@ showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.fib
+    let (nl, c') = NL.translate 0 AL.inc
         (cl, _) = translate Map.empty c' nl
     putStrLn "--- Translating CL ---"
     putStrLn $ showCExpression 0 cl Map.empty
