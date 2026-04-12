@@ -6,11 +6,11 @@ module CLang where
 import Data.Dynamic
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Control.Monad.Fix
 
 import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
 import qualified NamedLang as NL
+import Data.Typeable (Proxy)
 
 indentStr :: Int -> String
 indentStr n = replicate (2 * n) ' '
@@ -18,7 +18,7 @@ indentStr n = replicate (2 * n) ' '
 data CValue a where
     IntV :: Int -> CValue Int
     BoolV :: Bool -> CValue Bool
-    -- FuncV :: (CValue a -> CValue b) -> CValue (a -> b)
+    Unit :: CValue ()
 
 data CExpression a where
     Var :: (Typeable a) => Int -> CExpression a
@@ -31,8 +31,6 @@ data CExpression a where
     Seq :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression b -- Do two things in succesion, but do not give intermediate outcome a name, specialization of bind
 
     DefFun :: (Typeable a, Typeable b) => Int -> CExpression b -> CExpression (a -> b) -- define a function of 1 parameter, use the Int as the name of the parameter
-    -- FixExpr :: (Typeable a) => CExpression (a -> a) -> CExpression a
-
     Not :: CExpression Bool -> CExpression Bool
 
     DefVar :: (Typeable a) => CExpression a -> CExpression a -- Define a variable
@@ -43,76 +41,52 @@ data CExpression a where
     Fst :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a -- | Project left
     Snd :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b -- | Project right
 
-translate :: forall a. Map Int Dynamic -> Int -> NL.NamedLang a -> (CExpression a, Int)
-translate m c (NL.Var x) = (Var x, c)
-translate m c (NL.LInt i) = (Val (IntV i), c)
-translate m c (NL.LBool b) = (Val (BoolV b), c)
-translate m c (NL.LIntOp op x y) = let (x', c') = translate m c x
-                                       (y', c'') = translate m c' y
+translate :: forall a. Int -> NL.NamedLang a -> (CExpression a, Int)
+translate c (NL.Var x) = (Var x, c)
+translate c (NL.LInt i) = (Val (IntV i), c)
+translate c (NL.LBool b) = (Val (BoolV b), c)
+translate c (NL.LIntOp op x y) = let (x', c') = translate c x
+                                     (y', c'') = translate c' y
                                 in (LIntOp op x' y', c'')
-translate m c (NL.LCmpOp op x y) = let (x', c') = translate m c x
-                                       (y', c'') = translate m c' y
+translate c (NL.LCmpOp op x y) = let (x', c') = translate c x
+                                     (y', c'') = translate c' y
                                   in (LCmpOp op x' y', c'')
-translate m c (NL.If cond thn els) = let (cond', c') = translate m c cond
-                                         (thn', c'') = translate m c' thn
-                                         (els', c''') = translate m c'' els
+translate c (NL.If cond thn els) = let  (cond', c') = translate c cond
+                                        (thn', c'') = translate c' thn
+                                        (els', c''') = translate c'' els
                                     in (If cond' thn' els', c''')
-translate m c (NL.Apply f x) = let (f', c') = translate m c f
-                                   (x', c'') = translate m c' x
+translate c (NL.Apply f x) = let (f', c') = translate c f
+                                 (x', c'') = translate c' x
                                in (CallExpr f' x', c'')
-translate m c (NL.Lam i body) = let (body', c') = translate m i body
+translate c (NL.Lam i body) = let (body', c') = translate i body
                                 in (DefFun i body', c')
-translate m c (NL.Prod a b) = let (a', c') = translate m c a
-                                  (b', c'') = translate m c' b
+translate c (NL.Prod a b) = let (a', c') = translate c a
+                                (b', c'') = translate c' b
                                in (Prod a' b', c'')
-translate m c (NL.Fst p) = let (p', c') = translate m c p
+translate c (NL.Fst p) = let (p', c') = translate c p
                             in (Fst p', c')
-translate m c (NL.Snd p) = let (p', c') = translate m c p
+translate c (NL.Snd p) = let (p', c') = translate c p
                             in (Snd p', c')
-translate m c (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond thn els)))) =
-    let (thn', c') = translate m c thn
-        (cond', c'') = translate m c' cond
-        (els', c''') = translate m c'' els
-        body''      = rewriteRecCall i1 i2 els'
-        v = Var i1 :: CExpression (a -> a)
-    in (DefFun i2 (Bind (DefVar v) c' (Seq (Seq (UpdateVar i1 thn') (While (Not cond') body'')) (Return (Var i1)))), c')
+-- translate c (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond thn els)))) =
+--     let (thn', c') = translate c thn
+--         (cond', c'') = translate c' cond
+--         (els', c''') = translate c'' els
+--         body''      = rewriteRecCall i1 i2 els'
+--         v = Var i1 :: CExpression (a -> a)
+--     in (DefFun i2 (Bind (DefVar v) c' (Seq (Seq (UpdateVar i1 thn') (While (Not cond') body'')) (Return (Var i1)))), (c' + 1))
+-- translate c (NL.Fix f) =
+--     let (body', c')  = translate c f
+--     in case body' of
+--         (DefFun i body) -> (CallExpr body' (Var i), c')
+--         _ -> (CallExpr body' (Var c), c' + 1)
+-- translate c (NL.Fix (NL.Lam i body)) =
+--     let (body', c') = translate i body
+--         funDef = DefFun i (Proxy :: Proxy Int) body'
+--     in (Bind funDef c' (CallExpr (Var c') (Var c')), c' + 1)
 
-
-
--- translate m c (NL.Fix (NL.Lam i1 (NL.Lam i2 body))) =
---     let (body', c') = translate m i2 body
---         body''      = rewriteRecCall i1 i2 body'
---         v = Var i2 :: CExpression (a -> a)
---     in (DefFun i2 (Bind (DefVar v) c' (While (Val (BoolV True)) body'')), c')
-translate m c (NL.Fix f) =
-    let (body', c')  = translate m c f
+translate c (NL.Fix f) =
+    let (body', c')  = translate c f
     in (CallExpr body' (Var c), c' + 1)
--- translate m c (NL.Fix (NL.Lam x0 (NL.Lam x1 (body :: NL.NamedLang b1)))) =
---     let (body', c')  = translate m x1 body
---         body''       = rewriteRecCall body'
---         varInit      :: CExpression a2
---         varInit      = DefVar (Var x1)
---     in (DefFun x1 (Bind varInit c' (While (Val (BoolV True)) body'')), c' + 1)
--- translate m c (NL.Fix f) = let (f', c') = translate m c f
---                             in (While (Val (BoolV True)) f', c')
-    -- let (f', c') = translate m c f
-    --     body'' = case f' of
-
-    -- in (Bind (DefVar (Var i)) i (While (Val (BoolV True)) body''), c')
-
-    -- let (body', c') = translate m i body
-    --                                          funDef = DefRecFun c' i body'
-    --                                     in (Bind funDef c' (CallExpr (Var c') (Var c')), c' + 1)
-
-    -- let (cond', c') = translate m c cond
-    --     (thn', c'') = translate m c' thn
-    --     (els', c''') = translate m c' els
-    -- in Seq (Bind (DefVar (cond')) c') (Seq (While (Not cond') ))
-
-
-    -- let (body', c') = translate m i body
-    --                                          funDef = DefFun i body'
-    --                                     in (Bind funDef c' (CallExpr (Var c') (Var c')), (c' + 1))
 
 
 rewriteRecCall :: Int -> Int -> CExpression a -> CExpression a
@@ -191,60 +165,9 @@ eval (Fst p) m = let (p', m') = eval p m
                     in (fst p', m')
 eval (Snd p) m = let (p', m') = eval p m
                     in (snd p', m')
--- evalExpr :: CExpression a -> Map Int Dynamic -> (CValue a, Map Int Dynamic)
--- evalExpr (Val x) m = (x, m)
--- evalExpr (Var i) m = case Map.lookup i m of
---                         Just dyn -> case fromDynamic dyn of
---                             Just v -> (v,  m)
---                             Nothing -> error "Type mismatch in env"
---                         Nothing -> error "Variable not found"
--- evalExpr (LIntOp op lhs rhs) m = let (lhs', m') = evalExpr lhs m
---                                      (rhs', m'') = evalExpr rhs m'
---                                     in (IntV (AL.binop op (valueToLiteral lhs') (valueToLiteral rhs')), m'')
--- evalExpr (LCmpOp op lhs rhs) m = let (lhs', m') = evalExpr lhs m
---                                      (rhs', m'') = evalExpr rhs m'
---                                     in (BoolV (AL.cmpop op (valueToLiteral lhs') (valueToLiteral rhs')), m'')
--- evalExpr (CallExpr f arg) m = let (fn, m') = evalFunc f m
---                                   (arg', _) = evalExpr arg m'
---                                   (res, m'') = fn arg'
---                               in (res, m'')
-
--- eval :: CExpression a -> Map Int Dynamic -> (CValue a, Map Int Dynamic)
--- eval (Return x) m = evalExpr x m
--- eval (Seq first f) m = let (p, m') = eval first m
---                         in eval (f p) m'
--- eval (If cond body alt) m = let (cond', m') = evalExpr cond m
---                             in if valueToLiteral cond'
---                                then eval body m'
---                                else eval alt m'
--- eval (While cond body) m = let (cond', m') = evalExpr cond m
---                            in if valueToLiteral cond' 
---                               then let (_, m'') = eval body m'
---                                    in eval (While cond body) m''
---                               else error "While loop has no return value"
--- eval (Fix f) m = (fix (\x -> fst (eval (case f x of
---                                         (Left e)  -> error e
---                                         (Right v) -> v) m)), m)
--- eval (Call f arg) m = let (stmt, m') = evalFunc f m
---                           (arg', _) = evalExpr arg m'
---                           (v, m'') = stmt arg'
---                       in (v, m'')
--- eval (Def _ _) _ = error "Cannot eval Def as a value — use evalFunc"
-
--- evalFunc :: CExpression (a -> b) -> Map Int Dynamic -> (CValue a -> (CValue b, Map Int Dynamic), Map Int Dynamic)
--- evalFunc (Def i body) m = (\x -> let m' = Map.insert i (toDyn x) m
---                                   in case body x of
---                                       Left e  -> error e
---                                       Right v -> eval v m', m)
--- evalFunc (If cond t f) m = let (cond', m') = evalExpr cond m
---                             in if valueToLiteral cond'
---                                then evalFunc t m'
---                                else evalFunc f m'
--- evalFunc (Call f arg) m = let (fn, m') = evalFunc f m
---                               (arg', _) = evalExpr arg m'
---                               (stmt, m'') = fn arg'
---                            in evalFunc stmt m''
--- evalFunc _ _ = error "Expected function-typed statement"
+eval (Not x) m = let (x', m') = eval x m
+                in (not x', m')
+eval _ m = error "unkown expr"
 
 showBinOp :: AL.BinOp -> String
 showBinOp Plus  = "+"
@@ -261,7 +184,6 @@ showCmpOp Gt = ">"
 showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
--- showCValue (FuncV _) = "<func>"
 
 showCExpression :: Int -> CExpression a -> Map Int Dynamic -> String
 showCExpression _ (Var i) _ = "v" ++ show i
@@ -269,23 +191,38 @@ showCExpression indent (Not x) m = "!" ++ showCExpression indent x m
 showCExpression indent (LIntOp op x y) m = "(" ++ showCExpression indent x m ++ " " ++ showBinOp op ++ " " ++ showCExpression indent y m ++ ")"
 showCExpression indent (LCmpOp op x y) m = "(" ++ showCExpression indent x m ++ " " ++ showCmpOp op ++ " " ++ showCExpression indent y m ++ ")"
 showCExpression _ (Val v) _ = showCValue v
-showCExpression indent (CallExpr f arg) m = indentStr indent ++ showCExpression indent f m ++ "(" ++ showCExpression indent arg m ++ ")"
-showCExpression indent (Return x) m = indentStr indent ++ "[Return " ++ showCExpression indent x m ++ "]"
-showCExpression indent (If cond t f) m = "\n" ++ indentStr indent ++ "if " ++ showCExpression 0 cond m ++ " {\n" ++ indentStr (indent + 1) ++ showCExpression 0 t m ++ "\n} else {\n" ++ showCExpression 0 f m
-showCExpression indent (While cond body) m = "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n" ++ showCExpression (indent + 1) body m ++ "\n" ++ indentStr indent ++ "}"
-showCExpression indent (Bind x i y) m = indentStr indent ++ showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
-showCExpression indent (Seq x y) m = indentStr indent ++ showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
-showCExpression indent (DefFun i f) m = "\n" ++ indentStr indent ++ "function (v" ++ show i ++ ") {\n" ++ showCExpression (indent + 1) f m ++ "\n" ++ indentStr indent ++ "}"
-showCExpression indent (DefVar f) m   = "def " ++ showCExpression indent f m
-showCExpression indent (UpdateVar i x) m   = "v" ++ show i ++ " =~ " ++ showCExpression indent x m
+showCExpression indent (CallExpr f arg) m = showCExpression indent f m ++ "(" ++ showCExpression indent arg m ++ ")"
+showCExpression indent (Return x) m = "[Return " ++ showCExpression indent x m ++ "]"
+showCExpression indent (DefVar f) m = "def " ++ showCExpression indent f m
 showCExpression indent (Prod l r) m = "(" ++ showCExpression indent l m ++ "," ++ showCExpression indent r m ++ ")"
 showCExpression indent (Fst p) m = showCExpression indent p m ++ "[0]"
 showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
+showCExpression indent (UpdateVar i x) m = "v" ++ show i ++ " =~ " ++ showCExpression indent x m
+
+showCExpression indent (If cond t f) m = 
+    "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {\n"
+  ++ indentStr (indent + 1) ++ showCExpression (indent + 1) t m ++ "\n"
+  ++ indentStr indent ++ "} else {\n"
+  ++ indentStr (indent + 1) ++ showCExpression (indent + 1) f m ++ "\n"
+  ++ indentStr indent ++ "}"
+showCExpression indent (While cond body) m =
+    "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n"
+  ++ indentStr (indent + 1) ++ showCExpression (indent + 1) body m ++ "\n"
+  ++ indentStr indent ++ "}"
+showCExpression indent (Bind x i y) m = showCExpression indent x m ++ "\n" ++ showCExpression indent y m
+showCExpression indent (Seq x y) m = showCExpression indent x m ++ "\n" ++ showCExpression indent y m
+showCExpression indent (DefFun i f) m = 
+    indentStr indent ++ "function (v" ++ show i ++ ") {\n"
+  ++ showCExpression (indent + 1) f m ++ "\n"
+  ++ indentStr indent ++ "}"
 
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.inc
-        (cl, _) = translate Map.empty c' nl
+    let (nl, c') = NL.translate 0 AL.fac
+        (cl, _) = translate c' nl
+        -- (ev, c'') = eval cl Map.empty
+    print c'
     putStrLn "--- Translating CL ---"
     putStrLn $ showCExpression 0 cl Map.empty
+    -- putStrLn $ show (ev 5)
