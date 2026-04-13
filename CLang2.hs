@@ -34,15 +34,15 @@ data CExpression a where
     Snd :: CExpression (a, b) -> CExpression b -- | Project right
 
 -- in theory statements shouldn't have a type? since they don't return anything?
-data CStatement a where
-  Return :: CExpression a -> CStatement a
-  Bind :: (Typeable a) => CStatement a -> Int -> CStatement b -> CStatement b
-  Seq :: CStatement a -> CStatement b -> CStatement b
-  If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-  DefFun :: (Typeable a) => Int -> CStatement a -> CStatement () -- needed to change this to ()
-  DefVar :: (Typeable a) => Int -> CExpression a -> CStatement ()
-  UpdateVar :: (Typeable a) => Int -> CExpression a -> CStatement () 
-  While :: CExpression Bool -> CStatement a -> CStatement ()
+data CStatement where
+  Return :: (Typeable a) => CExpression a -> CStatement
+  Bind :: CStatement -> Int -> CStatement -> CStatement
+  Seq :: CStatement -> CStatement -> CStatement
+  If :: CExpression Bool -> CStatement -> CStatement -> CStatement
+  DefFun :: Int -> CStatement -> CStatement  -- needed to change this to ()
+  DefVar :: (Typeable a) => Int -> CExpression a -> CStatement
+  UpdateVar :: (Typeable a) => Int -> CExpression a -> CStatement
+  While :: CExpression Bool -> CStatement -> CStatement
 
 fresh :: State Int Int
 fresh = do
@@ -51,7 +51,7 @@ fresh = do
   return n
 
 data Compiled a = Compiled
-  { setup :: CStatement ()   -- | statements to run first (possibly empty)
+  { setup :: CStatement   -- | statements to run first (possibly empty)
   , result :: CExpression a  -- | the resulting expression
   }
 
@@ -60,7 +60,7 @@ type Trans a = State Int (Compiled a)
 onlyExpr :: CExpression a -> Trans a
 onlyExpr expr = return $ Compiled { setup = Return (Val UnitV), result = expr }
 
-toStatement :: Compiled a -> CStatement a
+toStatement :: Typeable a => Compiled a -> CStatement
 toStatement c = Seq (setup c) (Return (result c))
 
 translate :: forall a. NL.NamedLang a -> State Int (Compiled a)
@@ -90,8 +90,9 @@ translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
   n  <- fresh
-  let stmt = Bind (If (result cc) (Return (result ct)) (Return (result cf))) n
-           $ Return (Var n)
+  let branch = If (result cc) (Return (result ct)) (Return (result cf))
+      ret = Return ((Var n) `asTypeOf` (result ct)) -- should work since both branches have the same type?
+      stmt = Bind branch n ret
   return $ Compiled { setup = stmt, result = Var n }
 translate (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond base (NL.Apply (NL.Var i) arg))))) 
   | i1 == i = do
@@ -157,11 +158,11 @@ evalExpr (Not x) m =
   let x' = evalExpr x m
   in not x'
 
-evalStmt :: CStatement a -> Map Int Dynamic -> (a, Map Int Dynamic)
-evalStmt (Return x) m = (evalExpr x m, m)
+evalStmt :: CStatement -> Map Int Dynamic -> (Dynamic, Map Int Dynamic)
+evalStmt (Return x) m = (toDyn (evalExpr x m), m)
 evalStmt (Bind x i y) m =
   let (x', m') = evalStmt x m
-      m'' = Map.insert i (toDyn x') m'
+      m'' = Map.insert i x' m'
   in evalStmt y m''
 evalStmt (Seq x y) m = 
   let (_, m') = evalStmt x m
@@ -177,19 +178,21 @@ evalStmt (While cond body) m =
       let (_, m') = evalStmt body m
       in evalStmt (While cond body) m'
     else
-      ((), m)
+      (toDyn (), m)
 evalStmt (DefFun i body) m =
-  let fn = \arg ->  let m' = Map.insert i (toDyn arg) m
-                        (body', _) = evalStmt body m
-                      in body'
+  let fn :: Dynamic -> Dynamic -- had issue that it didnt want to convert arg toDyn
+      fn arg = 
+        let m1 = Map.insert i arg m'  -- arg is already Dynamic, no toDyn needed
+            (body', _) = evalStmt body m1
+        in body'
       m' = Map.insert i (toDyn fn) m
-  in ((), m')
+  in (toDyn fn, m')
 evalStmt (DefVar i x) m =
-  let m' = Map.insert i (toDyn x) m
-  in ((), m')
+  let m' = Map.insert i (toDyn (evalExpr x m)) m
+  in (toDyn (), m')
 evalStmt (UpdateVar i x) m =
-  let m' = Map.insert i (toDyn x) m
-  in ((), m')
+  let m' = Map.insert i (toDyn (evalExpr x m)) m
+  in (toDyn (), m')
 
 eval :: Compiled a -> Map Int Dynamic -> a
 eval x m = 
@@ -213,7 +216,7 @@ showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
 showCValue UnitV = show ""
 
-showCStmt :: Int -> CStatement a -> Map Int Dynamic -> String
+showCStmt :: Int -> CStatement -> Map Int Dynamic -> String
 showCStmt indent (UpdateVar i x) m = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m
 showCStmt indent (If cond t f) m = 
     "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {"
@@ -255,7 +258,7 @@ main :: IO ()
 main = do
     let (nl, c') = NL.translate 0 AL.fac
         cl = evalState (translate nl)  c'
-        -- ev = eval cl Map.empty
-    -- print (ev 5)
+        ev = eval cl Map.empty
+    print (ev 5)
     putStrLn "--- Translating CL ---"
     putStrLn $ showCStmt 0 (setup cl) Map.empty
