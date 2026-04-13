@@ -39,8 +39,8 @@ data CStatement a where
   Bind :: (Typeable a) => CStatement a -> Int -> CStatement b -> CStatement b
   Seq :: CStatement a -> CStatement b -> CStatement b
   If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-  DefFun :: (Typeable b) => Int -> CStatement b -> CStatement () -- needed to change this to ()
-  DefVar :: (Typeable a) => CExpression a -> CStatement a
+  DefFun :: (Typeable a) => Int -> CStatement a -> CStatement () -- needed to change this to ()
+  DefVar :: (Typeable a) => Int -> CExpression a -> CStatement ()
   UpdateVar :: (Typeable a) => Int -> CExpression a -> CStatement () 
   While :: CExpression Bool -> CStatement a -> CStatement ()
 
@@ -103,7 +103,7 @@ translate (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond base (NL.Apply (NL.Var i) ar
     let v_acc = Var acc :: CExpression a
         loop_body = Seq (UpdateVar i2 (result carg)) (UpdateVar acc (result cbase))
         wh = Seq (UpdateVar acc (result cbase)) (While (Not (result ccond)) loop_body)
-        stmt = DefFun i2 (Seq (DefVar v_acc) wh)
+        stmt = DefFun i2 (Seq (DefVar acc v_acc) wh)
     return $ Compiled { setup = stmt, result = Var n }
 translate (NL.Fix f) = do
   cf <- translate f
@@ -178,10 +178,15 @@ evalStmt (While cond body) m =
       in evalStmt (While cond body) m'
     else
       ((), m)
-evalStmt (DefFun i x) m =
+evalStmt (DefFun i body) m =
+  let fn = \arg ->  let m' = Map.insert i (toDyn arg) m
+                        (body', _) = evalStmt body m
+                      in body'
+      m' = Map.insert i (toDyn fn) m
+  in ((), m')
+evalStmt (DefVar i x) m =
   let m' = Map.insert i (toDyn x) m
   in ((), m')
-evalStmt (DefVar x) m = (evalExpr x m, m)
 evalStmt (UpdateVar i x) m =
   let m' = Map.insert i (toDyn x) m
   in ((), m')
@@ -233,7 +238,7 @@ showCStmt indent (DefFun i f) m =
     ++ showCStmt (indent + 1) f m
     ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (Return x) m =  "\n" ++ indentStr indent ++ "[Return " ++ showCExpression indent x m ++ "]"
-showCStmt indent (DefVar f) m =  "\n" ++ indentStr indent ++ "def " ++ showCExpression indent f m
+showCStmt indent (DefVar i f) m =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression indent f m
 
 showCExpression :: Int -> CExpression a -> Map Int Dynamic -> String
 showCExpression _ (Var i) _ = "v" ++ show i
@@ -250,7 +255,7 @@ main :: IO ()
 main = do
     let (nl, c') = NL.translate 0 AL.fac
         cl = evalState (translate nl)  c'
-        ev = eval cl Map.empty
-    print (ev 5)
+        -- ev = eval cl Map.empty
+    -- print (ev 5)
     putStrLn "--- Translating CL ---"
     putStrLn $ showCStmt 0 (setup cl) Map.empty
