@@ -31,12 +31,13 @@ data CExpression a where
     Fst :: CExpression (a, b) -> CExpression a -- | Project left
     Snd :: CExpression (a, b) -> CExpression b -- | Project right
 
+-- in theory statements shouldn't have a type? since they don't return anything?
 data CStatement a where
     Return :: CExpression a -> CStatement a
     Bind :: CStatement a -> Int -> CStatement b -> CStatement b
     Seq :: CStatement a -> CStatement b -> CStatement b
     If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-    DefFun :: (Typeable b) => Int -> CStatement b -> CStatement ()
+    DefFun :: (Typeable b) => Int -> CStatement b -> CStatement () -- needed to change this to ()
     DefVar :: (Typeable a) => CExpression a -> CStatement a
     UpdateVar :: (Typeable a) => Int -> CExpression a -> CStatement () 
     While :: CExpression Bool -> CStatement a -> CStatement a
@@ -57,13 +58,10 @@ type Trans a = State Int (Compiled a)
 pure' :: CExpression a -> Trans a
 pure' expr = return $ Compiled { setup = Return (Val UnitV), result = expr }
 
-seqSetup :: Compiled a -> Compiled b -> CStatement ()
-seqSetup c1 c2 = Seq (setup c1) (setup c2)
-
 toStatement :: Compiled a -> CStatement a
 toStatement c = Seq (setup c) (Return (result c))
 
-translate :: NL.NamedLang a -> State Int (Compiled a)
+translate :: forall a. NL.NamedLang a -> State Int (Compiled a)
 translate (NL.LInt n)       = pure' (Val (IntV n))
 translate (NL.LBool b)      = pure' (Val (BoolV b))
 translate (NL.Var n)        = pure' (Var n)
@@ -105,9 +103,21 @@ translate (NL.If cond t f) = do
   let stmt = Bind (If (result cc) (Return (result ct)) (Return (result cf))) n
            $ Return (Var n)
   return $ Compiled { setup = stmt, result = Var n }
+translate (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond base (NL.Apply (NL.Var i) arg))))) 
+  | i1 == i = do
+    ccond <- translate cond
+    cbase <- translate base
+    carg <- translate arg
+    acc <- fresh
+    n <- fresh
+    let v_acc = Var acc :: CExpression a
+        loop_body = Seq (UpdateVar i2 (result carg)) (UpdateVar acc (result cbase))
+        wh = Seq (UpdateVar acc (result cbase)) (While (Not (result ccond)) loop_body)
+        stmt = DefFun i2 (Bind (DefVar v_acc) acc wh)
+    return $ Compiled { setup = stmt, result = Var n }
 translate (NL.Fix f) = do
-  n <- fresh
   cf <- translate f
+  n <- fresh
   let stmt = DefFun n (toStatement cf)
   return $ Compiled { setup = stmt, result = Var n }
 translate (NL.Lam i f) = do
@@ -243,28 +253,31 @@ showCValue (BoolV b) = show b
 showCValue UnitV = show ""
 
 showCStmt :: Int -> CStatement a -> Map Int Dynamic -> String
-showCStmt indent (UpdateVar i x) m = indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m
+showCStmt indent (UpdateVar i x) m = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m
 showCStmt indent (If cond t f) m = 
-    "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {\n"
-  ++  showCStmt (indent + 1) t m ++ "\n"
-  ++ indentStr indent ++ "} else {\n"
-  ++  showCStmt (indent + 1) f m ++ "\n"
-  ++ indentStr indent ++ "}"
+    "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {"
+    ++  showCStmt (indent + 1) t m 
+    ++ "\n" ++ indentStr indent ++ "} else {"
+    ++ showCStmt (indent + 1) f m 
+    ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (While cond body) m =
-    "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n"
-  ++ showCStmt (indent + 1) body m ++ "\n"
-  ++ indentStr indent ++ "}"
+    "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {"
+    ++ showCStmt (indent + 1) body m 
+    ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (Bind x i y) m = 
-    indentStr indent ++ "bind v" ++ show i ++ " = {"
-    ++ showCStmt (indent + 1) x m ++ "\n" ++ indentStr indent ++
-    "} in {\n" ++ showCStmt (indent + 1) y m ++ "\n" ++  indentStr indent ++ "}"
-showCStmt indent (Seq x y) m = showCStmt indent x m ++ "\n" ++ showCStmt indent y m
+    "\n" ++ indentStr indent ++ "bind v" ++ show i ++ " = {"
+    ++ showCStmt (indent + 1) x m 
+    ++ "\n" ++ indentStr indent ++ "} in {" 
+    ++ showCStmt (indent + 1) y m 
+    ++ "\n" ++  indentStr indent ++ "}"
+showCStmt indent (Seq x y) m = 
+    showCStmt indent x m ++ showCStmt indent y m
 showCStmt indent (DefFun i f) m = 
-    indentStr indent ++ "function (v" ++ show i ++ ") {\n"
-  ++ showCStmt (indent + 1) f m ++ "\n"
-  ++ indentStr indent ++ "}"
-showCStmt indent (Return x) m = indentStr indent ++ "[Return " ++ showCExpression indent x m ++ "]"
-showCStmt indent (DefVar f) m = indentStr indent ++ "def " ++ showCExpression indent f m
+    "\n" ++ indentStr indent ++ "function (v" ++ show i ++ ") {"
+    ++ showCStmt (indent + 1) f m
+    ++ "\n" ++ indentStr indent ++ "}"
+showCStmt indent (Return x) m =  "\n" ++ indentStr indent ++ "[Return " ++ showCExpression indent x m ++ "]"
+showCStmt indent (DefVar f) m =  "\n" ++ indentStr indent ++ "def " ++ showCExpression indent f m
 
 showCExpression :: Int -> CExpression a -> Map Int Dynamic -> String
 showCExpression _ (Var i) _ = "v" ++ show i
@@ -277,13 +290,11 @@ showCExpression indent (Prod l r) m = "(" ++ showCExpression indent l m ++ "," +
 showCExpression indent (Fst p) m = showCExpression indent p m ++ "[0]"
 showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
 
-
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.fac
+    let (nl, c') = NL.translate 0 AL.gcdLang
         cl = evalState (translate nl)  c'
         -- (ev, c'') = eval cl Map.empty
     print c'
     putStrLn "--- Translating CL ---"
     putStrLn $ showCStmt 0 (setup cl) Map.empty
-    putStrLn $ showCExpression 0 (result cl) Map.empty

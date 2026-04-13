@@ -24,9 +24,9 @@ data NamedLang a where
   LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int -- | Binary integer operation
   LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool -- | Integer comparison
   -- | TUPLES
-  Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
-  Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a -- | Project left
-  Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b -- | Project right
+  Prod :: NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
+  Fst :: NamedLang (a, b) -> NamedLang a -- | Project left
+  Snd :: NamedLang (a, b) -> NamedLang b -- | Project right
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
 translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))

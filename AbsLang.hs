@@ -31,9 +31,9 @@ data Lang a where
   LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int -- | Binary integer operation
   LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool -- | Integer comparison
   -- | TUPLES
-  Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
-  Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a -- | Project left
-  Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b -- | Project right
+  Prod :: Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
+  Fst :: Lang (a, b) -> Lang a -- | Project left
+  Snd :: Lang (a, b) -> Lang b -- | Project right
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
