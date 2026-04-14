@@ -1,6 +1,6 @@
 module Main where
 
-import qualified AbsLang
+import qualified CLang2
 
 main :: IO ()
-main = AbsLang.main
+main = CLang2.main

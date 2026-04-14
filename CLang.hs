@@ -218,7 +218,7 @@ showCExpression indent (DefFun i f) m =
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.gcdLang
+    let (nl, c') = NL.translate 0 AL.fac
         (cl, _) = translate c' nl
         -- (ev, c'') = eval cl Map.empty
     print c'

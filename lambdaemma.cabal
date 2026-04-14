@@ -13,6 +13,6 @@ executable lambdaemma
         llvm-hs-pure >= 12.0 && < 13
 
     default-language: Haskell2010
-    ghc-options:      -Wall
+    ghc-options:      -Wall -g -O0
 
--- LLVM_CONFIG=llvm-config-14 cabal build
+-- LLVM_CONFIG=llvm-config-14 cabal build --ghc-options="-g -fbreak-on-exception"
