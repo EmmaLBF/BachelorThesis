@@ -2,6 +2,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use when" #-}
+{-# HLINT ignore "Avoid lambda" #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleContexts #-}
 {- HLINT ignore "Use first" -}
 
 module CLang2 where
@@ -13,6 +20,9 @@ import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
 import qualified NamedLang as NL
 import Control.Monad.State
+import Unsafe.Coerce
+import Data.Typeable
+import Debug.Trace
 
 indentStr :: Int -> String
 indentStr n = replicate (2 * n) ' '
@@ -21,6 +31,10 @@ data CValue a where
     IntV :: Int -> CValue Int
     BoolV :: Bool -> CValue Bool
     UnitV :: CValue ()
+    FunV  :: (CValue a -> CValue b) -> CValue (a -> b)
+    PairV :: CValue a -> CValue b -> CValue (a, b)
+
+deriving instance Typeable a => Typeable (CValue a)
 
 data CExpression a where
     Var :: (Typeable a) => Int -> CExpression a
@@ -28,25 +42,22 @@ data CExpression a where
     LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
     Val :: CValue a -> CExpression a
     Not :: CExpression Bool -> CExpression Bool
-    CallExpr :: CExpression (a -> b) -> CExpression a -> CExpression b
+    CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
     Prod :: CExpression a -> CExpression b -> CExpression (a, b)
-    Fst :: CExpression (a, b) -> CExpression a 
+    Fst :: CExpression (a, b) -> CExpression a
     Snd :: CExpression (a, b) -> CExpression b
 
 -- in theory statements shouldn't have a type? since they don't return anything?
 data CStatement a where
   Return :: Typeable a => CExpression a -> CStatement a
-  -- give a name to outcome of a to use in 
-  Bind :: CStatement a -> Int -> CStatement b -> CStatement ()
-  -- Do two things in succesion, but do not give intermediate outcome a name, specialization of bind
+  Bind :: Typeable a => CStatement a -> Int -> CStatement b -> CStatement b
   Seq :: CStatement a -> CStatement b -> CStatement b
   If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-  -- define a function of 1 parameter, use the Int as the name of the parameter
-  DefFun :: (Typeable b) => Int -> Int -> CStatement b -> CStatement ()
-  -- Define a variable
-  DefVar :: (Typeable a) => Int -> CExpression a -> CStatement a
-  -- Update variable 
-  UpdateVar :: (Typeable a) => Int -> CExpression a -> CStatement () 
+
+  -- Do not return anything
+  DefFun :: (Typeable a, Typeable b) => Proxy a -> Int -> Int -> CStatement b -> CStatement ()
+  DefVar :: Typeable a => Int -> CExpression a -> CStatement ()
+  UpdateVar :: Typeable a => Int -> CExpression a -> CStatement ()
   While :: CExpression Bool -> CStatement a -> CStatement ()
 
 fresh :: State Int Int
@@ -57,7 +68,7 @@ fresh = do
 
 data Compiled a = Compiled
   { setup :: CStatement ()
-  , result :: CExpression a 
+  , result :: CExpression a
   }
 
 type Trans a = State Int (Compiled a)
@@ -72,14 +83,14 @@ translate :: forall a. NL.NamedLang a -> State Int (Compiled a)
 translate (NL.LInt n) = onlyExpr (Val (IntV n))
 translate (NL.LBool b) = onlyExpr (Val (BoolV b))
 translate (NL.Var n) = onlyExpr (Var n)
-translate (NL.Prod a b) = do 
+translate (NL.Prod a b) = do
   ca <- translate a
   cb <- translate b
   onlyExpr (Prod (result ca) (result cb))
-translate (NL.Fst p) = do 
+translate (NL.Fst p) = do
   cp <- translate p
   onlyExpr (Fst (result cp))
-translate (NL.Snd p) = do 
+translate (NL.Snd p) = do
   cp <- translate p
   onlyExpr (Snd (result cp))
 translate (NL.LIntOp op l r) = do
@@ -96,8 +107,8 @@ translate (NL.If cond t f) = do
   cf <- translate f
   n  <- fresh
   let branch = If (result cc) (Return (result ct)) (Return (result cf))
-      ret = Return ((Var n) `asTypeOf` (result ct)) -- should work since both branches have the same type?
-      stmt = Bind branch n ret
+      ret = Return (Var n `asTypeOf` result ct) -- should work since both branches have the same type?
+      stmt = Seq (Bind branch n ret) (Return (Val UnitV))
   return $ Compiled { setup = stmt, result = Var n }
 -- translate (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond base (NL.Apply (NL.Var i) arg))))) 
 --   | i1 == i = do
@@ -119,101 +130,179 @@ translate (NL.If cond t f) = do
 --   return $ Compiled { setup = stmt, result = Var iparam }
 translate (NL.Fix f) = do
   cf <- translate f
-  n <- fresh
-  -- iparam <- fresh
+  n <- fresh  -- this must not clash with any Lam parameter
   let v = Var n :: CExpression a
-      stmt = Bind (setup cf) n (Return v)
+      call = CallExpr (result cf) (unsafeCoerce (result cf))
+      bindStmt = Bind (Return call) n (Return v)
+      stmt = Seq (Seq (setup cf) bindStmt) (Return (Val UnitV))
   return $ Compiled { setup = stmt, result = Var n }
-translate (NL.Lam i f) = do
+-- translate (NL.Fix f) = do
+--   cf <- translate f
+--   fixId <- fresh
+--   argId <- fresh
+--   fixVarId <- fresh  -- NEW: variable to hold the fixed-point result
+  
+--   let selfVar = Var fixId :: CExpression (a -> a)
+--       selfCall = CallExpr selfVar (Var argId) :: CExpression a
+--       -- Replace the original function result with the self-call
+--       recBody = cf { result = selfCall }
+--       defStmt = DefFun (Proxy :: Proxy a) fixId argId (toStatement recBody)
+--       bindStmt = Bind defStmt fixVarId (Return (Var fixVarId))
+  
+--   return $ Compiled { setup = bindStmt, result = Var fixVarId }
+  -- case f of
+  --   (NL.Lam i _) -> do
+  --     cf <- translate f
+  -- -- iparam <- fresh
+  --     let v = Var i :: CExpression a
+  --         stmt = Bind (setup cf) i (Return v)
+  --     return $ Compiled { setup = stmt, result = Var i }
+  --   _ -> do
+  --     cf <- translate f
+  --     n <- fresh
+  --     -- iparam <- fresh
+  --     let v = Var n :: CExpression a
+  --         stmt = Bind (setup cf) n (Return v)
+  --     return $ Compiled { setup = stmt, result = Var n }
+-- translate (NL.Fix f) = do
+--   cf <- translate f
+--   n <- fresh
+--   -- iparam <- fresh
+--   let v = Var n :: CExpression a
+--       stmt = Bind (setup cf) n (Return v)
+--   return $ Compiled { setup = stmt, result = Var n }
+translate (NL.Lam i (f :: NL.NamedLang b)) = do
   cf <- translate f
   ifun <- fresh
-  let stmt = DefFun ifun i (setup cf)
-  return $ Compiled { setup = stmt, result = (Var ifun) }
+  let stmt = DefFun (Proxy :: Proxy a) ifun i (setup cf)
+  return $ Compiled { setup = stmt, result = Var ifun }
 translate (NL.Apply f x) = do
   cf <- translate f
   cx <- translate x
   onlyExpr (CallExpr (result cf) (result cx))
 
-valueToLiteral :: CValue a -> a
-valueToLiteral (IntV i) = i
-valueToLiteral (BoolV i) = i
-valueToLiteral UnitV = ()
+-- data EvalValue where
+--   EvalValue :: Typeable a => CValue a -> EvalValue
 
-evalExpr :: CExpression a -> Map Int Dynamic -> a
-evalExpr (Val x) _ = valueToLiteral x
-evalExpr (Var i) m = case Map.lookup i m of
-                      Just dyn -> case fromDynamic dyn of
-                        Just v -> v
-                        Nothing -> error "Type mismatch in env"
-                      Nothing -> error "Variable not found"
+-- valueToLiteral :: CValue a -> a
+-- valueToLiteral (IntV i) = i
+-- valueToLiteral (BoolV i) = i
+-- valueToLiteral UnitV = ()
+
+unInt :: CValue Int -> Int
+unInt (IntV x) = x
+
+unBool :: CValue Bool -> Bool
+unBool (BoolV x) = x
+
+data Env where
+  Empty :: Env
+  Extend :: Typeable a => Int -> CValue a -> Env -> Env
+
+lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
+lookupEnv _ Empty = Nothing
+lookupEnv i1 (Extend i2 x remainder) 
+  | i1 == i2 = trace ("lookup " ++ show i1 ++ 
+                      ": stored=" ++ show (typeRep x) ++ 
+                      " expect=" ++ show (typeRep (Proxy :: Proxy a))) $
+               cast x
+  | otherwise = lookupEnv i1 remainder
+
+evalExpr :: CExpression a -> Env -> CValue a
+evalExpr (Val x) _ = x
+evalExpr (Var i) m =
+  case lookupEnv i m of
+    Just v -> v
+    Nothing -> error ("Variable not found: " ++ show i)
 evalExpr (LIntOp op lhs rhs) m =
   let lhs' = evalExpr lhs m
       rhs' = evalExpr rhs m
-  in AL.binop op lhs' rhs'
-evalExpr (LCmpOp op lhs rhs) m = 
+  in IntV (AL.binop op (unInt lhs') (unInt rhs'))
+evalExpr (LCmpOp op lhs rhs) m =
   let lhs' = evalExpr lhs m
       rhs' = evalExpr rhs m
-  in AL.cmpop op lhs' rhs'
-evalExpr (CallExpr f arg) m = 
-  let fn = evalExpr f m
-      arg' = evalExpr arg m
+  in BoolV (AL.cmpop op (unInt lhs') (unInt rhs'))
+evalExpr (CallExpr f arg) m =
+  let FunV fn = evalExpr f m
+      arg'    = evalExpr arg m
   in fn arg'
-evalExpr (Prod l r) m = 
+evalExpr (Prod l r) m =
   let l' = evalExpr l m
       r' = evalExpr r m
-  in (l',r')
-evalExpr (Fst p) m = 
-  let p' = evalExpr p m
-  in fst p'
-evalExpr (Snd p) m = 
-  let p' = evalExpr p m
-  in snd p'
-evalExpr (Not x) m = 
+  in PairV l' r'
+evalExpr (Fst p) m =
+  let PairV x _ = evalExpr p m
+  in x
+evalExpr (Snd p) m =
+  let PairV _ x = evalExpr p m
+  in x
+evalExpr (Not x) m =
   let x' = evalExpr x m
-  in not x'
+  in BoolV (not (unBool x'))
 
-type Eval a = State Int (Dynamic, Map Int Dynamic)
+-- evalExprDyn :: CExpression a -> Map Int EvalValue -> Dynamic
+-- evalExprDyn (CallExpr f arg) m =
+--   let fn   = evalExprDyn f m
+--       arg' = evalExprDyn arg m
+--   in case fromDynamic fn of
+--        Just (g :: Dynamic -> Dynamic) -> g arg'
+--        Nothing -> error $
+--          "CallExpr: expected function, got "
+--          ++ show (dynTypeRep fn)
+-- evalExprDyn f m = case Map.lookup i m of
+--     Just dyn -> case fromDynamic dyn of
+--       Just fn -> fn
+--       Nothing -> error $ "Type mismatch in evalExprDyn | got " ++ show (dynTypeRep dyn)
+--     Nothing -> error "Variable not found in evalExprDyn"
+--   where
+--     i = case f of
+--           Var i -> i
+--           _     -> error "evalExprDyn: not a Var"
 
-evalStmt :: CStatement a -> Map Int Dynamic -> (Dynamic, Map Int Dynamic)
-evalStmt (Return x) m = (toDyn (evalExpr x m), m)
+-- type Eval a = State Int (EvalValue, Map Int EvalValue)
+
+evalStmt :: CStatement a -> Env -> (CValue a, Env)
+evalStmt (Return x) m = (evalExpr x m, m)
 evalStmt (Bind x i y) m =
   let (x', m') = evalStmt x m
-      m'' = Map.insert i x' m'
+      m'' = Extend i x' m'
   in evalStmt y m''
-evalStmt (Seq x y) m = 
+evalStmt (Seq x y) m =
   let (_, m') = evalStmt x m
   in evalStmt y m'
-evalStmt (If cond t e) m = 
+evalStmt (If cond t e) m =
   let cond' = evalExpr cond m
-  in if cond' then evalStmt t m else evalStmt e m
+  in if unBool cond' then evalStmt t m else evalStmt e m
 evalStmt (While cond body) m =
   let cond' = evalExpr cond m
-  in 
-    if cond'
+  in
+    if unBool cond'
     then
       let (_, m') = evalStmt body m
       in evalStmt (While cond body) m'
     else
-      (toDyn (), m)
-evalStmt (DefFun ifun iparam body) m =
-  let fn :: Dynamic -> Dynamic
-      fn arg = 
-        let m1 = Map.insert iparam (toDyn arg) m
-            (body', _) = evalStmt body m1
-        in body'
-      m' = Map.insert ifun (toDyn fn) m
-  in (toDyn fn, m')
+      (UnitV, m)
+evalStmt (DefFun (_ :: Proxy a) ifun iparam (body :: CStatement b)) m =
+  let fn :: CValue a -> CValue b
+      fn arg =
+        let m' = Extend iparam arg m
+            (res, _) = evalStmt body m'
+            debugRes = trace ("fn result: " ++ show (typeRep res)) res
+        in debugRes  
+      m'' = Extend ifun (FunV fn :: CValue (a -> b)) m
+  in (UnitV, m'')
 evalStmt (DefVar i x) m =
-  let m' = Map.insert i (toDyn (evalExpr x m)) m
-  in (toDyn (), m')
+  let m' = Extend i (evalExpr x m) m
+  in (UnitV, m')
 evalStmt (UpdateVar i x) m =
-  let m' = Map.insert i (toDyn (evalExpr x m)) m
-  in (toDyn (), m')
+  let m' = Extend i (evalExpr x m) m
+  in ( UnitV, m')
 
-eval :: Compiled a -> Map Int Dynamic -> a
-eval x m = 
+eval :: Compiled (a->b) -> CValue a -> Env -> CValue b
+eval x arg m =
   let (_, m') = evalStmt (setup x) m
-  in evalExpr (result x) m'
+      FunV fn = evalExpr (result x) m'
+  in fn arg
 
 showBinOp :: AL.BinOp -> String
 showBinOp Plus  = "+"
@@ -234,25 +323,25 @@ showCValue UnitV = show ""
 
 showCStmt :: Int -> CStatement a -> Map Int Dynamic -> String
 showCStmt indent (UpdateVar i x) m = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m
-showCStmt indent (If cond t f) m = 
+showCStmt indent (If cond t f) m =
     "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {"
-    ++  showCStmt (indent + 1) t m 
+    ++  showCStmt (indent + 1) t m
     ++ "\n" ++ indentStr indent ++ "} else {"
-    ++ showCStmt (indent + 1) f m 
+    ++ showCStmt (indent + 1) f m
     ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (While cond body) m =
     "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {"
-    ++ showCStmt (indent + 1) body m 
+    ++ showCStmt (indent + 1) body m
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent (Bind x i y) m = 
+showCStmt indent (Bind x i y) m =
     "\n" ++ indentStr indent ++ "bind v" ++ show i ++ " = {"
-    ++ showCStmt (indent + 1) x m 
-    ++ "\n" ++ indentStr indent ++ "} in {" 
-    ++ showCStmt (indent + 1) y m 
+    ++ showCStmt (indent + 1) x m
+    ++ "\n" ++ indentStr indent ++ "} in {"
+    ++ showCStmt (indent + 1) y m
     ++ "\n" ++  indentStr indent ++ "}"
-showCStmt indent (Seq x y) m = 
+showCStmt indent (Seq x y) m =
     showCStmt indent x m ++ showCStmt indent y m
-showCStmt indent (DefFun ifun iparam f) m = 
+showCStmt indent (DefFun _ ifun iparam f) m =
     "\n" ++ indentStr indent ++ "function" ++ show ifun ++ " (v" ++ show iparam ++ ") {"
     ++ showCStmt (indent + 1) f m
     ++ "\n" ++ indentStr indent ++ "}"
@@ -273,8 +362,8 @@ showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
 main :: IO ()
 main = do
     let (nl, c') = NL.translate 0 AL.fac
-        (cl, _) = runState (translate nl) c'
-        ev = eval cl Map.empty
-    print (ev 5)
+        cl = evalState (translate nl) c'
+        ev = eval cl (IntV 5) Empty
     putStrLn "--- Translating CL ---"
     putStrLn $ showCStmt 0 (setup cl) Map.empty
+    putStrLn $ showCValue ev
