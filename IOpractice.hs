@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# OPTIONS_GHC -Wno-unused-matches #-}
 module IOPractice where
 
 data IOAction a where 
