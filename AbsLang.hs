@@ -19,21 +19,25 @@ data CmpOp = Eq | Lt | Gt
 -- ─────────────────────────────────────────────
 
 data Lang a where
-  Var :: (Typeable a) => Int -> Lang a -- | Free variable – looked up in the environment at eval time
-  Abs :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b) -- | Lambda abstraction, using Higher order abstract syntax
-  Apply :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b -- | Function application
-  Fix :: (Typeable a) => Lang (a -> a) -> Lang a -- | Add recursion (for mutual recursion combine with tuples)
-  If :: (Typeable a) => Lang Bool -> Lang a -> Lang a -> Lang a -- | If-then-else
+  -- | Free variable – looked up in the environment at eval time
+  Var :: (Typeable a) => Int -> Lang a
+  -- | Lambda abstraction, using Higher order abstract syntax
+  Abs :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
+  -- | Function application
+  Apply :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b
+  -- | Add recursion (for mutual recursion combine with tuples)
+  Fix :: (Typeable a) => Lang (a -> a) -> Lang a
+  If :: (Typeable a) => Lang Bool -> Lang a -> Lang a -> Lang a
   -- | LITERALS
-  LInt :: Int -> Lang Int  -- | Integer literal
-  LBool :: Bool -> Lang Bool -- | Boolean literal
+  LInt :: Int -> Lang Int
+  LBool :: Bool -> Lang Bool
   -- | OPERATIONS
-  LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int -- | Binary integer operation
-  LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool -- | Integer comparison
+  LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int
+  LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool
   -- | TUPLES
-  Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)  -- | Make a tuple
-  Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a -- | Project left
-  Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b -- | Project right
+  Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)
+  Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a
+  Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
