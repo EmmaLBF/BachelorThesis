@@ -36,9 +36,9 @@ data CExpression a where
     UpdateVar :: (Typeable a) => Int -> CExpression a -> CExpression ()  -- Update variable 
     If :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
     While :: CExpression Bool -> CExpression a -> CExpression () -- condition + body
-    Prod :: CExpression a -> CExpression b -> CExpression (a, b)  -- | Make a tuple
-    Fst :: CExpression (a, b) -> CExpression a -- | Project left
-    Snd :: CExpression (a, b) -> CExpression b -- | Project right
+    Prod :: CExpression a -> CExpression b -> CExpression (a, b)
+    Fst :: CExpression (a, b) -> CExpression a
+    Snd :: CExpression (a, b) -> CExpression b
 
 translate :: forall a. Int -> NL.NamedLang a -> (CExpression a, Int)
 translate c (NL.Var x) = (Var x, c)
@@ -57,7 +57,7 @@ translate c (NL.If cond thn els) = let  (cond', c') = translate c cond
 translate c (NL.Apply f x) = let (f', c') = translate c f
                                  (x', c'') = translate c' x
                                in (CallExpr f' x', c'')
-translate c (NL.Lam i body) = let (body', c') = translate i body
+translate _ (NL.Lam _ i body) = let (body', c') = translate i body
                                 in (DefFun i body', c')
 translate c (NL.Prod a b) = let (a', c') = translate c a
                                 (b', c'') = translate c' b
@@ -66,13 +66,13 @@ translate c (NL.Fst p) = let (p', c') = translate c p
                             in (Fst p', c')
 translate c (NL.Snd p) = let (p', c') = translate c p
                             in (Snd p', c')
-translate c (NL.Fix (NL.Lam i1 (NL.Lam i2 (NL.If cond thn els)))) =
+translate c (NL.Fix (NL.Lam _ i1 (NL.Lam _ i2 (NL.If cond thn els)))) =
     let (thn', c') = translate c thn
         (cond', c'') = translate c' cond
-        (els', c''') = translate c'' els
+        (els', _) = translate c'' els
         body''      = rewriteRecCall i1 i2 els'
         v = Var i1 :: CExpression (a -> a)
-    in (DefFun i2 (Bind (DefVar v) c' (Seq (Seq (UpdateVar i1 thn') (While (Not cond') body'')) (Return (Var i1)))), (c' + 1))
+    in (DefFun i2 (Bind (DefVar v) c' (Seq (Seq (UpdateVar i1 thn') (While (Not cond') body'')) (Return (Var i1)))), c' + 1)
 -- translate c (NL.Fix f) =
 --     let (body', c')  = translate c f
 --     in case body' of
@@ -108,7 +108,7 @@ rewriteRecCall self param (If cond thn els) =
        (rewriteRecCall self param thn)
        (rewriteRecCall self param els)
 rewriteRecCall self param (Bind e n body) = Bind e n (rewriteRecCall self param body)
-rewriteRecCall self param x = x
+rewriteRecCall _ _ x = x
 -- rewriteRecCall i (CallExpr (Var j) arg) | i == j = UpdateVar i arg
 -- rewriteRecCall i (If cond thn els) = If cond (rewriteRecCall i thn) (rewriteRecCall i els)
 -- rewriteRecCall i (Bind e n body) = Bind e n (rewriteRecCall i body)
@@ -166,7 +166,6 @@ eval (Snd p) m = let (p', m') = eval p m
                     in (snd p', m')
 eval (Not x) m = let (x', m') = eval x m
                 in (not x', m')
-eval _ m = error "unkown expr"
 
 showBinOp :: AL.BinOp -> String
 showBinOp Plus  = "+"
@@ -198,7 +197,7 @@ showCExpression indent (Fst p) m = showCExpression indent p m ++ "[0]"
 showCExpression indent (Snd p) m = showCExpression indent p m ++ "[1]"
 showCExpression indent (UpdateVar i x) m = "v" ++ show i ++ " =~ " ++ showCExpression indent x m
 
-showCExpression indent (If cond t f) m = 
+showCExpression indent (If cond t f) m =
     "\n" ++ indentStr indent ++ "if " ++ showCExpression indent cond m ++ " {\n"
   ++ indentStr (indent + 1) ++ showCExpression (indent + 1) t m ++ "\n"
   ++ indentStr indent ++ "} else {\n"
@@ -208,9 +207,9 @@ showCExpression indent (While cond body) m =
     "\n" ++ indentStr indent ++ "while " ++ showCExpression indent cond m ++ " {\n"
   ++ indentStr (indent + 1) ++ showCExpression (indent + 1) body m ++ "\n"
   ++ indentStr indent ++ "}"
-showCExpression indent (Bind x i y) m = showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
+showCExpression indent (Bind x _ y) m = showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
 showCExpression indent (Seq x y) m = showCExpression indent x m ++ "\n" ++ indentStr indent ++ showCExpression indent y m
-showCExpression indent (DefFun i f) m = 
+showCExpression indent (DefFun i f) m =
     indentStr indent ++ "function (v" ++ show i ++ ") {\n"
   ++ indentStr (indent + 1) ++ showCExpression (indent + 1) f m ++ "\n"
   ++ indentStr indent ++ "}"

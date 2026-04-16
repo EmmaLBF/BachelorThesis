@@ -3,22 +3,15 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use when" #-}
 {-# HLINT ignore "Avoid lambda" #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
 {- HLINT ignore "Use first" -}
 
 module CLang2 where
 import Data.Dynamic
-import Data.Map (Map)
-import qualified Data.Map as Map
 
 import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
 import qualified NamedLang as NL
 import Control.Monad.State
-import Unsafe.Coerce
 import Data.Typeable
 import Debug.Trace
 
@@ -137,7 +130,7 @@ translate (NL.Fix f) = do
   cf <- translate f
   n <- fresh  -- this must not clash with any Lam parameter
   let v = Var n :: CExpression a
-      call = CallExpr (result cf) (unsafeCoerce (result cf))
+      call = CallExpr (result cf) v
       bindStmt = DefVar n call
       stmt = Seq (setup cf) bindStmt
       -- stmt = Seq  (Seq (setup cf) (Return call)) (Return (Val UnitV))
@@ -275,7 +268,7 @@ evalStmt (Seq x y) m =
 evalStmt (If cond t e) m =
   let cond' = trace ">> if cond" $ evalExpr cond m
       condBool = unBool cond'
-  in if trace (">> if res: " ++ (if condBool then "true" else "false")) $ condBool then evalStmt t m else evalStmt e m
+  in if trace (">> if res: " ++ (if condBool then "true" else "false")) condBool then evalStmt t m else evalStmt e m
 evalStmt (While cond body) m =
   let cond' = evalExpr cond m
   in
@@ -285,7 +278,7 @@ evalStmt (While cond body) m =
       in evalStmt (While cond body) m'
     else
       m
-evalStmt (DefFun (prox :: Proxy a) ifun iparam bodySetup (bodyResult :: CExpression b)) m =
+evalStmt (DefFun (_ :: Proxy a) ifun iparam bodySetup (bodyResult :: CExpression b)) m =
   let fn :: CValue a -> CValue b
       fn arg =
         let m' = evalStmt bodySetup (Extend iparam arg m)
@@ -321,6 +314,8 @@ showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
 showCValue UnitV = "null"
+showCValue (PairV x y) = "(" ++ showCValue x ++ ", " ++ showCValue y ++ ")"
+showCValue (FunV _) = error "cannot print function"
 
 showCStmt :: Int -> CStatement -> Env -> String
 showCStmt indent (UpdateVar i x) m = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression indent x m

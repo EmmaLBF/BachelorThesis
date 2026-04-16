@@ -13,21 +13,25 @@ import qualified AbsLang as AL
 import Data.Typeable
 
 data NamedLang a where
-  Var :: (Typeable a) => Int -> NamedLang a -- | Free variable
-  Lam :: (Typeable a, Typeable b) => Proxy a -> Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
-  Apply :: (Typeable a, Typeable b) => NamedLang (a -> b) -> NamedLang a -> NamedLang b -- | Function application
-  Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a -- | Recursion
-  If :: (Typeable a) => NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a -- | If-then-else
+  -- | Free variable
+  Var :: (Typeable a) => Int -> NamedLang a
+  -- | Lambda abstraction
+  Lam :: (Typeable a, Typeable b) => Proxy a -> Int -> NamedLang b -> NamedLang (a -> b)
+  -- | Function application
+  Apply :: (Typeable a, Typeable b) => NamedLang (a -> b) -> NamedLang a -> NamedLang b
+  -- | Recursion
+  Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a 
+  If :: (Typeable a) => NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a
   -- | LITERALS
-  LInt :: Int -> NamedLang Int  -- | Integer literal
-  LBool :: Bool -> NamedLang Bool -- | Boolean literal
+  LInt :: Int -> NamedLang Int
+  LBool :: Bool -> NamedLang Bool
   -- | OPERATIONS
-  LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int -- | Binary integer operation
-  LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool -- | Integer comparison
+  LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int
+  LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool
   -- | TUPLES
-  Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
-  Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a -- | Project left
-  Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b -- | Project right
+  Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)
+  Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a
+  Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
 translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
@@ -71,12 +75,13 @@ pretty expr = go [] expr
             Just name -> name
             Nothing   -> "x" ++ show x
 
-        Lam prox i f ->
+        Lam _ i f ->
           -- find next unused Int for naming
           let x = i
               name = "x" ++ show x
               env' = (x, name) : env
-              body = f  -- **use the same Int** translate would have used
+              -- **use the same Int** translate would have used
+              body = f
           in "(\\" ++ name ++ " ->\n\t " ++ go env' body ++ ")"
 
         Apply f a ->
