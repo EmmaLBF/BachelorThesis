@@ -120,11 +120,12 @@ data Env where
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
 lookupEnv i1 (Extend i2 x remainder) 
-  | i1 == i2 = trace ("   % lookup v" ++ show i1 ++ 
-                      ": stored = " ++ show (typeRep x) ++ 
-                      " | expect = " ++ show (typeRep (Proxy :: Proxy a))) $
-               cast x
+  | i1 == i2 = cast x
   | otherwise = lookupEnv i1 remainder
+-- | i1 == i2 = trace ("   % lookup v" ++ show i1 ++ 
+  --                     ": stored = " ++ show (typeRep x) ++ 
+  --                     " | expect = " ++ show (typeRep (Proxy :: Proxy a))) $
+  --              cast x
 
 evalExpr :: forall a. Typeable a => CExpression a -> Env -> CValue a
 evalExpr (Val x) _ = x
@@ -165,12 +166,13 @@ evalStmt (BindExpr x i y) m =
   in evalStmt y m'
 evalStmt Skip m = m
 evalStmt (Seq x y) m =
-  let m' = trace (">> seq x" ++ showCStmt 3 x) $ evalStmt x m
-  in trace (">> seq y " ++ showCStmt 3 y) $ evalStmt y m'
+  let m' = evalStmt x m
+  in evalStmt y m'
 evalStmt (If cond t e) m =
-  let cond' = trace ">> if cond" $ evalExpr cond m
+  let cond' = evalExpr cond m
       condBool = unBool cond'
-  in if trace (">> if res: " ++ (if condBool then "true" else "false")) condBool then evalStmt t m else evalStmt e m
+  in if condBool then evalStmt t m else evalStmt e m
+  -- trace (">> if res: " ++ (if condBool then "true" else "false"))
 evalStmt (While cond body) m =
   let cond' = evalExpr cond m
   in
@@ -260,9 +262,9 @@ showCExpression (Snd p) = showCExpression p ++ "[1]"
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.fac
+    let (nl, c') = NL.translate 0 AL.gcdLang
         cl = evalState (translate nl) c'
-        ev = eval cl (IntV 6) Empty
+        ev = eval cl (PairV (IntV 40) (IntV 30)) Empty
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 (setup cl)
     putStrLn "\n--- Evaluating ---\n"
