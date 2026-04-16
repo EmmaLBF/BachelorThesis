@@ -10,10 +10,11 @@ import Data.Dynamic
 
 import AbsLang (BinOp(..), CmpOp(..))
 import qualified AbsLang as AL
+import Data.Typeable
 
 data NamedLang a where
   Var :: (Typeable a) => Int -> NamedLang a -- | Free variable
-  Lam :: (Typeable a, Typeable b) => Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
+  Lam :: (Typeable a, Typeable b) => Proxy a -> Int -> NamedLang b -> NamedLang (a -> b) -- | Lambda abstraction
   Apply :: (Typeable a, Typeable b) => NamedLang (a -> b) -> NamedLang a -> NamedLang b -- | Function application
   Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a -- | Recursion
   If :: (Typeable a) => NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a -- | If-then-else
@@ -24,13 +25,13 @@ data NamedLang a where
   LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int -- | Binary integer operation
   LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool -- | Integer comparison
   -- | TUPLES
-  Prod :: NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
-  Fst :: NamedLang (a, b) -> NamedLang a -- | Project left
-  Snd :: NamedLang (a, b) -> NamedLang b -- | Project right
+  Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)  -- | Make a tuple
+  Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a -- | Project left
+  Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b -- | Project right
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
 translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
-                         in (Lam c body, c') -- (Lam c (fst (translate (c+1) (f (AL.Var c)))), c + 1)
+                         in (Lam (Proxy :: Proxy a) c body, c') -- (Lam c (fst (translate (c+1) (f (AL.Var c)))), c + 1)
 translate c (AL.Var x) = (Var x, c)
 translate c (AL.LInt x) = (LInt x, c)
 translate c (AL.LBool x) = (LBool x, c)
@@ -70,7 +71,7 @@ pretty expr = go [] expr
             Just name -> name
             Nothing   -> "x" ++ show x
 
-        Lam i f ->
+        Lam prox i f ->
           -- find next unused Int for naming
           let x = i
               name = "x" ++ show x
