@@ -14,7 +14,6 @@ import qualified NamedLang as NL
 import Control.Monad.State
 import Data.Typeable
 import Debug.Trace
-import Unsafe.Coerce
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -101,7 +100,7 @@ translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
   n  <- fresh
-  let stmt = Seq (DefVar n (Val UnitV))
+  let stmt = Seq (DefVar n (result ct))
                    (If (result cc)
                        (Seq (setup ct) (UpdateVar n (result ct)))
                        (Seq (setup cf) (UpdateVar n (result cf))))
@@ -115,8 +114,7 @@ translate (NL.If cond t f) = do
 translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
   cf <- translate f
   ifun <- fresh
-  let rcf = result cf
-      stmt = DefFun (Proxy :: Proxy b) ifun (i, arg) (setup cf) (result cf)
+  let stmt = DefFun (Proxy :: Proxy b) ifun (i, arg) (setup cf) (result cf)
   return $ Compiled { setup = stmt, result = Var ifun }
 translate (NL.Fix f) = do
   cf <- translate f
@@ -220,7 +218,7 @@ evalStmt (While cond body) m =
 --           in evalExpr bodyResult m''      
 --       env' = Extend ifun (FunV fn) m
 --   in env'
-evalStmt (DefFun (_ :: Proxy a) ifun (iparam, tparam) bodySetup (bodyResult :: CExpression b)) m =
+evalStmt (DefFun (_ :: Proxy a) ifun (iparam, _) bodySetup (bodyResult :: CExpression b)) m =
   let fn :: CValue a -> CValue b
       fn arg =
         let m' = evalStmt bodySetup (Extend iparam arg m)
@@ -275,6 +273,8 @@ showProx :: TypeRep -> String
 showProx p = case show p of
               "Int" -> "int"
               "Bool" -> "bool"
+              "Int -> Int" -> "int (*)(int)"
+              "()" -> "void*"
               _ -> show p
 
 showCStmt :: Int -> CStatement -> String
