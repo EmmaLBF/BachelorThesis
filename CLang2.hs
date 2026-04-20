@@ -14,6 +14,7 @@ import qualified NamedLang as NL
 import Control.Monad.State
 import Data.Typeable
 import Debug.Trace
+import Unsafe.Coerce
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -21,6 +22,10 @@ data CValue a where
     UnitV :: CValue ()
     FunV  :: (CValue a -> CValue b) -> CValue (a -> b)
     PairV :: CValue a -> CValue b -> CValue (a, b)
+
+-- data CParams a where
+--   PEmpty :: CParams ()
+--   PExtend :: Typeable a => Proxy a -> Int -> CParams b -> CParams (a, b)
 
 data CExpression a where
     Var :: (Typeable a) => Int -> CExpression a
@@ -37,7 +42,14 @@ data CStatement where
   BindExpr :: Typeable a => CExpression a -> Int -> CStatement -> CStatement
   Seq :: CStatement -> CStatement -> CStatement
   If :: CExpression Bool -> CStatement -> CStatement -> CStatement
-  DefFun :: (Typeable a, Typeable b) => Proxy a -> Int -> Int -> CStatement -> CExpression b -> CStatement
+  -- DefFun :: (Typeable a, Typeable b) => Proxy a -> Int -> Int -> CStatement -> CExpression b -> CStatement
+  DefFun    :: (Typeable a, Typeable b) 
+            => Proxy b      -- return type
+            -> Int          -- function id
+            -> (Int, Proxy a)     -- parameter with type
+            -> CStatement   -- body setup
+            -> CExpression b -- body result
+            -> CStatement
   DefVar :: Typeable a => Int -> CExpression a -> CStatement
   UpdateVar :: Typeable a => Int -> CExpression a -> CStatement
   While :: CExpression Bool -> CStatement -> CStatement
@@ -82,7 +94,8 @@ translate (NL.LCmpOp op l r) = do
 translate (NL.Apply f x) = do
   cf <- translate f
   cx <- translate x
-  onlyExpr (CallExpr (result cf) (result cx))
+  onlyExpr $
+    CallExpr (result cf) (result cx)
 translate (NL.If cond t f) = do
   cc <- translate cond
   ct <- translate t
@@ -93,10 +106,17 @@ translate (NL.If cond t f) = do
                        (Seq (setup ct) (UpdateVar n (result ct)))
                        (Seq (setup cf) (UpdateVar n (result cf))))
   return $ Compiled { setup = stmt, result = Var n }
+-- translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
+--   cf <- translate f
+--   ifun <- fresh
+--   let rcf = result cf
+--       stmt = DefFun (Proxy :: Proxy b) ifun (PExtend arg i PEmpty) (setup cf) (result cf)
+--   return $ Compiled { setup = stmt, result = Var ifun }
 translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
   cf <- translate f
   ifun <- fresh
-  let stmt = DefFun arg ifun i (setup cf) (result cf)
+  let rcf = result cf
+      stmt = DefFun (Proxy :: Proxy b) ifun (i, arg) (setup cf) (result cf)
   return $ Compiled { setup = stmt, result = Var ifun }
 translate (NL.Fix f) = do
   cf <- translate f
@@ -119,13 +139,19 @@ data Env where
 
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
-lookupEnv i1 (Extend i2 x remainder) 
-  | i1 == i2 = cast x
+lookupEnv i1 (Extend i2 x remainder)
+  | i1 == i2 = trace ("   % lookup v" ++ show i1 ++ 
+                    ": stored = " ++ show (typeRep x) ++ 
+                    " | expect = " ++ show (typeRep (Proxy :: Proxy a))) $
+             cast x
   | otherwise = lookupEnv i1 remainder
--- | i1 == i2 = trace ("   % lookup v" ++ show i1 ++ 
-  --                     ": stored = " ++ show (typeRep x) ++ 
-  --                     " | expect = " ++ show (typeRep (Proxy :: Proxy a))) $
-  --              cast x
+-- | i1 == i2 = cast x
+
+lookupEnvType :: Int -> Env -> Maybe TypeRep
+lookupEnvType _ Empty = Nothing
+lookupEnvType i1 (Extend i2 x remainder)
+  | i1 == i2  = Just (typeRep x)
+  | otherwise = lookupEnvType i1 remainder
 
 evalExpr :: forall a. Typeable a => CExpression a -> Env -> CValue a
 evalExpr (Val x) _ = x
@@ -159,8 +185,12 @@ evalExpr (Not x) m =
   let x' = evalExpr x m
   in BoolV (not (unBool x'))
 
+-- bindParams :: CParams a -> CValue a -> Env -> Env
+-- bindParams PEmpty UnitV env = env
+-- bindParams (PExtend _ i rest) (PairV x xs) env = bindParams rest xs (Extend i x env)
+
 evalStmt :: CStatement -> Env -> Env
-evalStmt (BindExpr x i y) m = 
+evalStmt (BindExpr x i y) m =
   let v  = evalExpr x m
       m' = Extend i v m
   in evalStmt y m'
@@ -182,7 +212,15 @@ evalStmt (While cond body) m =
       in evalStmt (While cond body) m'
     else
       m
-evalStmt (DefFun (_ :: Proxy a) ifun iparam bodySetup (bodyResult :: CExpression b)) m =
+-- evalStmt (DefFun (retProx :: Proxy b) ifun (params :: CParams a) bodySetup (bodyResult :: CExpression b)) m =
+--   let fn :: CValue a -> CValue b
+--       fn (arg :: CValue a) =
+--           let m'  = bindParams params arg m
+--               m'' = evalStmt bodySetup m'
+--           in evalExpr bodyResult m''      
+--       env' = Extend ifun (FunV fn) m
+--   in env'
+evalStmt (DefFun (_ :: Proxy a) ifun (iparam, tparam) bodySetup (bodyResult :: CExpression b)) m =
   let fn :: CValue a -> CValue b
       fn arg =
         let m' = evalStmt bodySetup (Extend iparam arg m)
@@ -222,10 +260,25 @@ showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
 showCValue UnitV = "null"
 showCValue (PairV x y) = "(" ++ showCValue x ++ ", " ++ showCValue y ++ ")"
-showCValue (FunV _) = error "cannot print function"
+showCValue (FunV _) = "funv"
+
+-- showCParam :: CParams -> String
+-- showCParam (CParams (prox :: Proxy a) i) = show (typeRep prox) ++ " v" ++ show i
+
+-- showParams :: CParams a -> String
+-- showParams PEmpty = ""
+-- showParams (PExtend prox i PEmpty) = show prox ++ " v" ++ show i
+-- showParams (PExtend prox i r) = show prox ++ " v" ++ show i ++ ", " ++ showParams r
+-- showParams (i:r) = showCParam i ++ ", " ++ showParams r
+
+showProx :: TypeRep -> String
+showProx p = case show p of
+              "Int" -> "int"
+              "Bool" -> "bool"
+              _ -> show p
 
 showCStmt :: Int -> CStatement -> String
-showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression x
+showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression x ++ ";"
 showCStmt indent (If cond t f) =
     "\n" ++ indentStr indent ++ "if " ++ showCExpression cond ++ " {"
     ++  showCStmt (indent + 1) t
@@ -241,12 +294,12 @@ showCStmt indent (BindExpr x i y) =
     ++ showCStmt (indent + 1) y
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
-showCStmt indent (DefFun _ ifun iparam stup res) =
-    "\n" ++ indentStr indent ++ "function" ++ show ifun ++ " (v" ++ show iparam ++ ") {"
+showCStmt indent (DefFun prox ifun (iparam, tparam) stup res) =
+    "\n" ++ indentStr indent ++ showProx (typeRep prox) ++ " function" ++ show ifun ++ " (" ++ showProx (typeRep tparam) ++ " v" ++ show iparam ++ ") {"
     ++ showCStmt (indent + 1) stup
-    ++ "\n" ++ indentStr (indent + 1) ++ "return " ++ showCExpression res
+    ++ "\n" ++ indentStr (indent + 1) ++ "return " ++ showCExpression res ++ ";"
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression f
+showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression f ++ ";"
 showCStmt _ Skip = ""
 
 showCExpression :: CExpression a -> String
@@ -260,12 +313,26 @@ showCExpression (Prod l r) = "(" ++ showCExpression l ++ "," ++ showCExpression 
 showCExpression (Fst p) = showCExpression p ++ "[0]"
 showCExpression (Snd p) = showCExpression p ++ "[1]"
 
+showEnv :: Env -> String
+showEnv Empty = ""
+showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showEnv r
+
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.gcdLang
+    -- let (nl, c') = NL.translate 0 AL.gcdLang
+    --     cl = evalState (translate nl) c'
+    --     ev = eval cl (PairV (IntV 40) (IntV 30)) Empty
+    let (nl, c') = NL.translate 0 AL.fac
         cl = evalState (translate nl) c'
-        ev = eval cl (PairV (IntV 40) (IntV 30)) Empty
+        ev = eval cl (IntV 5) Empty
+        -- lamlift = lambdalift (setup cl)
+        -- (evlam, m'') = eval (Compiled { setup = lamlift, result = result cl})(IntV 5) Empty
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 (setup cl)
-    putStrLn "\n--- Evaluating ---\n"
+    putStrLn $ "return " ++ showCExpression (result cl) ++ ";"
+    putStrLn "\n--- Evaluating ---"
     putStrLn $ showCValue ev
+    -- putStrLn "--- Printing C ---"
+    -- putStrLn $ showCValue evlam
+    -- putStrLn $ showCStmt 0 m'' lamlift
+    -- putStrLn $ "return " ++ showCExpression (result cl) ++ ";"
