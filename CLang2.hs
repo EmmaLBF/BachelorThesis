@@ -273,8 +273,11 @@ showProx :: TypeRep -> String
 showProx p = case show p of
               "Int" -> "int"
               "Bool" -> "bool"
-              "Int -> Int" -> "int (*)(int)"
+              "Int -> Int" -> "intToint"
               "()" -> "void*"
+              "(Int,Int)" -> "int*"
+              "(Bool,Bool)" -> "bool*"
+              "(Int,Int) -> Int" -> "int* (*)(int)"
               _ -> show p
 
 showCStmt :: Int -> CStatement -> String

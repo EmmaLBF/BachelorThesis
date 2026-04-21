@@ -17,6 +17,7 @@ import Data.Dynamic
 import Control.Monad.State
 import Data.Typeable
 import Debug.Trace
+import System.IO
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
@@ -58,9 +59,9 @@ translate (CL.Seq x y) =
     let x' = translate x
         y' = translate y
     in Seq x' y'
-translate (CL.DefFun tret ifun (iparam, tparam) (CL.DefFun tret1 ifun1 (iparam1, tparam1) body1 ret1) ret) =
-    let body1' = translate body1
-    in DefFun tret1 ifun [CParam iparam tparam, CParam iparam1 tparam1] body1' ret1
+-- translate (CL.DefFun tret ifun (iparam, tparam) (CL.DefFun tret1 ifun1 (iparam1, tparam1) body1 ret1) ret) =
+--     let body1' = translate body1
+    -- in DefFun tret1 ifun [CParam iparam tparam, CParam iparam1 tparam1] body1' ret1
 translate (CL.DefFun tret ifun (iparam, tparam) body ret) =
     let body' = translate body
     in DefFun tret ifun [CParam iparam tparam] body' ret
@@ -106,7 +107,7 @@ showCParams [CParam i t] = showProx (typeRep t) ++ " v" ++ show i
 showCParams (i:is) = showCParams [i] ++ ", " ++ showCParams is
 
 showCStmt :: Int -> CStatement -> String
-showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression x ++ ";"
+showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x ++ ";"
 showCStmt indent (If cond t f) =
     "\n" ++ indentStr indent ++ "if " ++ showCExpression cond ++ " {"
     ++  showCStmt (indent + 1) t
@@ -123,7 +124,7 @@ showCStmt indent (BindExpr x i y) =
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
 showCStmt indent (DefFun prox ifun params stup res) =
-    "\n" ++ indentStr indent ++ showProx (typeRep prox) ++ " function" ++ show ifun ++ " (" ++ showCParams params ++ ") {"
+    "\n" ++ indentStr indent ++ showProx (typeRep prox) ++ " v" ++ show ifun ++ "(" ++ showCParams params ++ ") {"
     ++ showCStmt (indent + 1) stup
     ++ "\n" ++ indentStr (indent + 1) ++ "return " ++ showCExpression res ++ ";"
     ++ "\n" ++ indentStr indent ++ "}"
@@ -140,5 +141,12 @@ main = do
     putStrLn $ CL.showCStmt 0 (CL.setup cl)
     putStrLn $ "return " ++ showCExpression (CL.result cl) ++ ";"
     putStrLn "\n--- Translating to C ---"
-    putStrLn $ showCStmt 0 c
-    putStrLn $ "return " ++ CL.showCExpression (CL.result cl) ++ ";"
+    let fileName = "output.c"
+    let headers = "#include <stdbool.h>\n" ++ "typedef int (*intToint)(int);\n"
+    let body = showCStmt 0 c
+    let ret = "\nreturn " ++ CL.showCExpression (CL.result cl) ++ ";\n"
+    let content  = headers ++ body ++ ret
+    handle <- openFile fileName WriteMode
+    hPutStrLn handle content
+    hClose handle
+    putStrLn $ "Successfully wrote to " ++ fileName
