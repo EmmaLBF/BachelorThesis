@@ -270,15 +270,16 @@ showCValue (FunV _) = "funv"
 -- showParams (i:r) = showCParam i ++ ", " ++ showParams r
 
 showProx :: TypeRep -> String
-showProx p = case show p of
-              "Int" -> "int"
-              "Bool" -> "bool"
-              "Int -> Int" -> "intToint"
-              "()" -> "void*"
-              "(Int,Int)" -> "int*"
-              "(Bool,Bool)" -> "bool*"
-              "(Int,Int) -> Int" -> "int* (*)(int)"
-              _ -> show p
+showProx p = 
+    let args = typeRepArgs p
+        con  = show (typeRepTyCon p)
+    in case (con, args) of
+        ("Int",  [])     -> "int"
+        ("Bool", [])     -> "bool"
+        ("()",   [])     -> "void*"
+        ("(,)",  [a, _]) -> showProx a ++ "*"  -- simplification, same as before
+        ("->",   [a, b]) -> showProx b ++ " (*)(" ++ showProx a ++ ")"
+        _                -> show p
 
 showCStmt :: Int -> CStatement -> String
 showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression x ++ ";"

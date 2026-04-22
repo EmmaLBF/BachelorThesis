@@ -1,15 +1,8 @@
+
 // imports
 #include <stdbool.h>
 
-// function ptr types
-typedef int (*intToint)(int);
-
-// function declarations
-int v3(int v1, intToint v0);
-intToint v4(intToint v0);
-
-// function definitions
-int v3(int v1, intToint v0) {
+int v3(int v1, int (*v0)(int)) {
   int v2 = 1;
   if (v1 == 0) {
     v2 = 1;
@@ -19,11 +12,8 @@ int v3(int v1, intToint v0) {
   return v2;
 }
 
-intToint v4(intToint v0) {
+int (*v4(int (*v0)(int)))(int) {
   return v3;
 }
 
-int main(void) {
-  intToint v5 = v4(v5);
-  return v5;
-}
+int (*v5)(int) = v4(v5);
