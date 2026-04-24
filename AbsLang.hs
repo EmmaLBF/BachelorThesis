@@ -126,6 +126,10 @@ fac = Fix $ lam $ \f -> lam $ \n ->
     (int 1)
     (n *: (f `app` (n -: int 1)))
 
+facCall :: Lang Int
+facCall =
+  fac `app` int 5
+
 -- 3. Fibonacci
 fib :: Lang (Int -> Int)
 fib = Fix $ lam $ \f -> lam $ \n ->

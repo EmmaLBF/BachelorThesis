@@ -1,0 +1,17 @@
+// imports
+#include <stdbool.h>
+#include <stdio.h>
+
+int v0(int v1) {
+  if (v1 == 0) {
+    return 1;
+  } else {
+    return (v1 * v0((v1 - 1)));
+  }
+}
+
+int main(void) {
+  printf("%d\n", v0(5));
+  return 0;
+}
+
