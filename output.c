@@ -2,6 +2,7 @@
 // imports
 #include <stdbool.h>
 
+
 int v3(int v1, int (*v0)(int)) {
   int v2 = 1;
   if (v1 == 0) {

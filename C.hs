@@ -377,6 +377,7 @@ main = do
     -- let types = "// type decl "
     --let body = "\n" ++ CL.showProx (typeRep (CL.result cl)) ++ " compiled() {" ++ showCStmt 1 lifted
     let body = "\n" ++ showCStmt 0 lifted
+    let mn = "int main(int argc, char *argv[]) {\n" -- am I supposed to give it an arg?
     let content = imports ++ body
     -- let funDecs = "\n// function declarations" ++ showCFunDecs defs defs ++ "\n"
     -- let funDefs = "\n// function definitions" ++ showCFunDefs defs defs
