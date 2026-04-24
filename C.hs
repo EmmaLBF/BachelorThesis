@@ -264,14 +264,15 @@ main = do
     putStrLn "\n--- Printing C ---"
     let fileName = "output.c"
 
-    let imports = "// imports\n#include <stdbool.h>"
-    -- let types = "// type decl "
-    -- let wrap = "\n" ++ CL.showProx (typeRep cl) ++ " compiled() {"
-    let body = "\n" ++ showCStmt 0 lifted -- ++ "\n}"
-    --let mn = "int main(int argc, char *argv[]) {\n" -- am I supposed to give it an arg?
+    let imports = "// imports\n#include <stdbool.h>\n#include <stdio.h>\n"
+    let body = case lifted of
+                Seq f (Seq Skip (Return x)) -> 
+                    showCStmt 0 f ++
+                    "\nint main(void) {\n" ++
+                    "  printf(\"%d\\n\", " ++ showCExpression x ++ ");\n" ++
+                    "  return 0;\n}\n"
+                x -> showCStmt 0 x
     let content = imports ++ body
-    -- let mainFun = "\nint main(void) {\n  return 0;\n}"
-    -- let content  = imports ++ types ++ funDecs ++ funDefs ++ body ++ ret ++ mainFun
     handle <- openFile fileName WriteMode
     hPutStrLn handle content
     hClose handle

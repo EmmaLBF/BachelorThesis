@@ -1,5 +1,6 @@
 // imports
 #include <stdbool.h>
+#include <stdio.h>
 
 int v0(int v1) {
   if (v1 == 0) {
@@ -9,4 +10,8 @@ int v0(int v1) {
   }
 }
 
-return v0(5);
+int main(void) {
+  printf("%d\n", v0(5));
+  return 0;
+}
+
