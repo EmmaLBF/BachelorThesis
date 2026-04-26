@@ -38,6 +38,14 @@ data Lang a where
   Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)
   Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a
   Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b
+  -- | LISTS
+  EmptyList  :: Typeable a => Lang [a]
+  ConsList :: Typeable a => Lang a -> Lang [a] -> Lang [a]
+  CaseList :: (Typeable a, Typeable b)
+           => Lang [a]          -- list to match on
+           -> Lang b            -- nil case
+           -> Lang (a -> [a] -> b)  -- cons case: head -> tail -> result
+           -> Lang b
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
@@ -84,6 +92,12 @@ eval = ev 0 Map.empty
     ev fresh env (Fst p) = fst (ev fresh env p)
     ev fresh env (Snd p) = snd (ev fresh env p)
     ev fresh env (Fix f) = fix (ev fresh env f)
+    ev _ _ EmptyList = []
+    ev fresh env (ConsList x l) = ev fresh env x : ev fresh env l
+    ev fresh env (CaseList l nilCase consCase) =
+      case ev fresh env l of
+        [] -> ev fresh env nilCase
+        (h:t) -> ev fresh env consCase h t
 
 -- Syntactic Sugar
 lam :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
@@ -137,6 +151,10 @@ fib = Fix $ lam $ \f -> lam $ \n ->
     (n <: int 2)
     n
     ((f `app` (n -: int 1)) +: (f `app` (n -: int 2)))
+
+fibCall :: Lang Int
+fibCall =
+  fib `app` int 5
 
 -- 4. GCD (using tuples to pass two arguments recursively)
 gcdLang :: Lang ((Int, Int) -> Int)
@@ -277,6 +295,44 @@ sumDigits = Fix $ lam $ \f -> lam $ \n ->
 letExample :: Lang Int
 letExample = let_ (int 42) $ \x ->
   x +: x
+
+-- helpers
+nil :: Typeable a => Lang [a]
+nil = EmptyList
+
+cons :: Typeable a => Lang a -> Lang [a] -> Lang [a]
+cons = ConsList
+
+-- sum a list
+sumList :: Lang ([Int] -> Int)
+sumList = Fix $ lam $ \f -> lam $ \xs ->
+  CaseList xs
+    (int 0)
+    (lam $ \h -> lam $ \t -> h +: (f `app` t))
+
+sumListCall :: Lang Int
+sumListCall = sumList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+-- length of a list
+lenList :: Lang ([Int] -> Int)
+lenList = Fix $ lam $ \f -> lam $ \xs ->
+  CaseList xs
+    (int 0)
+    (lam $ \_ -> lam $ \t -> int 1 +: (f `app` t))
+
+lenListCall :: Lang Int
+lenListCall = lenList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+-- map over a list
+mapList :: Lang ((Int -> Int) -> [Int] -> [Int])
+mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
+  CaseList xs
+    EmptyList
+    (lam $ \h -> lam $ \t -> ConsList (g `app` h) (f `app` g `app` t))
+
+mapListCall :: Lang [Int]
+mapListCall = mapList `app` (lam $ \x -> x *: int 2)
+                      `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
 main :: IO ()
 main = do

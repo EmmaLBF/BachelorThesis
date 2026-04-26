@@ -1,6 +1,6 @@
 module Main where
 
-import qualified CLang2
+import qualified CLang
 
 main :: IO ()
-main = CLang2.main
+main = CLang.main

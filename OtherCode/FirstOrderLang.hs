@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- HLINT ignore "Use first" -}
 
-module FirstOrderLang where
+module OtherCode.FirstOrderLang where
 
 import qualified AbsLang as AL
 import qualified NamedLang as NL

@@ -32,6 +32,10 @@ data NamedLang a where
   Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)
   Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a
   Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b
+  -- | LISTS
+  EmptyList  :: Typeable a => NamedLang [a]
+  ConsList :: Typeable a => NamedLang a -> NamedLang [a] -> NamedLang [a]
+  CaseList :: (Typeable a, Typeable b) => NamedLang [a] -> NamedLang b -> NamedLang (a -> [a] -> b) -> NamedLang b
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
 translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
@@ -61,6 +65,16 @@ translate c (AL.LCmpOp x y z) = let p = translate c y
 translate c (AL.Prod x y) = let p = translate c x
                                 q = translate (snd p) y
                             in (Prod (fst p) (fst q), snd q)
+translate c AL.EmptyList = (EmptyList, c)
+translate c (AL.ConsList x l) = 
+  let (x', c') = translate c x
+      (l', c'') = translate c' l
+  in (ConsList x' l', c'')
+translate c (AL.CaseList l nilCase consCase) =
+  let (l', c') = translate c l
+      (nilCase', c'') = translate c' nilCase
+      (consCase', c''') = translate c'' consCase
+  in (CaseList l' nilCase' consCase', c''')
 
 
 pretty :: NamedLang a -> String
@@ -102,6 +116,9 @@ pretty expr = go [] expr
         Prod a b -> "(" ++ go env a ++ ", " ++ go env b ++ ")"
         Fst p -> "(fst " ++ go env p ++ ")"
         Snd p -> "(snd " ++ go env p ++ ")"
+        EmptyList -> "[]"
+        ConsList x l -> go env x ++ ":" ++ go env l
+        CaseList l nilCase consCase -> "case " ++ go env l ++ " of\n  [] -> " ++ go env nilCase ++ "\n  (h:t) ->" ++ go env consCase
 
 -- pick next free integer not used in env
 nextFree :: [(Int, String)] -> Int

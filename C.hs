@@ -10,10 +10,10 @@
 
 module C where
 
-import CLang2 (CExpression(..), indentStr, showCExpression, showProx)
+import CLang (CExpression(..), indentStr, showCExpression, showProx)
 import qualified AbsLang as AL
 import qualified NamedLang as NL
-import qualified CLang2 as CL
+import qualified CLang as CL
 
 import Data.Dynamic
 import Control.Monad.State
@@ -44,7 +44,7 @@ data CStatement a where
     While :: CExpression Bool -> CStatement a -> CStatement a
     Skip :: CStatement a
 
-translate :: CL.CStatement a -> CStatement a
+translate :: CL.CStatement -> CStatement a
 translate (CL.BindExpr x i s) = BindExpr x i (translate s)
 translate CL.Skip = Skip
 translate (CL.While cond x) = While cond (translate x)
@@ -54,7 +54,7 @@ translate (CL.If cond x y) = If cond (translate x) (translate y)
 translate (CL.Seq x y) = Seq (translate x) (translate y)
 translate (CL.DefFun tret ifun (iparam, tparam) body) =
     DefFun tret ifun [CParam iparam tparam] (translate body)
-translate (CL.Return x) = Return x
+translate (CL.Return (x :: CExpression a)) = Return x
 
 paramsToSet :: CParams -> Set.Set Int
 paramsToSet [] = Set.empty
@@ -251,20 +251,46 @@ showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ showProxVar ("v" ++
 showCStmt indent (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExpression x ++ ";"
 showCStmt _ Skip = ""
 
+listPreamble :: String
+listPreamble =
+    "\ntypedef struct Node {" ++
+    "\n    void* head;" ++
+    "\n    struct Node* tail;" ++
+    "\n} Node;" ++
+    "\n" ++
+    "\nNode* cons(void* head, Node* tail) {" ++
+    "\n    Node* node = malloc(sizeof(Node));" ++
+    "\n    node->head = head;" ++
+    "\n    node->tail = tail;" ++
+    "\n    return node;" ++ "\n}" ++ "\n" ++
+    "\nint isNil(Node* xs) {" ++
+    "\n    return xs == NULL;" ++
+    "\n}" ++
+    "\n" ++
+    "\nvoid* head(Node* xs) {" ++
+    "\n    return xs->head;" ++
+    "\n}" ++
+    "\n" ++
+    "\nNode* tail(Node* xs) {" ++
+    "\n    return xs->tail;" ++
+    "\n}"
+
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.facCall
+    let progName = "fibCall"
+    let (nl, c') = NL.translate 0 AL.fibCall
         cl = evalState (CL.translate nl) c'
         c = translate cl
+
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
-    putStrLn "\n--- Lambda Lift ---"
-    let lifted = lambdaLift c
 
     putStrLn "\n--- Printing C ---"
-    let fileName = "output.c"
-
-    let imports = "// imports\n#include <stdbool.h>\n#include <stdio.h>\n"
+    let lifted = lambdaLift c
+    let imports = "// imports" ++ 
+                "\n#include <stdbool.h>" ++
+                "\n#include <stdio.h>\n" ++
+                "\n#include <stdlib.h>\n"
     let body = case lifted of
                 Seq f (Seq Skip (Return x)) -> 
                     showCStmt 0 f ++
@@ -272,7 +298,10 @@ main = do
                     "  printf(\"%d\\n\", " ++ showCExpression x ++ ");\n" ++
                     "  return 0;\n}\n"
                 x -> showCStmt 0 x
-    let content = imports ++ body
+    let content = listPreamble ++ imports ++ body
+
+    -- writing to file
+    let fileName = "outputs/" ++ progName ++ "_output.c"
     handle <- openFile fileName WriteMode
     hPutStrLn handle content
     hClose handle

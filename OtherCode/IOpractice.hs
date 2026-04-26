@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
-module IOPractice where
+module OtherCode.IOpractice where
 
 data IOAction a where 
     Return :: a -> IOAction a
