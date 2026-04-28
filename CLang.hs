@@ -18,6 +18,10 @@ import Type.Reflection as Refl
 -- TODO add lists
 -- TODO add algebraic datatypes
 
+data CParam where
+  CParam :: Typeable a => Int -> Proxy a -> CParam
+type CParams = [CParam]
+
 data CValue a where
     IntV :: Int -> CValue Int
     BoolV :: Bool -> CValue Bool
@@ -27,32 +31,29 @@ data CValue a where
     ListV :: [CValue a] -> CValue [a]
 
 data CExpression a where
-    Var :: (Typeable a) => Int -> CExpression a
-    LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
-    LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
-    Val :: CValue a -> CExpression a
-    Not :: CExpression Bool -> CExpression Bool
-    CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
-    Prod :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression (a, b)
-    Fst  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a
-    Snd  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b
-    Ternary :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
-    EmptyList    :: Typeable a => CExpression [a]
-    ConsList   :: Typeable a => CExpression a -> CExpression [a] -> CExpression [a]
-    HeadList   :: Typeable a => CExpression [a] -> CExpression a
-    TailList   :: Typeable a => CExpression [a] -> CExpression [a]
-    IsEmpty  :: Typeable a => CExpression [a] -> CExpression Bool
-    IndexList  :: Typeable a => CExpression [a] -> CExpression Int -> CExpression a
+  Var :: (Typeable a) => Int -> CExpression a
+  LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
+  LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
+  Val :: CValue a -> CExpression a
+  Not :: CExpression Bool -> CExpression Bool
+  CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
+  Prod :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression (a, b)
+  Fst  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a
+  Snd  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b
+  Ternary :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
+  EmptyList    :: Typeable a => CExpression [a]
+  ConsList   :: Typeable a => CExpression a -> CExpression [a] -> CExpression [a]
+  HeadList   :: Typeable a => CExpression [a] -> CExpression a
+  TailList   :: Typeable a => CExpression [a] -> CExpression [a]
+  IsEmpty  :: Typeable a => CExpression [a] -> CExpression Bool
+  IndexList  :: Typeable a => CExpression [a] -> CExpression Int -> CExpression a
 
 data CStatement a where
   Return :: (Typeable a) => CExpression a -> CStatement a
   BindExpr :: Typeable a => CExpression a -> Int -> CStatement b -> CStatement b
   Seq :: CStatement a -> CStatement a -> CStatement a
   If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-  DefFun    :: (Typeable a, Typeable b)
-            => Proxy b      -- return type
-            -> Int          -- function id
-            -> (Int, Proxy a) -> CStatement b -> CStatement b
+  DefFun    :: (Typeable a, Typeable b) => Proxy b -> Int -> (Int, Proxy a) -> CStatement b -> CStatement b
   DefVar :: Typeable a => Int -> CExpression a -> CStatement b
   UpdateVar :: Typeable a => Int -> CExpression a -> CStatement b
   While :: CExpression Bool -> CStatement a -> CStatement a
@@ -94,6 +95,14 @@ translateExpr _ = error "Expected expression got statement"
 -- extractReturn (Seq _ s)  = extractReturn s
 -- extractReturn _          = error "extractReturn: no return"
 
+ensureReturn :: CStatement a -> CStatement a
+ensureReturn stmt = case unsafeCoerce stmt of
+  DefFun _ ifun1 _ _ ->
+    Seq (unsafeCoerce stmt) (Return (Var ifun1))
+  Seq x y ->
+    Seq x (ensureReturn y)
+  _ -> stmt
+
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) x) = do
   fStmt <- translate f
@@ -103,25 +112,6 @@ translate (NL.Apply (f :: NL.NamedLang (arg -> a)) x) = do
               _ -> error "Called apply without a function"
   return $ Seq (unsafeCoerce fStmt)
          $ Return (CallExpr (Var fId :: CExpression (arg -> a)) argExpr)
-  -- case unsafeCoerce fStmt of
-  --   DefFun _ fId _ _ ->
-  --     return $ Seq (unsafeCoerce fStmt)
-  --            $ Return (CallExpr (Var fId :: CExpression (arg -> a)) argExpr)
-    -- intermediate result: f translated to Seq(defuns..., Return(CallExpr...))
-    -- bind the result to a fresh var and call that
-    -- _ -> do
-    --   rId <- fresh
-    --   let callResult = unsafeCoerce (extractReturn fStmt) :: CExpression (arg -> a)
-    --   return $ Seq (unsafeCoerce fStmt)
-    --          $ BindExpr callResult rId
-    --          $ Return (CallExpr (Var rId :: CExpression (arg -> a)) argExpr)
-
-
-  --     fId = case unsafeCoerce fStmt of
-  --             DefFun _ i _ _ -> i
-  --             _ -> error "Called apply without a function"
-  -- return $ Seq (unsafeCoerce fStmt)
-  --        $ Return (CallExpr (Var fId :: CExpression (arg -> a)) argExpr)
 translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
@@ -130,12 +120,11 @@ translate (NL.If cond t f) = do
 translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
   cf <- translate f
   ifun <- fresh
-  let stmt = case cf of
-              (DefFun _ ifun1 _ _) ->
-                DefFun (Proxy :: Proxy b) ifun (i, arg)
-                  (Seq cf (Return (Var ifun1)))
-              _ -> DefFun (Proxy :: Proxy b) ifun (i, arg) cf
-  return (unsafeCoerce stmt)
+  let body = case cf of
+              (DefFun _ ifun1 _ _) -> Seq cf (Return (Var ifun1))
+              _ -> cf
+      def = DefFun (Proxy :: Proxy b) ifun (i, arg) body
+  return (unsafeCoerce def)
 translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
   cf <- translate f
   return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (unsafeCoerce cf)))
@@ -149,16 +138,7 @@ translate (NL.CaseList l nilCase consCase) = do
   let callExpr = CallExpr (CallExpr (Var fId) (HeadList cxs)) (TailList cxs)
   return $ Seq (unsafeCoerce consStmt)
          $ Return (Ternary (IsEmpty cxs) nilExpr callExpr)
-  -- cnilStmt <- translate nilCase
-  -- hId <- fresh
-  -- tId <- fresh
-  -- cconsInner <- translate (NL.Apply (NL.Apply consCase (NL.Var hId)) (NL.Var tId))
-  -- let cconsStmt = BindExpr (HeadList cxs) hId
-  --               $ BindExpr (TailList cxs) tId
-  --                 cconsInner
-  -- return $ If (IsEmpty cxs) cnilStmt cconsStmt
-translate x =
-  return $ Return (translateExpr x)
+translate x = return $ Return (translateExpr x)
 
 unInt :: CValue Int -> Int
 unInt (IntV x) = x
@@ -173,9 +153,9 @@ data Env where
   Empty :: Env
   Extend :: Typeable a => Int -> CValue a -> Env -> Env
 
-data ExecResult where
-  Continue  :: Env -> ExecResult
-  ReturnVal :: Typeable a => CValue a -> Env -> ExecResult
+data ExecResult a where
+  Continue  :: Env -> ExecResult a
+  ReturnVal :: Typeable a => CValue a -> Env -> ExecResult a
 
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
@@ -185,12 +165,6 @@ lookupEnv i1 (Extend i2 x remainder)
                     " | expect = " ++ show (DType.typeRep (Proxy :: Proxy a))) $
              cast x
   | otherwise = lookupEnv i1 remainder
-
-lookupEnvType :: Int -> Env -> Maybe DType.TypeRep
-lookupEnvType _ Empty = Nothing
-lookupEnvType i1 (Extend i2 x remainder)
-  | i1 == i2  = Just (DType.typeRep x)
-  | otherwise = lookupEnvType i1 remainder
 
 evalExpr :: forall a. Typeable a => CExpression a -> Env -> CValue a
 evalExpr (Val x) _ = x
@@ -229,7 +203,18 @@ evalExpr (IndexList l i) m =
       IntV idx = evalExpr i m
   in vs !! idx
 
-evalStmt :: CStatement a -> Env -> ExecResult
+-- buildFun :: forall b. Typeable b => CParams -> CStatement b -> Env -> CValue b
+-- buildFun [] body m =
+--   case evalStmt body m of
+--     ReturnVal v _ -> case cast v of
+--       Just v' -> v'
+--       Nothing -> error "Type mismatch in DefFun"
+--     Continue _ -> error "function does not return anything"
+-- buildFun ((CParam iparam (tparam :: Proxy a)):is) body m =
+--   unsafeCoerce $ FunV $ \(arg :: CValue a) ->
+--     buildFun is body (Extend iparam arg m)
+
+evalStmt :: CStatement a -> Env -> ExecResult a
 evalStmt (BindExpr x i y) m = evalStmt y (Extend i (evalExpr x m) m)
 evalStmt (DefVar i x) m = Continue (Extend i (evalExpr x m) m)
 evalStmt (UpdateVar i x) m = Continue (Extend i (evalExpr x m) m)
@@ -245,14 +230,13 @@ evalStmt (If cond t e) m =
   -- trace (">> if res: " ++ (if condBool then "true" else "false"))
 evalStmt (While cond body) env =
   let cond' = evalExpr cond env
-  in
-    if unBool cond'
+  in if unBool cond'
     then
       case evalStmt body env of
         ReturnVal v env' -> ReturnVal v env'
         Continue env'    -> evalStmt (While cond body) env'
     else Continue env
-evalStmt (DefFun (tfun :: Proxy b) ifun (iparam, tparam :: Proxy a) body) m =
+evalStmt (DefFun (_ :: Proxy b) ifun (iparam, _ :: Proxy a) body) m =
   let fn :: CValue a -> CValue b
       fn arg = case evalStmt body (Extend iparam arg m') of
                 ReturnVal v _ -> trace ("returning: " ++ show (DType.typeRep v)) $ case cast v of
@@ -260,16 +244,14 @@ evalStmt (DefFun (tfun :: Proxy b) ifun (iparam, tparam :: Proxy a) body) m =
                   Nothing -> error "Type mismatch in DefFun "
                 Continue _ -> error "function does not return anything"
       m' = Extend ifun (FunV fn) m
-  in trace ("c: " ++ show (DType.typeRep tparam) ++ " | b: " ++ show (DType.typeRep tfun)) $ Continue m'
+  in Continue m'
 
-
-data SomeCValue where
-  SomeCValue :: Typeable a => CValue a -> SomeCValue
-
-eval :: CStatement a -> Env -> SomeCValue
-eval x m = case evalStmt x m of
+eval :: Typeable a => CStatement a -> Env -> CValue a
+eval (x :: CStatement a) m = case evalStmt x m of
   Continue _    -> error "Eval did not return anything"
-  ReturnVal v _ -> SomeCValue v
+  ReturnVal (v :: CValue a) _ -> v
+
+-- PRINTING
 
 indentStr :: Int -> String
 indentStr n = replicate (2 * n) ' '
@@ -285,9 +267,6 @@ showCmpOp :: AL.CmpOp -> String
 showCmpOp Eq = "=="
 showCmpOp Lt = "<"
 showCmpOp Gt = ">"
-
-showSomeValue :: SomeCValue -> String
-showSomeValue (SomeCValue v) = showCValue v
 
 showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
@@ -308,8 +287,22 @@ showProx p =
         ("Int",  [])     -> "int"
         ("Bool", [])     -> "bool"
         ("()",   [])     -> "void*"
+        ("[]",   [_])     -> "Node*"
         ("(,)",  [a, _]) -> showProx a ++ "*"
         ("->",   [a, b]) -> showProx b ++ " (*)(" ++ showProx a ++ ")"
+        _                -> show p
+
+showProxList :: DType.TypeRep -> String
+showProxList p =
+    let args = typeRepArgs p
+        con  = show (DType.typeRepTyCon p)
+    in case (con, args) of
+        ("Int",  [])     -> "int"
+        ("Bool", [])     -> "bool"
+        ("()",   [])     -> "void*"
+        ("[]",   [a])     -> showProxList a ++ "*"
+        ("(,)",  [a, _]) -> showProxList a ++ "*"
+        ("->",   [a, b]) -> showProxList b ++ " (*)(" ++ showProxList a ++ ")"
         _                -> show p
 
 showLitStmt :: Int -> CStatement a -> String
@@ -328,7 +321,7 @@ showLitStmt indent (BindExpr x i y) =
     "\n" ++ indentStr indent ++ "BindExpr v" ++ show i ++ " = " ++ showCExpression x ++ "in"
     ++ showLitStmt (indent + 1) y
 showLitStmt indent (Seq x y) =
-    showLitStmt indent x ++ showLitStmt indent y
+    "Seq " ++ showLitStmt indent x ++ showLitStmt indent y
 showLitStmt indent (DefFun tret ifun (iparam, tparam) body) =
     "\n" ++ indentStr indent ++ "DefFun " ++ show ifun ++ " | tfun: " ++ show (DType.typeRep tret) ++ " | param: (" ++ show (DType.typeRep tparam) ++ " v" ++ show iparam ++ ") {"
     ++ showLitStmt (indent + 1) body
@@ -354,8 +347,8 @@ showCStmt indent (BindExpr x i y) =
     ++ showCStmt (indent + 1) y
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
-showCStmt indent (DefFun tret ifun (iparam, tparam) body) =
-    "\n" ++ indentStr indent ++ showProx (DType.typeRep tret) ++ " function" ++ show ifun ++ " (" ++ showProx (DType.typeRep tparam) ++ " v" ++ show iparam ++ ") {"
+showCStmt indent (DefFun tret ifun (i, targ) body) =
+    "\n" ++ indentStr indent ++ showProx (DType.typeRep tret) ++ " function" ++ show ifun ++ " (" ++ showProx (DType.typeRep targ) ++ " v" ++ show i ++ ") {"
     ++ showCStmt (indent + 1) body
     ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression f ++ ";"
@@ -372,10 +365,10 @@ showCExpression (CallExpr f arg) = showCExpression f ++ "(" ++ showCExpression a
 showCExpression (Prod l r) = "(" ++ showCExpression l ++ "," ++ showCExpression r ++ ")"
 showCExpression (Fst p) = showCExpression p ++ "[0]"
 showCExpression (Snd p) = showCExpression p ++ "[1]"
-showCExpression EmptyList = "[]"
-showCExpression (ConsList x l) = showCExpression x ++ ":" ++ showCExpression l
+showCExpression EmptyList = "NULL"
+showCExpression (ConsList x l) = "cons(&(" ++ showProx (DType.typeRep x) ++ "){" ++ showCExpression x ++ "}, " ++ showCExpression l ++ ")"
 showCExpression (IsEmpty l) = "isEmpty(" ++ showCExpression l ++ ")"
-showCExpression (HeadList l) = "head(" ++ showCExpression l ++ ")"
+showCExpression (HeadList l) = "*(" ++ showProxList (DType.typeRep l) ++ ")" ++ "head(" ++ showCExpression l ++ ")"
 showCExpression (TailList l) = "tail(" ++ showCExpression l ++ ")"
 showCExpression (IndexList l i) = showCExpression l ++ "[" ++ showCExpression i ++ "]"
 showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" ++ showCExpression thn ++ ") : (" ++ showCExpression els ++ ")"
@@ -386,11 +379,12 @@ showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showE
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.sumListCall
+    let (nl, c') = NL.translate 0 AL.fibCall
         cl = evalState (translate nl) c'
         ev = eval cl Empty
     putStrLn $ NL.pretty nl
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 cl
+    putStrLn $ showLitStmt 0 cl
     putStrLn "\n--- Evaluating ---"
-    putStrLn $ showSomeValue ev
+    putStrLn $ showCValue ev
