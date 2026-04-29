@@ -34,7 +34,7 @@ int v0(Node* v1);
 
 // Compiled Program
 int v5(int v2, Node* v3) {
-  return (v2 + v0(v3));
+  return (1 + v0(v3));
 }
 
 int v0(Node* v1) {

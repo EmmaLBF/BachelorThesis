@@ -1,6 +1,5 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module CLang where
@@ -13,13 +12,12 @@ import Control.Monad.State
 import Data.Typeable as DType
 import Debug.Trace
 import Unsafe.Coerce (unsafeCoerce)
-import Type.Reflection as Refl
 
--- TODO add lists
 -- TODO add algebraic datatypes
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
+
 type CParams = [CParam]
 
 data CValue a where
@@ -31,16 +29,18 @@ data CValue a where
     ListV :: [CValue a] -> CValue [a]
 
 data CExpression a where
+  Val :: CValue a -> CExpression a
+  Not :: CExpression Bool -> CExpression Bool
   Var :: (Typeable a) => Int -> CExpression a
   LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
   LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
-  Val :: CValue a -> CExpression a
-  Not :: CExpression Bool -> CExpression Bool
+  Ternary :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
   CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
+  -- Tuples
   Prod :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression (a, b)
   Fst  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a
   Snd  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b
-  Ternary :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
+  -- Lists
   EmptyList    :: Typeable a => CExpression [a]
   ConsList   :: Typeable a => CExpression a -> CExpression [a] -> CExpression [a]
   HeadList   :: Typeable a => CExpression [a] -> CExpression a
@@ -59,49 +59,33 @@ data CStatement a where
   While :: CExpression Bool -> CStatement a -> CStatement a
   Skip :: CStatement a
 
+data Env where
+  Empty :: Env
+  Extend :: Typeable a => Int -> CValue a -> Env -> Env
+
+data ExecResult a where
+  Continue  :: Env -> ExecResult a
+  ReturnVal :: Typeable a => CValue a -> Env -> ExecResult a
+
 fresh :: State Int Int
 fresh = do
   n <- get
   modify (+1)
   return n
 
-defaultVarInit :: forall a. Typeable a => Proxy a -> CExpression a
-defaultVarInit _ =
-  case eqTypeRep (Refl.typeRep @a) (Refl.typeRep @Int) of
-    Just HRefl -> Val (IntV 0)
-    Nothing ->
-      case eqTypeRep (Refl.typeRep @a) (Refl.typeRep @Bool) of
-        Just HRefl -> Val (BoolV False)
-        Nothing ->
-          error "Unsupported type"
-
 translateExpr :: NL.NamedLang a -> CExpression a
+translateExpr (NL.Var n) = Var n
+translateExpr  NL.EmptyList = EmptyList
 translateExpr (NL.LInt n) = Val (IntV n)
 translateExpr (NL.LBool b) = Val (BoolV b)
-translateExpr (NL.Var n) = Var n
-translateExpr (NL.Prod (x :: NL.NamedLang a) y) = Prod (translateExpr x) (translateExpr y)
 translateExpr (NL.Fst p) = Fst (translateExpr p)
 translateExpr (NL.Snd p) = Snd (translateExpr p)
+translateExpr (NL.Prod x y) = Prod (translateExpr x) (translateExpr y)
+translateExpr (NL.Apply f x) = CallExpr (translateExpr f) (translateExpr x)
+translateExpr (NL.ConsList x l) = ConsList (translateExpr x) (translateExpr l)
 translateExpr (NL.LIntOp op l r) = LIntOp op (translateExpr l) (translateExpr r)
 translateExpr (NL.LCmpOp op l r) = LCmpOp op (translateExpr l) (translateExpr r)
-translateExpr (NL.Apply f x) = CallExpr (translateExpr f) (translateExpr x)
-translateExpr NL.EmptyList = EmptyList
-translateExpr (NL.ConsList x l) = ConsList (translateExpr x) (translateExpr l)
 translateExpr _ = error "Expected expression got statement"
-
--- extract the expression from a Return statement
--- extractReturn :: Typeable a => CStatement -> CExpression a
--- extractReturn (Return e) = e
--- extractReturn (Seq _ s)  = extractReturn s
--- extractReturn _          = error "extractReturn: no return"
-
-ensureReturn :: CStatement a -> CStatement a
-ensureReturn stmt = case unsafeCoerce stmt of
-  DefFun _ ifun1 _ _ ->
-    Seq (unsafeCoerce stmt) (Return (Var ifun1))
-  Seq x y ->
-    Seq x (ensureReturn y)
-  _ -> stmt
 
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) x) = do
@@ -149,14 +133,6 @@ unBool (BoolV x) = x
 unList :: CValue [a] -> [CValue a]
 unList (ListV x) = x
 
-data Env where
-  Empty :: Env
-  Extend :: Typeable a => Int -> CValue a -> Env -> Env
-
-data ExecResult a where
-  Continue  :: Env -> ExecResult a
-  ReturnVal :: Typeable a => CValue a -> Env -> ExecResult a
-
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
 lookupEnv i1 (Extend i2 x remainder)
@@ -192,7 +168,7 @@ evalExpr (HeadList l) m =
     ListV (h:_) -> h
 evalExpr (TailList l) m =
   case evalExpr l m of
-    ListV [] -> error "List is empty, cannot get head"
+    ListV [] -> error "List is empty, cannot get tail"
     ListV (_:t) -> ListV t
 evalExpr (IsEmpty l) m =
   case evalExpr l m of
@@ -203,45 +179,28 @@ evalExpr (IndexList l i) m =
       IntV idx = evalExpr i m
   in vs !! idx
 
--- buildFun :: forall b. Typeable b => CParams -> CStatement b -> Env -> CValue b
--- buildFun [] body m =
---   case evalStmt body m of
---     ReturnVal v _ -> case cast v of
---       Just v' -> v'
---       Nothing -> error "Type mismatch in DefFun"
---     Continue _ -> error "function does not return anything"
--- buildFun ((CParam iparam (tparam :: Proxy a)):is) body m =
---   unsafeCoerce $ FunV $ \(arg :: CValue a) ->
---     buildFun is body (Extend iparam arg m)
-
 evalStmt :: CStatement a -> Env -> ExecResult a
 evalStmt (BindExpr x i y) m = evalStmt y (Extend i (evalExpr x m) m)
 evalStmt (DefVar i x) m = Continue (Extend i (evalExpr x m) m)
 evalStmt (UpdateVar i x) m = Continue (Extend i (evalExpr x m) m)
-evalStmt (Return (x :: CExpression a)) m = ReturnVal (evalExpr x m) m
+evalStmt (Return x) m = ReturnVal (evalExpr x m) m
 evalStmt Skip m = Continue m
 evalStmt (Seq x y) m =
   case evalStmt x m of
     ReturnVal v env' -> ReturnVal v env'
     Continue env'    -> evalStmt y env'
 evalStmt (If cond t e) m =
-  let condBool = unBool (evalExpr cond m)
-  in if condBool then evalStmt t m else evalStmt e m
-  -- trace (">> if res: " ++ (if condBool then "true" else "false"))
+  if unBool (evalExpr cond m) then evalStmt t m else evalStmt e m
 evalStmt (While cond body) env =
-  let cond' = evalExpr cond env
-  in if unBool cond'
-    then
-      case evalStmt body env of
-        ReturnVal v env' -> ReturnVal v env'
-        Continue env'    -> evalStmt (While cond body) env'
-    else Continue env
+  if unBool (evalExpr cond env) then
+    case evalStmt body env of
+      ReturnVal v env' -> ReturnVal v env'
+      Continue env'    -> evalStmt (While cond body) env'
+  else Continue env
 evalStmt (DefFun (_ :: Proxy b) ifun (iparam, _ :: Proxy a) body) m =
   let fn :: CValue a -> CValue b
       fn arg = case evalStmt body (Extend iparam arg m') of
-                ReturnVal v _ -> trace ("returning: " ++ show (DType.typeRep v)) $ case cast v of
-                  Just v' -> v'
-                  Nothing -> error "Type mismatch in DefFun "
+                ReturnVal v _ -> v
                 Continue _ -> error "function does not return anything"
       m' = Extend ifun (FunV fn) m
   in Continue m'
@@ -249,7 +208,7 @@ evalStmt (DefFun (_ :: Proxy b) ifun (iparam, _ :: Proxy a) body) m =
 eval :: Typeable a => CStatement a -> Env -> CValue a
 eval (x :: CStatement a) m = case evalStmt x m of
   Continue _    -> error "Eval did not return anything"
-  ReturnVal (v :: CValue a) _ -> v
+  ReturnVal v _ -> v
 
 -- PRINTING
 
@@ -271,7 +230,7 @@ showCmpOp Gt = ">"
 showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
-showCValue UnitV = "null"
+showCValue UnitV = "NULL"
 showCValue (PairV x y) = "(" ++ showCValue x ++ ", " ++ showCValue y ++ ")"
 showCValue (FunV _) = "funv"
 showCValue (ListV l) =

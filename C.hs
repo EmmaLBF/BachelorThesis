@@ -1,16 +1,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use when" #-}
-{-# HLINT ignore "Avoid lambda" #-}
-{-# HLINT ignore "Use lambda-case" #-}
-{-# HLINT ignore "Use foldl" #-}
-{-# HLINT ignore "Avoid lambda using `infix`" #-}
-{- HLINT ignore "Use first" -}
 
 -- gcc ./outputs/sumListCall_output.c -o ./outputs/sumListCall_output
 -- ./outputs/sumListCall_output
-
 
 module C where
 
@@ -24,16 +17,18 @@ import Control.Monad.State
 import Data.Typeable
 import Debug.Trace
 import System.IO
-import qualified Data.Set as Set
-import Data.Map
-import qualified Data.Map as Map
 import Unsafe.Coerce
 import Data.List
+import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
-
 type CParams = [CParam]
+type CParamMap = Map.Map Int CParam
+
+data CArg where
+  CArg :: Typeable a => CExpression a -> CArg
 
 data CStatement a where
     Return :: CExpression a -> CStatement a
@@ -41,7 +36,7 @@ data CStatement a where
     Seq :: CStatement a -> CStatement a -> CStatement a
     If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
     DefFun :: (Typeable b)
-                => Proxy b
+                => TypeRep
                 -> Int
                 -> CParams -> CStatement b -> CStatement b
     DefVar :: Typeable a => Int -> CExpression a -> CStatement b
@@ -49,52 +44,47 @@ data CStatement a where
     While :: CExpression Bool -> CStatement a -> CStatement a
     Skip :: CStatement a
 
+type LiftEnv = Map.Map Int CParams
+type Lifted a = [CStatement a]
+
 translate :: CL.CStatement a -> CStatement a
-translate (CL.BindExpr x i s) = BindExpr x i (translate s)
 translate CL.Skip = Skip
-translate (CL.While cond x) = While cond (translate x)
-translate (CL.UpdateVar i x) = UpdateVar i x
+translate (CL.Return x) = Return x
 translate (CL.DefVar i x) = DefVar i x
-translate (CL.If cond x y) = If cond (translate x) (translate y)
+translate (CL.UpdateVar i x) = UpdateVar i x
+translate (CL.While cond x) = While cond (translate x)
 translate (CL.Seq x y) = Seq (translate x) (translate y)
-translate (CL.DefFun _ _ (iparam, tparam) (CL.DefFun tret1 ifun1 (iparam1, tparam1) body1)) =
-    DefFun tret1 ifun1 [CParam iparam tparam, CParam iparam1 tparam1] (translate body1)
-translate (CL.DefFun tret ifun (iparam, tparam) body) =
-    DefFun tret ifun [CParam iparam tparam] (translate body)
-translate (CL.Return (x :: CExpression a)) = Return x
+translate (CL.BindExpr x i s) = BindExpr x i (translate s)
+translate (CL.If cond x y) = If cond (translate x) (translate y)
+translate (CL.DefFun tret ifun (ip, tp) body) = DefFun (typeRep tret) ifun [CParam ip tp] (translate body)
 
-paramsToSet :: CParams -> Set.Set Int
-paramsToSet [] = Set.empty
-paramsToSet [CParam i _] = Set.singleton i
-paramsToSet (i:is) = Set.union (paramsToSet [i]) (paramsToSet is)
-
-paramsToMap :: CParams -> Map Int CParam
+paramsToMap :: CParams -> CParamMap
 paramsToMap = Map.fromList . Prelude.map (\p@(CParam i _) -> (i, p))
 
-merge :: (Map Int CParam, Map Int CParam) -> (Map Int CParam, Map Int CParam) -> (Map Int CParam, Map Int CParam)
+merge :: (CParamMap, CParamMap) -> (CParamMap, CParamMap) -> (CParamMap, CParamMap)
 merge (xfree, xbound) (yfree, ybound) = (Map.union xfree yfree, Map.union xbound ybound)
 
 -- free, bound
-freeVarsExpr :: forall a. CExpression a -> (Map Int CParam, Map Int CParam)
-freeVarsExpr (Var i) = (Map.singleton i (CParam i (Proxy :: Proxy a)), Map.empty)
-freeVarsExpr (Val _) = (Map.empty, Map.empty)
+freeVarsExpr :: forall a. CExpression a -> (CParamMap, CParamMap)
 freeVarsExpr (Not x) = freeVarsExpr x
-freeVarsExpr (LIntOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (LCmpOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (Prod x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (Fst x) = freeVarsExpr x
 freeVarsExpr (Snd x) = freeVarsExpr x
-freeVarsExpr (CallExpr f x) = merge (freeVarsExpr f) (freeVarsExpr x)
-freeVarsExpr (Ternary cond thn els) = merge (merge (freeVarsExpr cond) (freeVarsExpr thn)) (freeVarsExpr els)
-freeVarsExpr (ConsList l x) = merge (freeVarsExpr l) (freeVarsExpr x)
+freeVarsExpr (IsEmpty l) = freeVarsExpr l
 freeVarsExpr (TailList l) = freeVarsExpr l
 freeVarsExpr (HeadList l) = freeVarsExpr l
-freeVarsExpr (IsEmpty l) = freeVarsExpr l
 freeVarsExpr (IndexList l _) = freeVarsExpr l
+freeVarsExpr (Val _) = (Map.empty, Map.empty)
 freeVarsExpr EmptyList = (Map.empty, Map.empty)
+freeVarsExpr (Prod x y) = merge (freeVarsExpr x) (freeVarsExpr y)
+freeVarsExpr (LIntOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
+freeVarsExpr (LCmpOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
+freeVarsExpr (CallExpr f x) = merge (freeVarsExpr f) (freeVarsExpr x)
+freeVarsExpr (ConsList l x) = merge (freeVarsExpr l) (freeVarsExpr x)
+freeVarsExpr (Var i) = (Map.singleton i (CParam i (Proxy :: Proxy a)), Map.empty)
+freeVarsExpr (Ternary cond thn els) = merge (merge (freeVarsExpr cond) (freeVarsExpr thn)) (freeVarsExpr els)
 
 -- free, bound
-freeVarsStmt :: Typeable a => CStatement a -> (Map Int CParam, Map Int CParam)
+freeVarsStmt :: Typeable a => CStatement a -> (CParamMap, CParamMap)
 freeVarsStmt (BindExpr (x :: CExpression a) i y) =
     let (mfree, mbound) = merge (freeVarsExpr x) (freeVarsStmt y)
     in (mfree, Map.insert i (CParam i (Proxy :: Proxy a)) mbound)
@@ -114,7 +104,7 @@ freeVarsStmt (DefVar i (x :: CExpression a)) =
 freeVarsStmt (Return x) = freeVarsExpr x
 freeVarsStmt Skip = (Map.empty, Map.empty)
 
-freeVars :: Typeable a => CStatement a -> Map Int CParam
+freeVars :: Typeable a => CStatement a -> CParamMap
 freeVars s =
     let (free, bound) = freeVarsStmt s
     in Map.difference free bound
@@ -122,12 +112,7 @@ freeVars s =
 applyArgs :: forall a. Typeable a => CExpression a -> CParams -> CExpression a
 applyArgs acc [] = acc
 applyArgs acc ((CParam i (Proxy :: Proxy p)) : vs) =
-    let applied = CallExpr
-                    (unsafeCoerce acc :: CExpression (p -> a))
-                    (Var i :: CExpression p)
-    in applyArgs (unsafeCoerce applied) vs
-
-type LiftEnv = Map Int CParams
+    applyArgs (CallExpr (unsafeCoerce acc) (Var i :: CExpression p)) vs
 
 rewriteExpr :: LiftEnv -> CExpression a -> CExpression a
 rewriteExpr env (CallExpr (Var f) x) =
@@ -136,20 +121,19 @@ rewriteExpr env (CallExpr (Var f) x) =
   in case Map.lookup f env of
        Just extraVars -> applyArgs base extraVars
        Nothing -> base
-rewriteExpr m  (CallExpr f x) = CallExpr (rewriteExpr m f) (rewriteExpr m x)
 rewriteExpr m  (Not x) = Not (rewriteExpr m x)
-rewriteExpr m  (LIntOp op x y) = LIntOp op (rewriteExpr m x) (rewriteExpr m y)
-rewriteExpr m  (LCmpOp op x y) = LCmpOp op (rewriteExpr m x) (rewriteExpr m y)
-rewriteExpr m  (Prod x y) = Prod (rewriteExpr m x) (rewriteExpr m y)
 rewriteExpr m  (Fst x) = Fst (rewriteExpr m x)
 rewriteExpr m  (Snd x) = Snd (rewriteExpr m x)
 rewriteExpr m  (IsEmpty x) = IsEmpty (rewriteExpr m x)
 rewriteExpr m  (HeadList x) = HeadList (rewriteExpr m x)
 rewriteExpr m  (TailList x) = TailList (rewriteExpr m x)
-rewriteExpr m  (ConsList l x) = ConsList (rewriteExpr m l) (rewriteExpr m x)
 rewriteExpr m  (IndexList l i) = IndexList (rewriteExpr m l) i
-rewriteExpr _  EmptyList = EmptyList
-rewriteExpr m (Ternary x y z) = Ternary (rewriteExpr m x) (rewriteExpr m y) (rewriteExpr m z)
+rewriteExpr m  (Prod x y) = Prod (rewriteExpr m x) (rewriteExpr m y)
+rewriteExpr m  (ConsList l x) = ConsList (rewriteExpr m l) (rewriteExpr m x)
+rewriteExpr m  (CallExpr f x) = CallExpr (rewriteExpr m f) (rewriteExpr m x)
+rewriteExpr m  (LIntOp op x y) = LIntOp op (rewriteExpr m x) (rewriteExpr m y)
+rewriteExpr m  (LCmpOp op x y) = LCmpOp op (rewriteExpr m x) (rewriteExpr m y)
+rewriteExpr m  (Ternary x y z) = Ternary (rewriteExpr m x) (rewriteExpr m y) (rewriteExpr m z)
 rewriteExpr _ x = x
 
 rewriteStmt :: LiftEnv -> CStatement a -> CStatement a
@@ -157,15 +141,11 @@ rewriteStmt m (BindExpr x i y) = BindExpr (rewriteExpr m x) i (rewriteStmt m y)
 rewriteStmt m (Seq x y) = Seq (rewriteStmt m x) (rewriteStmt m y)
 rewriteStmt m (If cond x y) = If (rewriteExpr m cond) (rewriteStmt m x) (rewriteStmt m y)
 rewriteStmt m (While cond x) = While (rewriteExpr m cond) (rewriteStmt m x)
-rewriteStmt m (DefFun tret ifun params body) =
-    DefFun tret ifun params
-    (rewriteStmt m body)
+rewriteStmt m (DefFun tret ifun params body) = DefFun tret ifun params (rewriteStmt m body)
 rewriteStmt m (UpdateVar i x) = UpdateVar i (rewriteExpr m x)
 rewriteStmt m (DefVar i x) = DefVar i (rewriteExpr m x)
 rewriteStmt m (Return x) = Return (rewriteExpr m x)
 rewriteStmt _ Skip = Skip
-
-type Lifted a = [CStatement a]
 
 liftedFunsList :: Lifted a -> [Int]
 liftedFunsList [] = []
@@ -204,9 +184,6 @@ lambdaLift stmt =
     let (_, lifted, stmt') = liftStmt Map.empty [] stmt
     in (Prelude.foldr Seq stmt' lifted, lifted)
 
-data CArg where
-  CArg :: Typeable a => CExpression a -> CArg
-
 -- for a function (int), given the amount of params, check that every call site has at least that many applications
 checkCallExpr :: Int -> Int -> CExpression a -> Bool
 checkCallExpr fun params expr =
@@ -234,14 +211,14 @@ checkCallStmt fun params stmt = case stmt of
     _              -> True
 
 -- retrun merged and map of functions to their new number of params
-mergeLambdas :: CStatement a -> Map Int Int -> (CStatement a, Map Int Int)
+mergeLambdas :: CStatement a -> Map.Map Int Int -> (CStatement a, Map.Map Int Int)
 mergeLambdas (DefFun tret ifun params body) m =
     case body of
         (Seq (DefFun tret1 ifun1 params1 body1) (Return (Var _))) ->
             let newParams = params ++ params1
                 canMerge  = checkCallStmt ifun1 (length params1) (unsafeCoerce body1)
             in if canMerge then
-                let newDef    = trace ("merging " ++ show ifun ++ " tret1=" ++ unsafeCoerce (show (typeRep body1))) $ DefFun tret1 ifun newParams (unsafeCoerce body1)
+                let newDef = unsafeCoerce $ DefFun tret1 ifun newParams (unsafeCoerce body1 :: CStatement Int)
                     newMap    = Map.insert ifun (length newParams) m
                 in (unsafeCoerce newDef, newMap)
                 else let (body', m') = mergeLambdas body m
@@ -277,6 +254,7 @@ showProxFunc s params p =
         ("Int",  [])     -> "int " ++ s ++ "(" ++ showCParams params ++ ")"
         ("Bool", [])     -> "bool " ++ s ++ "(" ++ showCParams params ++ ")"
         ("()",   [])     -> "void* " ++ s ++ "(" ++ showCParams params ++ ")"
+        ("[]",   [_])     -> "Node* " ++ s ++ "(" ++ showCParams params ++ ")"
         ("(,)",  [a, _]) -> showProx a ++ "* " ++ s ++ "(" ++ showCParams params ++ ")"
         ("->",   [a, b]) -> showProx b ++ " (*" ++ s ++ "(" ++ showCParams params ++ ")" ++ ")(" ++ showProx a ++ ")"
         _                -> show p ++ s ++ "(" ++ showCParams params ++ ")"
@@ -286,7 +264,7 @@ showCParams [] = ""
 showCParams [CParam i t] = showProxVar ("v" ++ show i) (typeRep t)
 showCParams (i:is) = showCParams [i] ++ ", " ++ showCParams is
 
-showCExpression :: CExpression a -> Map Int Int -> String
+showCExpression :: CExpression a -> Map.Map Int Int -> String
 showCExpression (Var i) _ = "v" ++ show i
 showCExpression (Not x) m = "!" ++ showCExpression x m
 showCExpression (LIntOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showBinOp op ++ " " ++ showCExpression y m ++ ")"
@@ -321,7 +299,7 @@ showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
 showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
 showCExpression (Ternary cond thn els) m = "(" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ ")"
 
-showCStmt :: Int -> Map Int Int -> CStatement a -> String
+showCStmt :: Int -> Map.Map Int Int -> CStatement a -> String
 showCStmt indent m (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m (If cond t f) =
     "\n" ++ indentStr indent ++ "if " ++ showCExpression cond m ++ " {"
@@ -339,7 +317,7 @@ showCStmt indent m (BindExpr x i y) =
 showCStmt indent m (Seq x y) =
     showCStmt indent m x ++ showCStmt indent m y
 showCStmt indent m (DefFun prox ifun params body) =
-    "\n" ++ indentStr indent ++ showProxFunc ("v" ++ show ifun) params (typeRep prox) ++ " {"
+    "\n" ++ indentStr indent ++ showProxFunc ("v" ++ show ifun) params prox ++ " {"
     ++ showCStmt (indent + 1) m body
     ++ "\n" ++ indentStr indent ++ "}\n"
 showCStmt indent m (DefVar i f) =  "\n" ++ indentStr indent ++ showProxVar ("v" ++ show i) (typeRep f) ++ " = " ++ showCExpression f m ++ ";"
@@ -369,12 +347,20 @@ listPreamble =
 
 usesListExpr :: CExpression a -> Bool
 usesListExpr EmptyList = True
-usesListExpr (ConsList _ _) = True
-usesListExpr (IsEmpty _ )= True
-usesListExpr HeadList {} = True
-usesListExpr TailList {} = True
-usesListExpr (Val (CL.ListV _)) = True
+usesListExpr IsEmpty{} = True
+usesListExpr ConsList{} = True
+usesListExpr HeadList{} = True
+usesListExpr TailList{} = True
+usesListExpr IndexList{} = True
+usesListExpr (Not x) = usesListExpr x
+usesListExpr (Fst x) = usesListExpr x
+usesListExpr (Snd x) = usesListExpr x
+usesListExpr (Prod x y) = usesListExpr x || usesListExpr y
 usesListExpr (CallExpr f x) = usesListExpr f || usesListExpr x
+usesListExpr (LCmpOp _ x y) = usesListExpr x || usesListExpr y
+usesListExpr (LIntOp _ x y) = usesListExpr x || usesListExpr y
+usesListExpr (Ternary x y z) = usesListExpr x || usesListExpr y || usesListExpr z
+usesListExpr (Val (CL.ListV _)) = True
 usesListExpr _ = False
 
 usesList :: CStatement a -> Bool
@@ -406,13 +392,13 @@ removeFirstReturn x = x
 
 makeFunDefs :: [CStatement a] -> String
 makeFunDefs [] = ""
-makeFunDefs [DefFun tret ifun params _] = "\n" ++ showProxFunc ("v" ++ show ifun) params (typeRep tret) ++ ";"
+makeFunDefs [DefFun tret ifun params _] = "\n" ++ showProxFunc ("v" ++ show ifun) params tret ++ ";"
 makeFunDefs (i:is) = makeFunDefs[i] ++ makeFunDefs is
 
 main :: IO ()
 main = do
-    let progName = "sumListCall"
-    let (nl, c') = NL.translate 0 AL.sumListCall
+    let progName = "mapListCall"
+    let (nl, c') = NL.translate 0 AL.mapListCall
         cl = evalState (CL.translate nl) c'
         c = translate cl
 
