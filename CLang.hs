@@ -12,6 +12,7 @@ import Control.Monad.State
 import Data.Typeable as DType
 import Debug.Trace
 import Unsafe.Coerce (unsafeCoerce)
+import Data.Void (vacuous)
 
 -- TODO add algebraic datatypes
 
@@ -73,6 +74,28 @@ fresh = do
   modify (+1)
   return n
 
+data CallTarget a
+  = FunVar Int
+  | PrevCall (CExpression a)
+
+getCallTarget :: CStatement a -> CallTarget a
+getCallTarget (DefFun _ i _ _)              = FunVar i
+getCallTarget (Seq _ y)                     = getCallTarget (unsafeCoerce y)
+getCallTarget (Return (CallExpr f arg))     = PrevCall (unsafeCoerce (CallExpr f arg))
+getCallTarget _                             = error "no call target"
+
+removeLastReturn :: CStatement a -> CStatement a
+removeLastReturn (Seq x (Return _)) = x
+removeLastReturn (Seq x y)          = Seq x (removeLastReturn (unsafeCoerce y))
+removeLastReturn (Return _)         = Skip
+removeLastReturn x                  = x
+
+ensureReturn :: CStatement a -> CStatement a
+ensureReturn stmt = case stmt of
+  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
+  Seq x y -> Seq x (ensureReturn y)
+  _ -> stmt
+
 translateExpr :: NL.NamedLang a -> CExpression a
 translateExpr (NL.Var n) = Var n
 translateExpr  NL.EmptyList = EmptyList
@@ -90,12 +113,22 @@ translateExpr _ = error "Expected expression got statement"
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) x) = do
   fStmt <- translate f
-  let argExpr = translateExpr x
-      fId = case unsafeCoerce fStmt of
-              DefFun _ i _ _ -> i
-              _ -> error "Called apply without a function"
-  return $ Seq (unsafeCoerce fStmt)
-         $ Return (CallExpr (Var fId :: CExpression (arg -> a)) argExpr)
+  xStmt <- translate x
+  let target  = getCallTarget (unsafeCoerce fStmt)
+      seqDefs = case target of
+                  FunVar _   -> unsafeCoerce fStmt
+                  PrevCall _ -> removeLastReturn (unsafeCoerce fStmt)
+      mkCall :: CExpression arg -> CExpression a
+      mkCall argExpr = 
+        case target of
+          FunVar i   -> CallExpr (Var i) argExpr
+          PrevCall c -> CallExpr c argExpr
+  case xStmt of
+    DefFun _ xId _ _ ->
+      return $ Seq seqDefs (Seq (unsafeCoerce xStmt) (Return (mkCall (Var xId))))
+    _ -> let argExpr = translateExpr x
+         in return $ Seq seqDefs
+                   $ Return (mkCall argExpr)
 translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
@@ -111,7 +144,7 @@ translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
   return (unsafeCoerce def)
 translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
   cf <- translate f
-  return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (unsafeCoerce cf)))
+  return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (ensureReturn (unsafeCoerce cf))))
 translate (NL.CaseList l nilCase consCase) = do
   let cxs      = translateExpr l
       nilExpr  = translateExpr nilCase
@@ -136,10 +169,13 @@ unList (ListV x) = x
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
 lookupEnv i1 (Extend i2 x remainder)
-  | i1 == i2 = trace ("   % lookup v" ++ show i1 ++
-                    ": stored = " ++ show (DType.typeRep x) ++
-                    " | expect = " ++ show (DType.typeRep (Proxy :: Proxy a))) $
-             cast x
+  | i1 == i2 = 
+      -- trace ("   % lookup v" ++ show i1 ++
+      --       ": stored = " ++ show (DType.typeRep x) ++
+      --       " | expect = " ++ show (DType.typeRep (Proxy :: Proxy a))) $
+                  case cast x of
+                    Just v -> v
+                    Nothing -> Just (unsafeCoerce x)
   | otherwise = lookupEnv i1 remainder
 
 evalExpr :: forall a. Typeable a => CExpression a -> Env -> CValue a
@@ -236,6 +272,7 @@ showCValue (FunV _) = "funv"
 showCValue (ListV l) =
   case l of
     [] -> ""
+    [h] -> showCValue h
     (h:t) -> showCValue h ++ ", " ++ showCValue (ListV t)
 
 showProx :: DType.TypeRep -> String
@@ -338,12 +375,12 @@ showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showE
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.fibCall
+    let (nl, c') = NL.translate 0 AL.mapListCall
         cl = evalState (translate nl) c'
         ev = eval cl Empty
     putStrLn $ NL.pretty nl
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 cl
-    putStrLn $ showLitStmt 0 cl
+    -- putStrLn $ showLitStmt 0 cl
     putStrLn "\n--- Evaluating ---"
     putStrLn $ showCValue ev
