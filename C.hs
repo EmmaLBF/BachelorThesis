@@ -8,9 +8,13 @@
 {-# HLINT ignore "Avoid lambda using `infix`" #-}
 {- HLINT ignore "Use first" -}
 
+-- gcc ./outputs/sumListCall_output.c -o ./outputs/sumListCall_output
+-- ./outputs/sumListCall_output
+
+
 module C where
 
-import CLang (CExpression(..), indentStr, showCExpression, showProx)
+import CLang (CExpression(..), indentStr, showProx)
 import qualified AbsLang as AL
 import qualified NamedLang as NL
 import qualified CLang as CL
@@ -24,6 +28,7 @@ import qualified Data.Set as Set
 import Data.Map
 import qualified Data.Map as Map
 import Unsafe.Coerce
+import Data.List
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
@@ -122,7 +127,6 @@ applyArgs acc ((CParam i (Proxy :: Proxy p)) : vs) =
                     (Var i :: CExpression p)
     in applyArgs (unsafeCoerce applied) vs
 
-
 type LiftEnv = Map Int CParams
 
 rewriteExpr :: LiftEnv -> CExpression a -> CExpression a
@@ -200,6 +204,58 @@ lambdaLift stmt =
     let (_, lifted, stmt') = liftStmt Map.empty [] stmt
     in (Prelude.foldr Seq stmt' lifted, lifted)
 
+data CArg where
+  CArg :: Typeable a => CExpression a -> CArg
+
+-- for a function (int), given the amount of params, check that every call site has at least that many applications
+checkCallExpr :: Int -> Int -> CExpression a -> Bool
+checkCallExpr fun params expr =
+    let (f, args) = collectArgs expr
+    in case f of
+        Var i | i == fun -> length args >= params
+        _ -> True  -- not a call to our function, fine
+  where
+    collectArgs :: CExpression a -> (CExpression a, [CArg])
+    collectArgs (CallExpr f args) =
+        let (f', args') = collectArgs (unsafeCoerce f)
+        in (f', args' ++ [CArg args])
+    collectArgs e = (e, [])
+
+checkCallStmt :: Int -> Int -> CStatement a -> Bool
+checkCallStmt fun params stmt = case stmt of
+    Return e       -> checkCallExpr fun params e
+    Seq x y        -> checkCallStmt fun params x && checkCallStmt fun params y
+    If c t e       -> checkCallExpr fun params c &&
+                      checkCallStmt fun params t &&
+                      checkCallStmt fun params e
+    BindExpr e _ s -> checkCallExpr fun params e && checkCallStmt fun params s
+    DefFun _ _ _ b -> checkCallStmt fun params b
+    While c b      -> checkCallExpr fun params c && checkCallStmt fun params b
+    _              -> True
+
+-- retrun merged and map of functions to their new number of params
+mergeLambdas :: CStatement a -> Map Int Int -> (CStatement a, Map Int Int)
+mergeLambdas (DefFun tret ifun params body) m =
+    case body of
+        (Seq (DefFun tret1 ifun1 params1 body1) (Return (Var _))) ->
+            let newParams = params ++ params1
+                canMerge  = checkCallStmt ifun1 (length params1) (unsafeCoerce body1)
+            in if canMerge then
+                let newDef    = trace ("merging " ++ show ifun ++ " tret1=" ++ unsafeCoerce (show (typeRep body1))) $ DefFun tret1 ifun newParams (unsafeCoerce body1)
+                    newMap    = Map.insert ifun (length newParams) m
+                in (unsafeCoerce newDef, newMap)
+                else let (body', m') = mergeLambdas body m
+                    in (DefFun tret ifun params body', m')
+        _ -> let (body', m') = mergeLambdas body m
+            in (DefFun tret ifun params body', m')
+mergeLambdas (Seq x y) m =
+    let (x', m')  = mergeLambdas x m
+        (y', m'') = mergeLambdas y m'
+    in (Seq x' y', m'')
+mergeLambdas stmt m = (stmt, m)
+
+-- SHOW
+
 showProxVar :: String -> TypeRep -> String
 showProxVar s p =
     let args = typeRepArgs p
@@ -230,30 +286,65 @@ showCParams [] = ""
 showCParams [CParam i t] = showProxVar ("v" ++ show i) (typeRep t)
 showCParams (i:is) = showCParams [i] ++ ", " ++ showCParams is
 
-showCStmt :: Int -> CStatement a -> String
-showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x ++ ";"
-showCStmt indent (If cond t f) =
-    "\n" ++ indentStr indent ++ "if " ++ showCExpression cond ++ " {"
-    ++  showCStmt (indent + 1) t
+showCExpression :: CExpression a -> Map Int Int -> String
+showCExpression (Var i) _ = "v" ++ show i
+showCExpression (Not x) m = "!" ++ showCExpression x m
+showCExpression (LIntOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showBinOp op ++ " " ++ showCExpression y m ++ ")"
+showCExpression (LCmpOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showCmpOp op ++ " " ++ showCExpression y m ++ ")"
+showCExpression (Val v) _ = CL.showCValue v
+showCExpression (CallExpr f arg) m = -- merges together nested calls if I merged together the params earlier
+    let (func, args) = collectArgs (CallExpr f arg)
+    in case func of
+        Var i -> case Map.lookup i m of
+            Just n ->
+                let (merged, rest) = Prelude.splitAt n args
+                    baseCall = "v" ++ show i ++ "(" ++ intercalate ", " (Prelude.map (\(CArg a) -> showCExpression a m) merged) ++ ")"
+                in if Prelude.null rest
+                   then baseCall
+                   else baseCall ++ "(" ++ intercalate ", " (Prelude.map (\(CArg a) -> showCExpression a m) rest) ++ ")"
+            Nothing -> showCExpression func m ++ "(" ++ showCExpression arg m ++ ")"
+        _ -> showCExpression func m ++ "(" ++ showCExpression arg m ++ ")"
+  where
+    collectArgs :: CExpression a -> (CExpression a, [CArg])
+    collectArgs (CallExpr fun1 arg1) =
+        let (func, args) = collectArgs (unsafeCoerce fun1)
+        in (func, args ++ [CArg arg1])
+    collectArgs e = (e, [])
+showCExpression (Prod l r) m = "(" ++ showCExpression l m ++ "," ++ showCExpression r m ++ ")"
+showCExpression (Fst p) m = showCExpression p m ++ "[0]"
+showCExpression (Snd p) m = showCExpression p m ++ "[1]"
+showCExpression EmptyList _ = "NULL"
+showCExpression (ConsList x l) m = "cons(&(" ++ showProx (typeRep x) ++ "){" ++ showCExpression x m ++ "}, " ++ showCExpression l m ++ ")"
+showCExpression (IsEmpty l) m = "isEmpty(" ++ showCExpression l m ++ ")"
+showCExpression (HeadList l) m = "*(" ++ CL.showProxList (typeRep l) ++ ")" ++ "head(" ++ showCExpression l m ++ ")"
+showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
+showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
+showCExpression (Ternary cond thn els) m = "(" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ ")"
+
+showCStmt :: Int -> Map Int Int -> CStatement a -> String
+showCStmt indent m (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
+showCStmt indent m (If cond t f) =
+    "\n" ++ indentStr indent ++ "if " ++ showCExpression cond m ++ " {"
+    ++  showCStmt (indent + 1) m t
     ++ "\n" ++ indentStr indent ++ "} else {"
-    ++ showCStmt (indent + 1) f
+    ++ showCStmt (indent + 1) m f
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent (While cond body) =
-    "\n" ++ indentStr indent ++ "while " ++ showCExpression cond ++ " {"
-    ++ showCStmt (indent + 1) body
+showCStmt indent m (While cond body) =
+    "\n" ++ indentStr indent ++ "while " ++ showCExpression cond m ++ " {"
+    ++ showCStmt (indent + 1) m body
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent (BindExpr x i y) =
-    "\n" ++ indentStr indent ++ "let v" ++ show i ++ " = " ++ showCExpression x ++ " in"
-    ++ showCStmt (indent + 1) y
-showCStmt indent (Seq x y) =
-    showCStmt indent x ++ showCStmt indent y
-showCStmt indent (DefFun prox ifun params body) =
+showCStmt indent m (BindExpr x i y) =
+    "\n" ++ indentStr indent ++ "let v" ++ show i ++ " = " ++ showCExpression x m ++ " in"
+    ++ showCStmt (indent + 1) m y
+showCStmt indent m (Seq x y) =
+    showCStmt indent m x ++ showCStmt indent m y
+showCStmt indent m (DefFun prox ifun params body) =
     "\n" ++ indentStr indent ++ showProxFunc ("v" ++ show ifun) params (typeRep prox) ++ " {"
-    ++ showCStmt (indent + 1) body
+    ++ showCStmt (indent + 1) m body
     ++ "\n" ++ indentStr indent ++ "}\n"
-showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ showProxVar ("v" ++ show i) (typeRep f) ++ " = " ++ showCExpression f ++ ";"
-showCStmt indent (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExpression x ++ ";"
-showCStmt _ Skip = ""
+showCStmt indent m (DefVar i f) =  "\n" ++ indentStr indent ++ showProxVar ("v" ++ show i) (typeRep f) ++ " = " ++ showCExpression f m ++ ";"
+showCStmt indent m (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExpression x m ++ ";"
+showCStmt _ _ Skip = ""
 
 listPreamble :: String
 listPreamble =
@@ -306,7 +397,6 @@ findFirstReturn (Seq x y) =
 findFirstReturn (BindExpr _ _ y) = findFirstReturn y
 findFirstReturn _ = error "no return"
 
-
 removeFirstReturn :: CStatement a -> CStatement a
 removeFirstReturn (Return _) = Skip
 removeFirstReturn (Seq (Return _) y) = Seq Skip y
@@ -329,8 +419,12 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
 
+    putStrLn "\n--- Merging Lambdas ---"
+    let (merged, mergedMap) = mergeLambdas c Map.empty
+    putStrLn $ showCStmt 0 mergedMap merged 
+
     putStrLn "\n--- Printing C ---"
-    let (cbody, defs) = lambdaLift c
+    let (cbody, defs) = lambdaLift merged
     let imports = "// imports" ++
                 "\n#include <stdbool.h>" ++
                 "\n#include <stdio.h>" ++
@@ -338,8 +432,8 @@ main = do
     let funDefs = makeFunDefs defs
     let ret = findFirstReturn cbody
     let bodyWithoutRet = removeFirstReturn cbody
-    let body = showCStmt 0 bodyWithoutRet ++ "\nint main(void) {\n" ++
-                    "  printf(\"%d\\n\", " ++ showCExpression ret ++ ");\n" ++
+    let body = showCStmt 0 mergedMap bodyWithoutRet ++ "\nint main(void) {\n" ++
+                    "  printf(\"%d\\n\", " ++ showCExpression ret mergedMap ++ ");\n" ++
                     "  return 0;\n}\n"
     let contentHeader = if usesList cbody then imports ++ listPreamble else imports
     let content = contentHeader ++ "\n// Function Definitions" ++ funDefs ++ "\n\n// Compiled Program" ++ body

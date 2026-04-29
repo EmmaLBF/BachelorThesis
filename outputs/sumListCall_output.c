@@ -29,21 +29,16 @@ Node* tail(Node* xs) {
 }
 
 // Function Definitions
-int v4(Node* v3, int v2);
-int (*v5(int v2))(Node*);
+int (*v5(int v2, Node* v3))(Node*);
 int v0(Node* v1);
 
 // Compiled Program
-int v4(Node* v3, int v2) {
+int (*v5(int v2, Node* v3))(Node*) {
   return (v2 + v0(v3));
 }
 
-int (*v5(int v2))(Node*) {
-  return v4;
-}
-
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1))(tail(v1)));
+  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1), tail(v1)));
 }
 
 int main(void) {
