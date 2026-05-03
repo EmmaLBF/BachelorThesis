@@ -2,43 +2,30 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// List Definitions
-typedef struct Node {
-    void* head;
-    struct Node* tail;
-} Node;
-
-Node* cons(void* head, Node* tail) {
-    Node* node = malloc(sizeof(Node));
-    node->head = head;
-    node->tail = tail;
-    return node;
-}
-
-int isEmpty(Node* xs) {
-    return xs == NULL;
-}
-
-void* head(Node* xs) {
-    return xs->head;
-}
-
-Node* tail(Node* xs) {
-    return xs->tail;
-}
+#include "listLib.c"
 
 // Function Definitions
-int v5(int v2, Node* v3);
+int v4(Node* v3, Closure_v4* env);
+Closure_v4* v5(int v2);
 int v0(Node* v1);
 
 // Compiled Program
-int v5(int v2, Node* v3) {
-  return (v2 + v0(v3));
+typedef struct {
+    int v2;
+} Closure_v4;
+
+int v4(Node* v3, Closure_v4* env) {
+  return (env->v2 + v0(v3));
+}
+
+Closure_v4* v5(int v2) {
+  Closure_v4* env = malloc(sizeof(Closure_v4));
+  env->v2= v2;
+  return env;
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1), tail(v1)));
+  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1))(tail(v1)));
 }
 
 int main(void) {

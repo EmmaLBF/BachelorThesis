@@ -18,6 +18,9 @@ data CmpOp = Eq | Lt | Gt
 --  The Language (GADT, typed via phantom param)
 -- ─────────────────────────────────────────────
 
+-- Algebraic data types
+-- Pattern matching
+
 data Lang a where
   -- | Free variable – looked up in the environment at eval time
   Var :: (Typeable a) => Int -> Lang a

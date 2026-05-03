@@ -12,7 +12,6 @@ import Control.Monad.State
 import Data.Typeable as DType
 import Debug.Trace
 import Unsafe.Coerce (unsafeCoerce)
-import Data.Void (vacuous)
 
 -- TODO add algebraic datatypes
 
