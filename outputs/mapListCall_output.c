@@ -2,49 +2,54 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// List Definitions
-typedef struct Node {
-    void* head;
-    struct Node* tail;
-} Node;
-
-Node* cons(void* head, Node* tail) {
-    Node* node = malloc(sizeof(Node));
-    node->head = head;
-    node->tail = tail;
-    return node;
-}
-
-int isEmpty(Node* xs) {
-    return xs == NULL;
-}
-
-void* head(Node* xs) {
-    return xs->head;
-}
-
-Node* tail(Node* xs) {
-    return xs->tail;
-}
+#include <stdint.h>
+#include "listLib.c"
 
 // Function Definitions
-Node* v6(Node* v4, int (*v1)(int), int v3);
-Node* (*v7(int v3, int (*v1)(int)))(Node*);
-Node* v0(int (*v1)(int), Node* v2);
+Node* v6(void* env, Node* v4);
+Closure* v7(void* env, int v3);
+Node* v8(void* env, Node* v2);
+Closure* v0(int (*v1)(int));
 int v9(int v5);
 
 // Compiled Program
-Node* v6(Node* v4, int (*v1)(int), int v3) {
-  return cons(&(int){v1(v3)}, v0(v1, v4));
+typedef struct {
+    int (*v1)(int);
+    int v3;
+} Env_v6;
+
+typedef struct {
+    int (*v1)(int);
+} Env_v7;
+
+typedef struct {
+    int (*v1)(int);
+} Env_v8;
+
+Node* v6(void* env, Node* v4) {
+  return cons(&(int){v1(((Env_v6*)env)->v3)}, (Node*)apply(v0(((Env_v6*)env)->v1), v4));
 }
 
-Node* (*v7(int v3, int (*v1)(int)))(Node*) {
-  return v6;
+Closure* v7(void* env, int v3) {
+  Env_v6* env6 = malloc(sizeof(Env_v6));
+  env6->v3 = v3;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env6;
+  c->fn = (void* (*)(void*, void*))v6;
+  return c;
 }
 
-Node* v0(int (*v1)(int), Node* v2) {
-  return (isEmpty(v2)) ? (NULL) : (v7(tail(v2)));
+Node* v8(void* env, Node* v2) {
+  return (isEmpty(v2)) ? (NULL) : ((Node*)apply(v7(*(int*)head(v2)), tail(v2)));
+}
+
+Closure* v0(int (*v1)(int)) {
+  Env_v8* env8 = malloc(sizeof(Env_v8));
+  env8->v1 = v1;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env8;
+  c->fn = (void* (*)(void*, void*))v8;
+  return c;
 }
 
 int v9(int v5) {
@@ -52,7 +57,7 @@ int v9(int v5) {
 }
 
 int main(void) {
-  printf("%d\n", v0(v9, cons(&(int){1}, cons(&(int){2}, cons(&(int){3}, NULL)))));
+  printf("%d\n", (Node*)apply(v0(v9), cons(&(int){1}, cons(&(int){2}, cons(&(int){3}, NULL)))));
   return 0;
 }
 
