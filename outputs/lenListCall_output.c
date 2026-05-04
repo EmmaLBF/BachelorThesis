@@ -2,47 +2,34 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// List Definitions
-typedef struct Node {
-    void* head;
-    struct Node* tail;
-} Node;
-
-Node* cons(void* head, Node* tail) {
-    Node* node = malloc(sizeof(Node));
-    node->head = head;
-    node->tail = tail;
-    return node;
-}
-
-int isEmpty(Node* xs) {
-    return xs == NULL;
-}
-
-void* head(Node* xs) {
-    return xs->head;
-}
-
-Node* tail(Node* xs) {
-    return xs->tail;
-}
+#include <stdint.h>
+#include "listLib.c"
 
 // Function Definitions
-int v5(int v2, Node* v3);
+int v4(Node* v3);
+Closure* v5(int v2);
 int v0(Node* v1);
 
 // Compiled Program
-int v5(int v2, Node* v3) {
+int v4(Node* v3) {
   return (1 + v0(v3));
 }
 
+Closure* v5(int v2) {
+  Env_v4* env4 = malloc(sizeof(Env_v4));
+  env4->v2 = v2;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env4;
+  c->fn = (void* (*)(void*, void*))v4;
+  return c;
+}
+
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1), tail(v1)));
+  return (isEmpty(v1)) ? (0) : ((int)(intptr_t)apply(v5(*(int*)head(v1)), tail(v1)));
 }
 
 int main(void) {
-  printf("%d\n", v0(cons(&(int){1}, cons(&(int){2}, cons(&(int){3}, NULL)))));
+  printf("%d\n", v0(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;
 }
 

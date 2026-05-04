@@ -35,8 +35,10 @@ void* apply(Closure* c, void* arg) {
 
 void printList(Node *list) {
   if (list == NULL) return;
-  printf("%d\n", *(int*)list->head);  // dereference the pointer
+  printf("%d\n", *(int*)list->head);
   printList(list->tail);
 }
 
 int* mk_int(int v) { int* p = malloc(sizeof(int)); *p = v; return p; }
+
+bool* mk_bool(bool v) { bool* p = malloc(sizeof(bool)); *p = v; return p; }

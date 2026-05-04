@@ -2,8 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
--- gcc ./outputs/sumListCall_output.c -o ./outputs/sumListCall_output
--- ./outputs/sumListCall_output
+-- gcc ./outputs/fibCall_output.c -o ./outputs/fibCall_output
+-- ./outputs/fibCall_output
 
 {-
 
@@ -304,7 +304,7 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                                         (unsafeCoerce a :: CExpression Int))
                                     (Var f :: CExpression (Int -> Int)) args'
                     in (allArgAllocs, unsafeCoerce rebuilt)
-        x ->
+        _ ->
             -- trace ("Not varhoist " ++ showCExpression x Map.empty) $
             let rebuilt = foldl (\acc (CArg a) ->
                             unsafeCoerce $ CallExpr
@@ -534,32 +534,6 @@ generateClosureStructs [(ifun, p)] = DefClosureStruct ifun p
 generateClosureStructs (i:is) = Seq (generateClosureStructs [i]) (generateClosureStructs is)
 
 
-
-{-
-    typedef struct {
-        int v2;
-    } Env_v4;
-
-    void* v4_impl(void* env, void* v3) {
-        return (void*)(intptr_t)((Env_v4*)env->v2 + v0((Node*)v3));
-    }
-
-    Closure* v5(int v2) {
-        Env_v4* e = malloc(sizeof(Env_v4));
-        e->v2 = v2;
-        Closure* c = malloc(sizeof(Closure));
-        c->env = e;
-        c->fn  = (void* (*)(void*, void*))v4_impl;  // cast here once
-        return c;
-    }
-
-    int v0(Node* v1) {
-        return isEmpty(v1) ? 0 : (int)(intptr_t)apply(v5(*(int*)head(v1)), tail(v1));
-    }
--}
-
-
-
 -- OPTIMISATIONS
 
 -- for a function (int), given the amount of params, check that every call site has at least that many applications
@@ -661,19 +635,6 @@ showCValue (ListV l) =
     (h:t) -> showCValue h ++ ", " ++ showCValue (ListV t)
 showCValue ClosureV = "c"
 
--- Int to keep track of tmp vars, list of strings for lifted mallocs, string for cons final
--- showCCons :: Int -> CExpression a -> Map.Map Int Int -> (Int, [String], String)
--- showCCons i (ConsList x l) env =
---     let x' = showCExpression x Map.empty
---         (i', stmts2, lExpr) = showCCons i l env
---         tmp = "tmp" ++ show i'
---         malloc = showProx (typeRep x) ++ "* " ++ tmp ++ " = malloc(sizeof(" ++ showProx (typeRep x) ++ "));\n"
---             ++ "*" ++ tmp ++ " = " ++ x' ++ ";"
---     in (i' + 1, stmts2 ++ [malloc], "cons(" ++ tmp ++ ", " ++ lExpr ++ ")")
--- showCCons i EmptyList _ = (i, [], "NULL")
--- showCCons i _ _ = (i, [], "NULL")
-    
-
 showCExpression :: CExpression a -> Map.Map Int Int -> (String)
 showCExpression (Var i) m =
     case Map.lookup i m of  -- use a closureRetMap passed alongside mergedMap
@@ -712,8 +673,11 @@ showCExpression EmptyList _ = "NULL"
 showCExpression (ConsList x l) m = 
     -- let (_, mallocs, str) = showCCons 0 (ConsList x l) m
     -- in "{" ++ unlines mallocs ++ "}" ++ str
-    case show (typeRep x) of
-        "Int" -> "cons(mk_int((" ++ showProx (typeRep x) ++ ")(" ++ showCExpression x m ++ ")), " ++ showCExpression l m ++ ")"
+    let makefun = case show (typeRep x) of
+                    "Int" -> "mk_int"
+                    "Bool" -> "mk_bool"
+                    _ -> "mk_int"
+    in "cons(" ++ makefun ++ "((" ++ showProx (typeRep x) ++ ")(" ++ showCExpression x m ++ ")), " ++ showCExpression l m ++ ")"
 showCExpression (IsEmpty l) m = "isEmpty(" ++ showCExpression l m ++ ")"
 showCExpression (HeadList l) m = "*(" ++ CL.showProxList (typeRep l) ++ ")" ++ "head(" ++ showCExpression l m ++ ")"
 showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
@@ -733,9 +697,6 @@ showCExpression (GetEnvField structId fieldId _) _ =
     "((Env_v" ++ show structId ++ "*)env)->v" ++ show fieldId
 showCExpression (ApplyClosure f arg) m =
     "apply(" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
-
-    -- CastExpr :: CType -> CExpression a -> CExpression b  -- (int)(intptr_t)x or (Node*)x
-    -- GetEnvField :: Int -> CType -> CExpression a  -- ((Env_vN*)env)->vM, with type for cast
 
 showCStmt :: Int -> Map.Map Int Int -> CStatement a -> String
 showCStmt indent m (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
@@ -815,56 +776,6 @@ showCStmt indent _ (AllocClosure structId implId parentId directParams parentPar
     showParent (_ : rest) = showParent rest
 showCStmt _ _ Skip = ""
 
--- listPreamble :: String
--- listPreamble =
---     "\n// List Definitions" ++
---     "\ntypedef struct Node {" ++
---     "\n    void* head;" ++
---     "\n    struct Node* tail;" ++
---     "\n} Node;\n" ++
---     "\nNode* cons(void* head, Node* tail) {" ++
---     "\n    Node* node = malloc(sizeof(Node));" ++
---     "\n    node->head = head;" ++
---     "\n    node->tail = tail;" ++
---     "\n    return node;" ++ "\n}" ++ "\n" ++
---     "\nint isEmpty(Node* xs) {" ++
---     "\n    return xs == NULL;" ++
---     "\n}\n" ++
---     "\nvoid* head(Node* xs) {" ++
---     "\n    return xs->head;" ++
---     "\n}\n" ++
---     "\nNode* tail(Node* xs) {" ++
---     "\n    return xs->tail;\n}\n"
-
--- usesListExpr :: CExpression a -> Bool
--- usesListExpr EmptyList = True
--- usesListExpr IsEmpty{} = True
--- usesListExpr ConsList{} = True
--- usesListExpr HeadList{} = True
--- usesListExpr TailList{} = True
--- usesListExpr IndexList{} = True
--- usesListExpr (Not x) = usesListExpr x
--- usesListExpr (Fst x) = usesListExpr x
--- usesListExpr (Snd x) = usesListExpr x
--- usesListExpr (Prod x y) = usesListExpr x || usesListExpr y
--- usesListExpr (CallExpr f x) = usesListExpr f || usesListExpr x
--- usesListExpr (LCmpOp _ x y) = usesListExpr x || usesListExpr y
--- usesListExpr (LIntOp _ x y) = usesListExpr x || usesListExpr y
--- usesListExpr (Ternary x y z) = usesListExpr x || usesListExpr y || usesListExpr z
--- usesListExpr (Val (CL.ListV _)) = True
--- usesListExpr _ = False
-
--- usesList :: CStatement a -> Bool
--- usesList (Return x) = usesListExpr x
--- usesList (BindExpr x _ y) = usesListExpr x || usesList y
--- usesList (Seq x y) = usesList x || usesList y
--- usesList (If x y z) = usesListExpr x || usesList y || usesList z
--- usesList (While x y) = usesListExpr x || usesList y
--- usesList (UpdateVar _ x) = usesListExpr x
--- usesList (DefVar _ x) = usesListExpr x
--- usesList (DefFun _ _ _ y) = usesList y
--- usesList Skip = False
-
 findFirstReturn :: CStatement a -> CExpression a
 findFirstReturn (Return x) = x
 findFirstReturn (Seq x y) =
@@ -914,8 +825,8 @@ showFunTypes (i:is) = showFunTypes [i] ++ showFunTypes is
 
 main :: IO ()
 main = do
-    let progName = "mapListCall"
-    let (nl, c') = NL.translate 0 AL.mapListCall
+    let progName = "lenListCall"
+    let (nl, c') = NL.translate 0 AL.lenListCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
 

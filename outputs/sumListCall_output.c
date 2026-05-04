@@ -20,10 +20,10 @@ int v4(void* env, Node* v3) {
 }
 
 Closure* v5(int v2) {
-  Env_v4* env = malloc(sizeof(Env_v4));
-  env->v2 = v2;
+  Env_v4* env4 = malloc(sizeof(Env_v4));
+  env4->v2 = v2;
   Closure* c = malloc(sizeof(Closure));
-  c->env = env;
+  c->env = env4;
   c->fn = (void* (*)(void*, void*))v4;
   return c;
 }
@@ -33,7 +33,7 @@ int v0(Node* v1) {
 }
 
 int main(void) {
-  printf("%d\n", v0(cons(&(int){1}, cons(&(int){2}, cons(&(int){3}, NULL)))));
+  printf("%d\n", v0(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;
 }
 
