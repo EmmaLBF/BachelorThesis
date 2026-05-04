@@ -32,3 +32,9 @@ typedef struct Closure {
 void* apply(Closure* c, void* arg) {
     return c->fn(c->env, arg);
 }
+
+void printList(Node *list) {
+  if (list == NULL) return;
+  printf("%d\n", (int)(intptr_t)list->head);
+  printList(list->tail);
+}
