@@ -27,9 +27,7 @@ typedef struct {
 } Env_v8;
 
 Node* v6(void* env, Node* v4) {
-  return {int* tmp0 = malloc(sizeof(int));
-*tmp0 = ((Env_v6*)env)->v1(((Env_v6*)env)->v3);
-}cons(tmp0, NULL);
+  return cons(mk_int((int)(((Env_v6*)env)->v1(((Env_v6*)env)->v3))), (Node*)apply(v0(((Env_v6*)env)->v1), v4));
 }
 
 Closure* v7(void* env, int v3) {
@@ -65,13 +63,7 @@ int v9(int v5) {
 }
 
 int main(void) {
-  printList((Node*)apply(v0(v9), {int* tmp0 = malloc(sizeof(int));
-*tmp0 = 3;
-int* tmp1 = malloc(sizeof(int));
-*tmp1 = 2;
-int* tmp2 = malloc(sizeof(int));
-*tmp2 = 1;
-}cons(tmp2, cons(tmp1, cons(tmp0, NULL)))));
+  printList((Node*)apply(v0(v9), cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;
 }
 

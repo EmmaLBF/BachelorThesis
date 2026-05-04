@@ -265,10 +265,6 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                         -- no captured vars: plain C function, call directly, apply rest
                         then
                             let factoryCall = rebuildCall (Var f :: CExpression (Int -> Int)) factoryArgs
-                                -- applied = foldl (\acc (CArg a) ->
-                                --                 unsafeCoerce $ CastExpr (CTypeRep (typeRep (Proxy :: Proxy a)))
-                                --                     (ApplyClosure (unsafeCoerce acc) (unsafeCoerce a)))
-                                --             (unsafeCoerce factoryCall) applyArgs'
                                 applied =
                                     case applyArgs' of
                                         [] -> unsafeCoerce factoryCall
@@ -294,9 +290,6 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                                 Just t ->
                                     let alloc      = AllocClosure f f ifun directPs parentPs
                                         closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
-                                        -- applied    = foldl (\acc (CArg a) ->
-                                        --                 unsafeCoerce $ CastExpr CClosurePtr (ApplyClosure (unsafeCoerce acc) (unsafeCoerce a)))
-                                        --             closureVar applyArgs'
                                         applied = foldl (\acc (CArg a) ->
                                                         unsafeCoerce $ CastExpr CClosurePtr (ApplyClosure (unsafeCoerce acc) (unsafeCoerce a))) closureVar applyArgs'
                                         final = unsafeCoerce $ CastExpr t applied
@@ -669,16 +662,16 @@ showCValue (ListV l) =
 showCValue ClosureV = "c"
 
 -- Int to keep track of tmp vars, list of strings for lifted mallocs, string for cons final
-showCCons :: Int -> CExpression a -> Map.Map Int Int -> (Int, [String], String)
-showCCons i (ConsList x l) env =
-    let x' = showCExpression x Map.empty
-        (i', stmts2, lExpr) = showCCons i l env
-        tmp = "tmp" ++ show i'
-        malloc = showProx (typeRep x) ++ "* " ++ tmp ++ " = malloc(sizeof(" ++ showProx (typeRep x) ++ "));\n"
-            ++ "*" ++ tmp ++ " = " ++ x' ++ ";"
-    in (i' + 1, stmts2 ++ [malloc], "cons(" ++ tmp ++ ", " ++ lExpr ++ ")")
-showCCons i EmptyList _ = (i, [], "NULL")
-showCCons i _ _ = (i, [], "NULL")
+-- showCCons :: Int -> CExpression a -> Map.Map Int Int -> (Int, [String], String)
+-- showCCons i (ConsList x l) env =
+--     let x' = showCExpression x Map.empty
+--         (i', stmts2, lExpr) = showCCons i l env
+--         tmp = "tmp" ++ show i'
+--         malloc = showProx (typeRep x) ++ "* " ++ tmp ++ " = malloc(sizeof(" ++ showProx (typeRep x) ++ "));\n"
+--             ++ "*" ++ tmp ++ " = " ++ x' ++ ";"
+--     in (i' + 1, stmts2 ++ [malloc], "cons(" ++ tmp ++ ", " ++ lExpr ++ ")")
+-- showCCons i EmptyList _ = (i, [], "NULL")
+-- showCCons i _ _ = (i, [], "NULL")
     
 
 showCExpression :: CExpression a -> Map.Map Int Int -> (String)
@@ -717,8 +710,10 @@ showCExpression (Fst p) m = showCExpression p m ++ "[0]"
 showCExpression (Snd p) m = showCExpression p m ++ "[1]"
 showCExpression EmptyList _ = "NULL"
 showCExpression (ConsList x l) m = 
-    let (_, mallocs, str) = showCCons 0 (ConsList x l) m
-    in "{" ++ unlines mallocs ++ "}" ++ str
+    -- let (_, mallocs, str) = showCCons 0 (ConsList x l) m
+    -- in "{" ++ unlines mallocs ++ "}" ++ str
+    case show (typeRep x) of
+        "Int" -> "cons(mk_int((" ++ showProx (typeRep x) ++ ")(" ++ showCExpression x m ++ ")), " ++ showCExpression l m ++ ")"
 showCExpression (IsEmpty l) m = "isEmpty(" ++ showCExpression l m ++ ")"
 showCExpression (HeadList l) m = "*(" ++ CL.showProxList (typeRep l) ++ ")" ++ "head(" ++ showCExpression l m ++ ")"
 showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
