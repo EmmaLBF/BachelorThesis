@@ -8,7 +8,7 @@
 // Function Definitions
 Node* v6(void* env, Node* v4);
 Closure* v7(void* env, int v3);
-Node* v8(void* env, Node* v2);
+Closure* v8(void* env, Node* v2);
 Closure* v0(int (*v1)(int));
 int v9(int v5);
 
@@ -33,14 +33,21 @@ Node* v6(void* env, Node* v4) {
 Closure* v7(void* env, int v3) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
   env6->v3 = v3;
+  env6->v1 = ((Env_v6*)env)->v1;
   Closure* c = malloc(sizeof(Closure));
   c->env = env6;
   c->fn = (void* (*)(void*, void*))v6;
   return c;
 }
 
-Node* v8(void* env, Node* v2) {
-  return (isEmpty(v2)) ? (NULL) : ((Node*)apply(v7(*(int*)head(v2)), tail(v2)));
+Closure* v8(void* env, Node* v2) {
+  Env_v7* env7 = malloc(sizeof(Env_v7));
+  env7->v2 = v2;
+  env7->v1 = ((Env_v7*)env)->v1;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env7;
+  c->fn = (void* (*)(void*, void*))v7;
+  return c;
 }
 
 Closure* v0(int (*v1)(int)) {

@@ -25,10 +25,18 @@ import Unsafe.Coerce
 import Data.List
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Text.Read (Lexeme(String))
+import qualified Data.IntMap as List
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
   CParamEnv  :: Int -> CParam -- void* env parameter
+
+instance Eq CParam where
+  CParam i _ == CParam j _ = i == j
+  CParamEnv i == CParamEnv j = i == j
+  CParam i _ == CParamEnv j = i == j
+  CParamEnv i == CParam j _ = i == j
 
 type CParams = [CParam]
 type CParamMap = Map.Map Int CParam
@@ -88,7 +96,8 @@ data CStatement a where
     While :: CExpression Bool -> CStatement a -> CStatement a
     Skip :: CStatement a
     DefClosureStruct :: Int -> CParams -> CStatement a  -- same, but fields are concrete types
-    AllocClosure :: Int -> Int -> CParams -> CStatement a  -- struct id, impl fun id, captured params
+    AllocClosure :: Int -> Int -> CParams -> CParams -> CStatement a
+    --              structId  implId  directParams  parentEnvParams
 
 type LiftEnv = Map.Map Int CParams
 type Lifted a = [CStatement a]
@@ -293,6 +302,7 @@ liftedFunsList [] = []
 liftedFunsList [DefFun _ i _ _] = [i]
 liftedFunsList (i:is) = liftedFunsList [i] ++ liftedFunsList is
 
+
 liftStmt :: Int -> LiftEnv -> ClosureReturnEnv -> [Int] -> CStatement a -> (LiftEnv, ClosureReturnEnv, Lifted a, CStatement a)
 liftStmt _ env closureRet funs (DefFun tret ifun params body) =
     let freeMapRaw = freeVars (DefFun tret ifun params body)
@@ -311,14 +321,14 @@ liftStmt _ env closureRet funs (DefFun tret ifun params body) =
                     else closureRet
                 _ -> closureRet
 
-
         (env'', closureRet'', lifted, body') = liftStmt ifun env' closureRet' (funs ++ [ifun]) body
         
         (body'', closureRet''') =
             case body of
                 Seq (DefFun _ ifun1 _ _) (Return (Var ret1)) ->
-                    if trace (show (ifun1 == ret1) ++ show ret1 ++ show ifun) $  ifun1 == ret1
-                    then (AllocClosure ifun1 ifun1 params, Map.insert ifun ifun1 closureRet'')
+                    if ifun1 == ret1
+                    then let innerExtraPs = extraPs \\ params
+                         in (AllocClosure ifun1 ifun1 params innerExtraPs, Map.insert ifun ifun1 closureRet'')
                     else (rewriteStmt ifun env'' closureRet'' body', closureRet'')
                 _ -> (rewriteStmt ifun env'' closureRet'' body', closureRet'')
         thisDef = case body of
@@ -571,9 +581,10 @@ showCStmt indent _ (DefClosureStruct ifun p) =
         showVars [] = ""
         showVars [CParam ip tp] = "    " ++ showProxVar ("v" ++ show ip) (typeRep tp) ++ ";\n"
         showVars (first:rest) = showVars [first] ++ showVars rest
-showCStmt indent _ (AllocClosure structId implId params) =
+showCStmt indent _ (AllocClosure structId implId params parentParams) =
     "\n" ++ indentStr indent ++ "Env_v" ++ show structId ++ "* env" ++ show structId ++ " = malloc(sizeof(Env_v" ++ show structId ++ "));"
     ++ showVars params
+    ++ showParentParams parentParams
     ++ "\n" ++ indentStr indent ++ "Closure* c = malloc(sizeof(Closure));"
     ++ "\n" ++ indentStr indent ++ "c->env = env" ++ show structId ++ ";"
     ++ "\n" ++ indentStr indent ++ "c->fn = (void* (*)(void*, void*))v" ++ show implId ++ ";"
@@ -584,6 +595,14 @@ showCStmt indent _ (AllocClosure structId implId params) =
         showVars [CParam ip _] = "\n" ++ indentStr indent ++ "env" ++ show structId ++ "->v" ++ show ip ++ " = v" ++ show ip ++ ";"
         showVars [CParamEnv ip] = "\n" ++ indentStr indent ++ "env" ++ show structId ++ "->v" ++ show ip ++ " = v" ++ show ip ++ ";"
         showVars (first:rest) = showVars [first] ++ showVars rest
+        
+        showParentParams :: CParams -> String
+        showParentParams [] = ""
+        showParentParams (CParam ip _ : rest) =
+            "\n" ++ indentStr indent ++ "env" ++ show structId ++ "->v" ++ show ip 
+            ++ " = ((Env_v" ++ show structId ++ "*)env)->v" ++ show ip ++ ";"
+            ++ showParentParams rest
+        showParentParams (_ : rest) = showParentParams rest
 showCStmt _ _ Skip = ""
 
 -- listPreamble :: String
