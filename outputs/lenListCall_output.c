@@ -7,7 +7,7 @@
 
 // Function Definitions
 int v4(Node* v3);
-Closure* v5(int v2);
+int (*v5(int v2))(Node*);
 int v0(Node* v1);
 
 // Compiled Program
@@ -15,17 +15,12 @@ int v4(Node* v3) {
   return (1 + v0(v3));
 }
 
-Closure* v5(int v2) {
-  Env_v4* env4 = malloc(sizeof(Env_v4));
-  env4->v2 = v2;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env4;
-  c->fn = (void* (*)(void*, void*))v4;
-  return c;
+int (*v5(int v2))(Node*) {
+  return v4;
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : ((int)(intptr_t)apply(v5(*(int*)head(v1)), tail(v1)));
+  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1))(tail(v1)));
 }
 
 int main(void) {
