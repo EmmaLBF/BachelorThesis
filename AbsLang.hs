@@ -169,6 +169,9 @@ gcdLang = Fix $ lam $ \f -> lam $ \p ->
         a
         (f `app` Prod b (a %: b))
 
+gcdLangCall :: Lang Int
+gcdLangCall = gcdLang `app` Prod (int 30) (int 10)
+
 -- 5. Higher-Order Functions: apply a function twice
 twice :: (Typeable a) => Lang ((a -> a) -> (a -> a))
 twice = lam $ \f -> lam $ \x -> f `app` (f `app` x)
@@ -336,6 +339,59 @@ mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
 mapListCall :: Lang [Int]
 mapListCall = mapList `app` (lam $ \x -> x *: int 2)
                       `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+mergeList :: Lang ([Int] -> [Int] -> [Int])
+mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
+  CaseList first
+    second
+    (lam $ \hFirst -> lam $ \tFirst ->
+      CaseList second
+        first
+        (lam $ \hSecond -> lam $ \tSecond ->
+          If
+            (hFirst <: hSecond)
+            (cons hFirst ((f `app` tFirst) `app` second))
+            (cons hSecond ((f `app` tSecond) `app` first))
+        )
+      )
+
+splitN :: Lang ((Int, [Int]) -> ([Int], [Int]))
+splitN = Fix $ lam $ \f -> lam $ \p ->
+  let n  = Fst p
+      xs = Snd p
+  in If
+      (n ==: int 0)
+      (Prod nil xs)
+      (CaseList xs
+        (Prod nil nil) -- shouldn't happen, but safe
+        (lam $ \h -> lam $ \t ->
+            let rec = f `app` Prod (n -: int 1) t
+            in Prod
+                (cons h (Fst rec))
+                (Snd rec)
+        )
+      )
+
+splitHalf :: Lang ([Int] -> ([Int], [Int]))
+splitHalf = lam $ \xs ->
+  let_ (lenList `app` xs) $ \n ->
+  let_ (n /: int 2) $ \half ->
+  splitN `app` Prod half xs
+
+mergeSort :: Lang ([Int] -> [Int])
+mergeSort = Fix $ lam $ \f -> lam $ \l ->
+    CaseList l
+      EmptyList
+      (lam $ \h -> lam $ \t ->
+        CaseList t
+          (cons h EmptyList)
+          (lam $ \_ -> lam $ \_ ->
+            let_ (splitHalf `app` l) $ \p -> (mergeList `app` (f `app` Fst p)) `app` (f `app` Snd p))
+      )
+
+mergeSortCall :: Lang [Int]
+mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))
+
 
 main :: IO ()
 main = do

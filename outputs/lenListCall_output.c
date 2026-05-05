@@ -20,7 +20,8 @@ int (*v5(int v2))(Node*) {
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : (v5(*(int*)head(v1))(tail(v1)));
+  Node* v6 = v1;
+  return (isEmpty(v6)) ? (0) : (v5(*(int*)head(v6))(tail(v6)));
 }
 
 int main(void) {

@@ -42,3 +42,20 @@ void printList(Node *list) {
 int* mk_int(int v) { int* p = malloc(sizeof(int)); *p = v; return p; }
 
 bool* mk_bool(bool v) { bool* p = malloc(sizeof(bool)); *p = v; return p; }
+
+// pairs
+
+typedef struct Pair {
+    void* fst;
+    void* snd;
+} Pair;
+
+Pair* mk_pair(void* fst, void* snd) {
+    Pair* p = malloc(sizeof(Pair));
+    p->fst = fst;
+    p->snd = snd;
+    return p;
+}
+
+void* fst(Pair* p) { return p->fst; }
+void* snd(Pair* p) { return p->snd; }

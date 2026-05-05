@@ -1,3 +1,4 @@
+
 // imports
 #include <stdbool.h>
 #include <stdio.h>
@@ -5,16 +6,17 @@
 #include <stdint.h>
 #include "listLib.c"
 
-// Function Definitions
+// function defitions
 int v4(void* env, Node* v3);
 Closure* v5(int v2);
 int v0(Node* v1);
 
-// Compiled Program
+// closure defitions
 typedef struct {
     int v2;
 } Env_v4;
 
+// function implementations
 int v4(void* env, Node* v3) {
   return (((Env_v4*)env)->v2 + v0(v3));
 }
@@ -29,9 +31,11 @@ Closure* v5(int v2) {
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : ((int)(intptr_t)apply(v5(*(int*)head(v1)), tail(v1)));
+  Node* v6 = v1;
+  return (isEmpty(v6)) ? (0) : ((int)(intptr_t)apply(v5(*(int*)head(v6)), tail(v6)));
 }
 
+// main
 int main(void) {
   printf("%d\n", v0(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;

@@ -81,7 +81,8 @@ getCallTarget :: CStatement a -> CallTarget a
 getCallTarget (DefFun _ i _ _)              = FunVar i
 getCallTarget (Seq _ y)                     = getCallTarget (unsafeCoerce y)
 getCallTarget (Return (CallExpr f arg))     = PrevCall (unsafeCoerce (CallExpr f arg))
-getCallTarget _                             = error "no call target"
+getCallTarget (Return (Var i)) = FunVar i
+getCallTarget _                             = error "not call target"
 
 removeLastReturn :: CStatement a -> CStatement a
 removeLastReturn (Seq x (Return _)) = x
@@ -109,25 +110,81 @@ translateExpr (NL.LIntOp op l r) = LIntOp op (translateExpr l) (translateExpr r)
 translateExpr (NL.LCmpOp op l r) = LCmpOp op (translateExpr l) (translateExpr r)
 translateExpr _ = error "Expected expression got statement"
 
+bindResult :: Int -> CStatement a -> CStatement a
+bindResult i (Return x)  = BindExpr x i Skip
+bindResult i (Seq x y)   = Seq x (bindResult i y)
+bindResult i (If c t e)  = If c (bindResult i t) (bindResult i e)
+bindResult _ s            = s
+
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
-translate (NL.Apply (f :: NL.NamedLang (arg -> a)) x) = do
-  fStmt <- translate f
-  xStmt <- translate x
-  let target  = getCallTarget (unsafeCoerce fStmt)
-      seqDefs = case target of
-                  FunVar _   -> unsafeCoerce fStmt
-                  PrevCall _ -> removeLastReturn (unsafeCoerce fStmt)
-      mkCall :: CExpression arg -> CExpression a
-      mkCall argExpr = 
-        case target of
-          FunVar i   -> CallExpr (Var i) argExpr
-          PrevCall c -> CallExpr c argExpr
-  case xStmt of
-    DefFun _ xId _ _ ->
-      return $ Seq seqDefs (Seq (unsafeCoerce xStmt) (Return (mkCall (Var xId))))
-    _ -> let argExpr = translateExpr x
-         in return $ Seq seqDefs
-                   $ Return (mkCall argExpr)
+translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
+  fStmt <- translate f  -- :: CStatement (arg -> a)
+  xStmt <- translate x  -- :: CStatement arg
+  -- trace ("=== Apply ===\nfStmt: " ++ showCStmt 0 fStmt ++ "\nxStmt: " ++ showCStmt 0 xStmt) $
+  case (fStmt, xStmt) of
+    -- f is a function def, x is a plain expr
+    (DefFun _ fId _ _, Return xExpr) ->
+      return $ Seq (unsafeCoerce fStmt)
+             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
+    -- f is a function def, x is also a function def
+    (DefFun _ fId _ _, DefFun _ xId _ _) ->
+      return $ Seq (unsafeCoerce fStmt)
+             $ Seq (unsafeCoerce xStmt)
+             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
+    -- f is a function def, x needs hoisting
+    (DefFun _ fId _ _, _) -> do
+      xId <- fresh
+      return $ Seq (unsafeCoerce fStmt)
+             $ Seq (unsafeCoerce (bindResult xId xStmt))
+             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
+    -- f is a plain expr, x is a plain expr
+    (Return fExpr, Return xExpr) ->
+      return $ Return (CallExpr fExpr xExpr)
+    -- f is a plain expr, x needs hoisting
+    (Return fExpr, _) -> do
+      xId <- fresh
+      return $ Seq (unsafeCoerce (bindResult xId xStmt))
+             $ Return (CallExpr fExpr (Var xId :: CExpression arg))
+    -- f needs hoisting, x is a plain expr
+    (_, Return xExpr) -> do
+      fId <- fresh
+      return $ Seq (unsafeCoerce (bindResult fId fStmt))
+             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
+    -- both need hoisting
+    (_, _) -> do
+      fId <- fresh
+      xId <- fresh
+      return $ Seq (unsafeCoerce (bindResult fId fStmt))
+             $ Seq (unsafeCoerce (bindResult xId xStmt))
+             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
+  -- fStmt <- translate f
+  -- xStmt <- translate x
+  -- let target  = getCallTarget (unsafeCoerce fStmt)
+  --     seqDefs = case target of
+  --                 FunVar _   -> 
+  --                   case unsafeCoerce fStmt of
+  --                     Return _ -> unsafeCoerce Skip  -- pure expr, nothing to hoist
+  --                     s        -> s
+  --                 PrevCall _ -> removeLastReturn (unsafeCoerce fStmt)
+  --     mkCall :: CExpression arg -> CExpression a
+  --     mkCall argExpr = 
+  --       case target of
+  --         FunVar i   -> CallExpr (Var i) argExpr
+  --         PrevCall c -> CallExpr c argExpr
+  -- case xStmt of
+  --   DefFun _ xId _ _ ->
+  --     return $ Seq seqDefs (Seq (unsafeCoerce xStmt) (Return (mkCall (Var xId))))
+  --   Return xExpr ->
+  --     return $ Seq seqDefs (Return (mkCall (unsafeCoerce xExpr)))
+  --   _ -> do
+  --     xId <- fresh
+  --     return $ Seq (bindResult xId (unsafeCoerce xStmt))
+  --           $ Seq seqDefs
+  --           $ Return (mkCall (Var xId))
+
+    -- _ -> let argExpr = translateExpr x
+    --      in return $ Seq seqDefs
+    --                $ Return (mkCall argExpr)
 translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
@@ -144,16 +201,24 @@ translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
 translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
   cf <- translate f
   return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (ensureReturn (unsafeCoerce cf))))
-translate (NL.CaseList l nilCase consCase) = do
-  let cxs      = translateExpr l
-      nilExpr  = translateExpr nilCase
+translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (a1 -> [a1] -> a))) = do
+  let nilExpr  = translateExpr nilCase
   consStmt <- translate consCase
+  lId      <- fresh
+  lStmt    <- translate l
   let fId = case consStmt of
               DefFun _ i _ _ -> i
               _ -> error "not a function"
-  let callExpr = CallExpr (CallExpr (Var fId) (HeadList cxs)) (TailList cxs)
+      listVar = Var lId :: CExpression [a1]
+      callExpr = CallExpr (CallExpr (Var fId) (HeadList listVar)) (TailList listVar)
+      caseBody = Return (Ternary (IsEmpty listVar) nilExpr callExpr)
+      lHoisted = bindResult lId (unsafeCoerce lStmt)
   return $ Seq (unsafeCoerce consStmt)
-         $ Return (Ternary (IsEmpty cxs) nilExpr callExpr)
+         $ Seq (unsafeCoerce lHoisted)
+         $ unsafeCoerce caseBody
+  -- return $ Seq (unsafeCoerce consStmt)
+  --        $ BindExpr cxs lId
+  --        $ Return (Ternary (IsEmpty (Var lId)) nilExpr callExpr)
 translate x = return $ Return (translateExpr x)
 
 unInt :: CValue Int -> Int
@@ -283,7 +348,7 @@ showProx p =
         ("Bool", [])     -> "bool"
         ("()",   [])     -> "void*"
         ("[]",   [_])     -> "Node*"
-        ("(,)",  [a, _]) -> showProx a ++ "*"
+        ("(,)", [_, _]) -> "Pair*"
         ("->",   [a, b]) -> showProx b ++ " (*)(" ++ showProx a ++ ")"
         _                -> show p
 
@@ -296,7 +361,7 @@ showProxList p =
         ("Bool", [])     -> "bool"
         ("()",   [])     -> "void*"
         ("[]",   [a])     -> showProxList a ++ "*"
-        ("(,)",  [a, _]) -> showProxList a ++ "*"
+        ("(,)",  [_, _]) -> "Pair*"
         ("->",   [a, b]) -> showProxList b ++ " (*)(" ++ showProxList a ++ ")"
         _                -> show p
 
