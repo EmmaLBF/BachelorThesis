@@ -34,7 +34,7 @@ data CExpression a where
   Var :: (Typeable a) => Int -> CExpression a
   LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
   LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
-  Ternary :: CExpression Bool -> CExpression a -> CExpression a -> CExpression a
+  Ternary :: Typeable a => CExpression Bool -> CExpression a -> CExpression a -> CExpression a
   CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
   -- Tuples
   Prod :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression (a, b)
