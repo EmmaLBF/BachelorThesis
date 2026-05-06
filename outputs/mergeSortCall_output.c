@@ -198,7 +198,12 @@ Pair* v37(void* env, int v16) {
 }
 
 Pair* v38(void* env, int v15) {
-  return v37(env)((v15 / 2));
+  Env_v37* env37 = malloc(sizeof(Env_v37));
+  env37->v14 = ((Env_v38*)env)->v14;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env37;
+  c->fn = (void* (*)(void*, void*))v37;
+  return apply(c, (v15 / 2));
 }
 
 int v39(Node* v24) {

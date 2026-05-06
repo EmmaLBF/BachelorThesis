@@ -1,3 +1,4 @@
+
 // imports
 #include <stdbool.h>
 #include <stdio.h>
@@ -5,12 +6,13 @@
 #include <stdint.h>
 #include "listLib.c"
 
-// Function Definitions
+// function defitions
 int v4(Node* v3);
 int (*v5(int v2))(Node*);
 int v0(Node* v1);
 
-// Compiled Program
+// closure defitions
+// function implementations
 int v4(Node* v3) {
   return (1 + v0(v3));
 }
@@ -24,6 +26,7 @@ int v0(Node* v1) {
   return (isEmpty(v6)) ? (0) : (v5(*(int*)head(v6))(tail(v6)));
 }
 
+// main
 int main(void) {
   printf("%d\n", v0(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;

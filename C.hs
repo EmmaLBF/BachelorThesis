@@ -305,14 +305,22 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                 --                     else rebuildCall myVar (CArg (EnvExpr f :: CExpression Int) : args')
                 --     in (allArgAllocs, unsafeCoerce rebuilt)
                 Nothing ->
+                    trace ("HOIST NO CLOSURE | ifun=v" ++ show ifun ++ " | f=v" ++ show f
+                                  ++ " | args=" ++ show (length args') ++ ", " ++ showCArgs args') $
                     let extraVars = Map.findWithDefault [] f env
                         callerVars = Map.findWithDefault [] ifun env
                     in if null extraVars
                         then -- no captures, plain call
                             (allArgAllocs, unsafeCoerce $ rebuildCall myVar args')
                         else if extraVars == callerVars
-                            then -- same env, pass through
-                                (allArgAllocs, unsafeCoerce $ rebuildCall myVar (CArg (EnvExpr f :: CExpression Int) : args'))
+                            -- then -- same env, pass through
+                            --     (allArgAllocs, unsafeCoerce $ rebuildCall myVar (CArg (EnvExpr f :: CExpression Int) : args'))
+                            then -- same env, pass through via closure
+                                let alloc = AllocClosure f f ifun [] extraVars
+                                    closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
+                                    applied = foldl (\acc (CArg a) ->
+                                        unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) closureVar args'
+                                in (allArgAllocs ++ [alloc], unsafeCoerce applied)
                             else -- different env, need to allocate closure
                                 let parentExtraPs = callerVars
                                     directPs = extraVars \\ parentExtraPs
@@ -688,6 +696,7 @@ showCExpression (CallExpr f arg) m = -- merges together nested calls if I merged
     in case func of
         Var i -> case Map.lookup i m of
             Just n ->
+                trace ("SHOW MAP var" ++ show i ++ " = "  ++ show m) $
                 let (merged, rest) = Prelude.splitAt n args
                     baseCall = "v" ++ show i ++ "(" ++ intercalate ", " (Prelude.map (\(CArg a) -> showCExpression a m) merged) ++ ")"
                 in if Prelude.null rest
@@ -910,8 +919,8 @@ mergeSortCall
 
 main :: IO ()
 main = do
-    let progName = "mergeSortCall"
-    let (nl, c') = NL.translate 0 AL.mergeSortCall
+    let progName = "mapListCall"
+    let (nl, c') = NL.translate 0 AL.mapListCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
 

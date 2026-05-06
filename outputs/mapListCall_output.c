@@ -29,7 +29,7 @@ typedef struct {
 
 // function implementations
 Node* v6(void* env, Node* v4) {
-  return cons(mk_int((int)(((Env_v6*)env)->v1(((Env_v6*)env)->v3))), apply(v0(((Env_v6*)env)->v1), v4));
+  return cons(mk_int((int)(v1(((Env_v6*)env)->v3))), apply(v0(((Env_v6*)env)->v1), v4));
 }
 
 Closure* v7(void* env, int v3) {

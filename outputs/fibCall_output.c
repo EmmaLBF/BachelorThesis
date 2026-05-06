@@ -1,3 +1,4 @@
+
 // imports
 #include <stdbool.h>
 #include <stdio.h>
@@ -5,10 +6,11 @@
 #include <stdint.h>
 #include "listLib.c"
 
-// Function Definitions
+// function defitions
 int v0(int v1);
 
-// Compiled Program
+// closure defitions
+// function implementations
 int v0(int v1) {
   if (v1 < 2) {
     return v1;
@@ -17,6 +19,7 @@ int v0(int v1) {
   }
 }
 
+// main
 int main(void) {
   printf("%d\n", v0(5));
   return 0;
