@@ -157,6 +157,8 @@ translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
       return $ Seq (unsafeCoerce (bindResult fId fStmt))
              $ Seq (unsafeCoerce (bindResult xId xStmt))
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
+
+
   -- fStmt <- translate f
   -- xStmt <- translate x
   -- let target  = getCallTarget (unsafeCoerce fStmt)

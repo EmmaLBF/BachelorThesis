@@ -337,7 +337,7 @@ mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
     (lam $ \h -> lam $ \t -> ConsList (g `app` h) (f `app` g `app` t))
 
 mapListCall :: Lang [Int]
-mapListCall = mapList `app` (lam $ \x -> x *: int 2)
+mapListCall = (mapList `app` (lam $ \x -> x *: int 2))
                       `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
 mergeList :: Lang ([Int] -> [Int] -> [Int])

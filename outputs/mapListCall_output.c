@@ -29,7 +29,7 @@ typedef struct {
 
 // function implementations
 Node* v6(void* env, Node* v4) {
-  return cons(mk_int((int)(((Env_v6*)env)->v1(((Env_v6*)env)->v3))), (Node*)apply(v0(((Env_v6*)env)->v1), v4));
+  return cons(mk_int((int)(((Env_v6*)env)->v1(((Env_v6*)env)->v3))), apply(v0(((Env_v6*)env)->v1), v4));
 }
 
 Closure* v7(void* env, int v3) {
@@ -49,7 +49,7 @@ Node* v9(void* env, Node* v2) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env7;
   c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v8)) ? (NULL) : ((Node*)(Closure*)apply((Closure*)apply(c, *(int*)head(v8)), tail(v8)));
+  return (isEmpty(v8)) ? (NULL) : (apply((Closure*)apply(c, *(int*)head(v8)), tail(v8)));
 }
 
 Closure* v0(int (*v1)(int)) {
@@ -68,7 +68,7 @@ int v10(int v5) {
 // main
 int main(void) {
   Closure* v11 = v0(v10);
-  printList(v11(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
+  printList(apply(v11, cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
   return 0;
 }
 
