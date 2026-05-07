@@ -103,15 +103,6 @@ type ClosureReturnEnv = Map.Map Int Int
 type Hoisted a = [CStatement a]
 type FunTypes = Map.Map Int CType
 
--- boxIfNeeded :: CExpression a -> CExpression a
--- boxIfNeeded e =
---   case e of
---     Val (IntV _)  -> Box (CTypeRep (typeRep (Proxy :: Proxy Int))) e
---     LIntOp {} -> Box (CTypeRep (typeRep (Proxy :: Proxy Int))) e
---     Val (BoolV _) -> Box (CTypeRep (typeRep (Proxy :: Proxy Bool))) e
---     LCmpOp {}  -> Box (CTypeRep (typeRep (Proxy :: Proxy Bool))) e
---     _     -> e
-
 translateValue :: CL.CValue a -> CValue a
 translateValue (CL.IntV x) = IntV x
 translateValue (CL.BoolV x) = BoolV x
@@ -252,6 +243,15 @@ paramId :: CParam -> Int
 paramId (CParam i _)  = i
 paramId (CParamEnv i) = i
 
+applyWithCasts :: CType -> CExpression a -> [CArg] -> CExpression b
+applyWithCasts retType base appArgs = 
+    trace ("    casting " ++ showCExpression base Map.empty ++ "\n  args " ++ showCArgs appArgs ++ "\n  type = " ++ showCType retType) $
+    case appArgs of
+        [] -> unsafeCoerce $ base
+        _ ->    let applied = foldl (\acc (CArg a) ->
+                     unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) (unsafeCoerce base) appArgs
+                in unsafeCoerce $ CastExpr retType applied
+
 hoistClosureAllocs :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> (Hoisted b, CExpression a)
 hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression a) =
     let (func, args) = collectArgs expr
@@ -265,89 +265,47 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                 Just _ ->
                     let ownExtraPs    = Map.findWithDefault [] f env
                         parentExtraPs = Map.findWithDefault [] ifun env
-                        directPs = ownExtraPs \\ parentExtraPs
-                        parentPs = ownExtraPs `intersect` parentExtraPs
+                        directPs      = ownExtraPs \\ parentExtraPs
+                        parentPs      = ownExtraPs `intersect` parentExtraPs
+                        retType       = Map.findWithDefault CClosurePtr f funs
                         (factoryArgs, applyArgs') = splitAt (length directPs) args'
-                    in 
-                        -- trace ("HOIST CLOSURE | ifun=v" ++ show ifun
-                        --       ++ " | f=v" ++ show f
-                        --       ++ " | args=" ++ show (length args')
-                        --       ++ " | ownExtraPs=" ++ show (map paramId ownExtraPs)
-                        --       ++ " | directPs=" ++ show (map paramId directPs)
-                        --       ++ " | parentPs=" ++ show (map paramId parentPs)
-                        --       ++ " | factoryArgs=" ++ show (length factoryArgs)
-                        --       ++ " | applyArgs'=" ++ show (length applyArgs')) $
-                    if null ownExtraPs
-                    then -- NO CAPTURE, first is regular call, next are closure applications
-                    let factoryCall = rebuildCall myVar factoryArgs
-                        retType = Map.findWithDefault CClosurePtr f funs
-                        applied =
-                            case applyArgs' of
-                                [] -> unsafeCoerce factoryCall
-                                (CArg first : rest) ->
-                                    let firstApplied = unsafeCoerce $ CallExpr
-                                            (unsafeCoerce factoryCall :: CExpression (Int -> Int))
-                                            (unsafeCoerce first)
-                                        restApplied = foldl
-                                            (\acc (CArg a) ->
-                                                    unsafeCoerce $ CastExpr CClosurePtr
-                                                            (ApplyClosure (unsafeCoerce acc :: CExpression Int)
-                                                                        (unsafeCoerce a :: CExpression Int))) firstApplied rest
-                                    in restApplied
-                    in (allArgAllocs, unsafeCoerce applied)
-
-                    else -- HAS CAPTURE → must allocate closure first
-                    -- let alloc = AllocClosure f f ifun directPs parentPs
-                    --     closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
-                    --     retType = Map.findWithDefault CClosurePtr f funs
-                    --     applied = foldl (\acc (CArg a) ->
-                    --         unsafeCoerce $ CastExpr CClosurePtr
-                    --         (ApplyClosure (unsafeCoerce acc :: CExpression Int) ((unsafeCoerce a :: CExpression Int)))) closureVar applyArgs'
-                    -- in (allArgAllocs ++ [alloc], unsafeCoerce applied)
-                        let alloc = AllocClosure f f ifun directPs parentPs
-                            closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
-                            -- apply factoryArgs first (the real function argument), then applyArgs' via ApplyClosure
-                            afterFactory = foldl (\acc (CArg a) ->
-                                unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) closureVar factoryArgs
-                            applied = foldl (\acc (CArg a) ->
-                                unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) afterFactory applyArgs'
-                            retType = Map.findWithDefault CClosurePtr f funs
-                            casted = CastExpr retType (unsafeCoerce applied)
-                        in (allArgAllocs ++ [alloc], unsafeCoerce casted)
+                    in if null ownExtraPs
+                        then -- no captures: first applyArg is plain C call, rest via ApplyClosure
+                            trace ("null ownExtraPs " ++ show f) $
+                            let applied = case applyArgs' of
+                                    [] -> unsafeCoerce $ rebuildCall myVar factoryArgs
+                                    (CArg first : rest) ->
+                                        let firstApplied = unsafeCoerce $ CallExpr
+                                                (unsafeCoerce myVar :: CExpression (Int -> Int))
+                                                (unsafeCoerce first)
+                                        in unsafeCoerce $ applyWithCasts retType firstApplied rest
+                            in (allArgAllocs, unsafeCoerce applied)
+                            
+                        else -- has captures: alloc  closure, apply factoryArgs then applyArgs'
+                            trace ("has captures " ++ show f) $
+                            let alloc        = AllocClosure f f ifun directPs parentPs
+                                closureVar   = unsafeCoerce (Val ClosureV :: CExpression Int)
+                                afterFactory = foldl (\acc (CArg a) ->
+                                    unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) closureVar factoryArgs
+                            in (allArgAllocs ++ [alloc], unsafeCoerce $ applyWithCasts retType afterFactory applyArgs')
                 Nothing ->
-                    trace ("HOIST NO CLOSURE | ifun=v" ++ show ifun ++ " | f=v" ++ show f
-                                  ++ " | args=" ++ show (length args') ++ ", " ++ showCArgs args') $
-                    let extraVars = Map.findWithDefault [] f env
+                    trace ("nothing " ++ show f) $
+                    let extraVars  = Map.findWithDefault [] f env
                         callerVars = Map.findWithDefault [] ifun env
+                        retType    = Map.findWithDefault CClosurePtr f funs
                     in if null extraVars
-                        then -- no captures, plain call
-                            (allArgAllocs, unsafeCoerce $ rebuildCall myVar args')
-                        else if extraVars == callerVars
-                            then -- same env, pass through via closure
-                                let alloc = AllocClosure f f ifun [] extraVars
-                                    closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
-                                    applied = foldl (\acc (CArg a) ->
-                                        unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) closureVar args'
-                                    retType = Map.findWithDefault CClosurePtr f funs
-                                    casted =  trace ("Finding retType hoist1 " ++ show f ++ " | " ++ showCType retType) $
-                                        CastExpr retType (unsafeCoerce applied )
-                                in (allArgAllocs ++ [alloc], unsafeCoerce casted)
-                            else -- different env, need to allocate closure
-                                let parentExtraPs = callerVars
-                                    directPs = extraVars \\ parentExtraPs
-                                    parentPs = extraVars `intersect` parentExtraPs
-                                    alloc = AllocClosure f f ifun directPs parentPs
-                                    closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
-                                    applied = foldl (\acc (CArg a) ->
-                                        unsafeCoerce $ ApplyClosure (unsafeCoerce acc) a) closureVar args'
-                                    retType = Map.findWithDefault CClosurePtr f funs
-                                    casted =  trace ("Finding retType hoist " ++ show f ++ " | " ++ showCType retType) $
-                                        CastExpr retType (unsafeCoerce applied)
-                                in (allArgAllocs ++ [alloc], unsafeCoerce casted)
-        _ -> let rebuilt = foldl (\acc (CArg a) ->
-                    unsafeCoerce $ CallExpr
-                        (unsafeCoerce acc :: CExpression (Int -> Int))
-                        (unsafeCoerce a)) (unsafeCoerce func) args'
+                        then (allArgAllocs, unsafeCoerce $ rebuildCall myVar args')
+                        else
+                            trace ("    extraVars " ++ show f) $
+                            let directPs' = extraVars \\ callerVars
+                                parentPs' = extraVars `intersect` callerVars
+                                alloc     = AllocClosure f f ifun directPs' parentPs'
+                                closureVar = unsafeCoerce (Val ClosureV :: CExpression Int)
+                            in (allArgAllocs ++ [alloc], unsafeCoerce $ applyWithCasts retType closureVar args')
+        _ ->
+            let rebuilt = foldl (\acc (CArg a) ->
+                    unsafeCoerce $ CallExpr (unsafeCoerce acc :: CExpression (Int -> Int))
+                                            (unsafeCoerce a)) (unsafeCoerce func) args'
             in (allArgAllocs, unsafeCoerce rebuilt)
 hoistClosureAllocs ifun env closureRet funs (Ternary c t e) =
     let (ca, c') = hoistClosureAllocs ifun env closureRet funs c
@@ -404,53 +362,25 @@ hoistClosureAllocs _ _ _ _ x = ([], x)
 unCArg :: CArg -> CExpression a
 unCArg (CArg (tmp :: CExpression a)) = unsafeCoerce tmp
 
-castApply :: Int -> ClosureReturnEnv -> FunTypes -> CExpression a -> CExpression b
-castApply fId closureRet funs applied =
-    let originId = case Map.lookup fId closureRet of
-                     Just orig -> orig
-                     Nothing   -> fId
-        retType = Map.findWithDefault CClosurePtr originId funs
-    in trace ("Finding retType " ++ show fId ++ " | " ++ showCType retType ++ " , origin " ++ show originId
-            ++ "\n closureRet " ++ show closureRet) $
-        unsafeCoerce $ CastExpr retType (unsafeCoerce applied)
-
-isClosureExpr :: CExpression a -> ClosureReturnEnv -> Bool
-isClosureExpr (CallExpr (Var f) _) cr = Map.member f cr
-isClosureExpr (CallExpr f _) cr       = isClosureExpr (unsafeCoerce f) cr
-isClosureExpr (Var f) cr              = Map.member f cr  -- bound closure variable
-isClosureExpr _ _                     = False
-
 rewriteExpr :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> CExpression a
 rewriteExpr ifun env closureRet funs (CallExpr (f :: CExpression (arg -> a)) x) =
     let x' = rewriteExpr ifun env closureRet funs x
-        -- argCon = show (typeRep (Proxy :: Proxy arg))
-        -- wrappedArg = case argCon of
-        --                "Int"  -> unsafeCoerce $ CastExpr CIntPtr  (unsafeCoerce x' :: CExpression Int)
-        --                "Bool" -> unsafeCoerce $ CastExpr CBoolPtr (unsafeCoerce x' :: CExpression Bool)
-        --                _      -> x'
     in case f of
         myVar@(Var fId) ->
             case (Map.lookup fId env, Map.member fId closureRet) of
-                (Nothing, True) ->
-                    let applied = unsafeCoerce $ ApplyClosure (unsafeCoerce myVar) x'
-                    in castApply fId closureRet funs applied
+                (Nothing, True) -> unsafeCoerce $ ApplyClosure (unsafeCoerce myVar) x'
                 _ -> unsafeCoerce $ CallExpr (rewriteExpr ifun env closureRet funs myVar) x'
         _ ->
             let f' = rewriteExpr ifun env closureRet funs f
             in case outermostVar f of
                 Just fId | Map.member fId closureRet ->
-                    let applied = unsafeCoerce $ ApplyClosure (unsafeCoerce f') x'
-                    in castApply fId closureRet funs applied
+                    unsafeCoerce $ ApplyClosure (unsafeCoerce f') x'
                 _ -> CallExpr f' x'
 rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Fst x) = Fst (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Snd x) = Snd (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (IsEmpty x) = IsEmpty (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (HeadList x) = HeadList (rewriteExpr ifun m closureRet funs x)
--- rewriteExpr ifun m closureRet funs (HeadList (l :: CExpression [a])) =
---     let l' = rewriteExpr ifun m closureRet funs l
---         t   = typeRep (Proxy :: Proxy a)
---     in CastExpr (CTypeRep t) (unsafeCoerce (HeadList l'))
 rewriteExpr ifun m closureRet funs  (TailList x) = TailList (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (IndexList l i) = IndexList (rewriteExpr ifun m closureRet funs l) i
 rewriteExpr ifun m closureRet funs  (Prod x y) = Prod (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
@@ -462,8 +392,7 @@ rewriteExpr ifun m _  _ ((Var i) :: CExpression a) =
     case Map.lookup ifun m of
         Just extraPs | findParam extraPs i ->
             GetEnvField ifun i (CTypeRep (typeRep (Proxy :: Proxy a)))
-        _ -> -- trace ("--- NOT FIND  VAR " ++ show i) $ 
-            Var i
+        _ -> Var i
         where
             findParam :: CParams -> Int -> Bool
             findParam [] _ = False
@@ -498,13 +427,7 @@ rewriteStmt ifun env closureRet funs (BindExpr x i y) =
     let x' = rewriteExpr ifun env closureRet funs x
         (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
         y' = rewriteStmt ifun env closureRet funs y
-    in 
-        -- trace ("REWRITE BINDEXPR | ifun=v" ++ show ifun
-        --       ++ " | i=v" ++ show i
-        --       ++ " | x_outermost=" ++ show (outermostVar x)
-        --       ++ " | i_in_closureRet=" ++ show (Map.member i closureRet)
-        --       ++ " | x_outermost_in_closureRet=" ++ show (maybe False (`Map.member` closureRet) (outermostVar x))) $
-       foldr (Seq . unsafeCoerce) (BindExpr x'' i y') allocs
+    in foldr (Seq . unsafeCoerce) (BindExpr x'' i y') allocs
 rewriteStmt ifun env closureRet funs (If cond t f) =
     let cond' = rewriteExpr ifun env closureRet funs cond
         (allocs, cond'') = hoistClosureAllocs ifun env closureRet funs cond'
@@ -550,12 +473,7 @@ liftStmt _ env closureRet funs (DefFun tret ifun params body) =
             [] -> params
             _  -> CParamEnv ifun : params
         env' = Map.insert ifun extraPs env
-    in  trace ("LIFT | ifun=v" ++ show ifun 
-              ++ " | freeRaw=" ++ show (Map.keys freeMapRaw)
-              ++ " | funsKeys=" ++ show (Map.keys funs)
-              ++ " | extraPs=" ++ show (map paramId extraPs)) $
-        
-        case getInnerFunId closureRet body of
+    in  case getInnerFunId closureRet body of
             Just ifun1 ->
                 let closureRet' =
                         let innerExtraPs = Map.findWithDefault [] ifun1 env''
@@ -780,7 +698,7 @@ showCExpression (Fst (p :: CExpression (a, b))) m =
 showCExpression (Snd (p :: CExpression (a, b))) m =
     unbox (typeRep (Proxy :: Proxy b)) ("snd(" ++ showCExpression p m ++ ")")
 showCExpression (IsEmpty l) m = "isEmpty(" ++ showCExpression l m ++ ")"
-showCExpression (HeadList (l :: CExpression [a])) m = 
+showCExpression (HeadList (l :: CExpression [a])) m =
     unbox (typeRep (Proxy :: Proxy a)) ("(head(" ++ showCExpression l m ++ "))")
 showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
 showCExpression (ConsList (x :: CExpression a) l) m =
@@ -791,16 +709,13 @@ showCExpression (Ternary cond thn els) m = "(" ++ showCExpression cond m ++ ") ?
 showCExpression (GetEnvField structId fieldId _) _ =
     "((Env_v" ++ show structId ++ "*)env)->v" ++ show fieldId
 showCExpression (ApplyClosure f (arg :: CExpression b)) m =
-    -- "apply(" ++ showCExpression f m ++ ", " ++ box (typeRep (Proxy :: Proxy b)) (showCExpression arg m) ++ ")"
-    -- "apply(" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
-    -- "apply(" ++ showCExpression f m ++ ", (void*)(" ++ showCExpression arg m ++ "))"
     let t = typeRep (Proxy :: Proxy b)
         argStr = showCExpression arg m
         voidArg = case show (typeRepTyCon t) of
             "Int"  -> "box_int(" ++ argStr ++ ")"
             "Bool" -> "box_bool(" ++ argStr ++ ")"
             _      -> "(void*)(" ++ argStr ++ ")"
-    in "apply(" ++ showCExpression f m ++ ", " ++ voidArg ++ ")"
+    in "apply((Closure*)" ++ showCExpression f m ++ ", " ++ voidArg ++ ")"
 showCExpression (CastExpr t x) m = showCCast t (showCExpression x m)
 
 -- merges together nested calls if I merged together the params earlier
@@ -1002,8 +917,8 @@ mergeSortCall
 
 main :: IO ()
 main = do
-    let progName = "mapListCall"
-    let (nl, c') = NL.translate 0 AL.mapListCall
+    let progName = "mergeSortCall"
+    let (nl, c') = NL.translate 0 AL.mergeSortCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
 

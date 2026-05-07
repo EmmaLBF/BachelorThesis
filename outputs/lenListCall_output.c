@@ -23,12 +23,12 @@ int (*v5(int v2))(Node*) {
 
 int v0(Node* v1) {
   Node* v6 = v1;
-  return (isEmpty(v6)) ? (0) : (v5(*(int*)head(v6))(tail(v6)));
+  return (isEmpty(v6)) ? (0) : (v5(*(int*)(head(v6)))(tail(v6)));
 }
 
 // main
 int main(void) {
-  printf("%d\n", v0(cons(mk_int((int)(1)), cons(mk_int((int)(2)), cons(mk_int((int)(3)), NULL)))));
+  printf("%d\n", v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
   return 0;
 }
 

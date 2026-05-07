@@ -30,7 +30,7 @@ typedef struct {
 // function implementations
 Node* v6(void* env, void* v4_raw) {
   Node* v4 = (Node*)v4_raw;
-  return cons(box_int(((Env_v6*)env)->v1(((Env_v6*)env)->v3)), (Node*)apply(v0(((Env_v6*)env)->v1), (void*)(v4)));
+  return cons(box_int(((Env_v6*)env)->v1(((Env_v6*)env)->v3)), apply((Closure*)v0(((Env_v6*)env)->v1), (void*)(v4)));
 }
 
 Closure* v7(void* env, void* v3_raw) {
@@ -52,7 +52,7 @@ Node* v9(void* env, void* v2_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env7;
   c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v8)) ? (NULL) : ((Node*)apply((Node*)apply(c, box_int(*(int*)(head(v8)))), (void*)(tail(v8))));
+  return (isEmpty(v8)) ? (NULL) : (apply((Closure*)(Node*)apply((Closure*)c, box_int(*(int*)(head(v8)))), (void*)(tail(v8))));
 }
 
 Closure* v0(int (*v1)(int)) {
@@ -71,7 +71,7 @@ int v10(int v5) {
 // main
 int main(void) {
   Closure* v11 = v0(v10);
-  printList((Node*)apply(v11, (void*)(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL))))));
+  printList(apply((Closure*)v11, (void*)(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL))))));
   return 0;
 }
 
