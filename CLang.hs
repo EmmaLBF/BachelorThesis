@@ -96,11 +96,15 @@ ensureReturn stmt = case stmt of
   Seq x y -> Seq x (ensureReturn y)
   _ -> stmt
 
+extractExpr :: CStatement a -> CExpression a
+extractExpr (Return e) = e
+extractExpr _ = error "Cannot extract: expected Return"
+
 translateExpr :: NL.NamedLang a -> CExpression a
 translateExpr (NL.Var n) = Var n
-translateExpr  NL.EmptyList = EmptyList
 translateExpr (NL.LInt n) = Val (IntV n)
 translateExpr (NL.LBool b) = Val (BoolV b)
+translateExpr  NL.EmptyList = EmptyList
 translateExpr (NL.Fst p) = Fst (translateExpr p)
 translateExpr (NL.Snd p) = Snd (translateExpr p)
 translateExpr (NL.Prod x y) = Prod (translateExpr x) (translateExpr y)
@@ -157,36 +161,6 @@ translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
       return $ Seq (unsafeCoerce (bindResult fId fStmt))
              $ Seq (unsafeCoerce (bindResult xId xStmt))
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
-
-
-  -- fStmt <- translate f
-  -- xStmt <- translate x
-  -- let target  = getCallTarget (unsafeCoerce fStmt)
-  --     seqDefs = case target of
-  --                 FunVar _   -> 
-  --                   case unsafeCoerce fStmt of
-  --                     Return _ -> unsafeCoerce Skip  -- pure expr, nothing to hoist
-  --                     s        -> s
-  --                 PrevCall _ -> removeLastReturn (unsafeCoerce fStmt)
-  --     mkCall :: CExpression arg -> CExpression a
-  --     mkCall argExpr = 
-  --       case target of
-  --         FunVar i   -> CallExpr (Var i) argExpr
-  --         PrevCall c -> CallExpr c argExpr
-  -- case xStmt of
-  --   DefFun _ xId _ _ ->
-  --     return $ Seq seqDefs (Seq (unsafeCoerce xStmt) (Return (mkCall (Var xId))))
-  --   Return xExpr ->
-  --     return $ Seq seqDefs (Return (mkCall (unsafeCoerce xExpr)))
-  --   _ -> do
-  --     xId <- fresh
-  --     return $ Seq (bindResult xId (unsafeCoerce xStmt))
-  --           $ Seq seqDefs
-  --           $ Return (mkCall (Var xId))
-
-    -- _ -> let argExpr = translateExpr x
-    --      in return $ Seq seqDefs
-    --                $ Return (mkCall argExpr)
 translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
@@ -218,9 +192,12 @@ translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (
   return $ Seq (unsafeCoerce consStmt)
          $ Seq (unsafeCoerce lHoisted)
          $ unsafeCoerce caseBody
-  -- return $ Seq (unsafeCoerce consStmt)
-  --        $ BindExpr cxs lId
-  --        $ Return (Ternary (IsEmpty (Var lId)) nilExpr callExpr)
+-- translate (NL.Prod x y) = do
+--   xs <- translate x
+--   ys <- translate y
+--   let xe = extractExpr xs
+--   let ye = extractExpr ys
+--   return $ unsafeCoerce Seq xs (Seq ys (unsafeCoerce (Return (Prod xe ye))))
 translate x = return $ Return (translateExpr x)
 
 unInt :: CValue Int -> Int

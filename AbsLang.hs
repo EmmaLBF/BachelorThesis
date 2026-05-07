@@ -357,18 +357,18 @@ mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
 
 splitN :: Lang ((Int, [Int]) -> ([Int], [Int]))
 splitN = Fix $ lam $ \f -> lam $ \p ->
-  let n  = Fst p
-      xs = Snd p
-  in If
+  let_ (Fst p) $ \n ->
+  let_ (Snd p) $ \xs ->
+    If
       (n ==: int 0)
       (Prod nil xs)
       (CaseList xs
-        (Prod nil nil) -- shouldn't happen, but safe
+        (Prod nil nil)
         (lam $ \h -> lam $ \t ->
-            let rec = f `app` Prod (n -: int 1) t
-            in Prod
-                (cons h (Fst rec))
-                (Snd rec)
+            let_ (f `app` Prod (n -: int 1) t) $ \recur->
+              Prod
+                (cons h (Fst recur))
+                (Snd recur)
         )
       )
 

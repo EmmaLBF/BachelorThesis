@@ -52,7 +52,7 @@ Node* v9(void* env, void* v2_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env7;
   c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v8)) ? (NULL) : ((Node*)apply((Closure*)apply(c, box_int(*(int*)(head(v8)))), (void*)(tail(v8))));
+  return (isEmpty(v8)) ? (NULL) : ((Node*)apply((Node*)apply(c, box_int(*(int*)(head(v8)))), (void*)(tail(v8))));
 }
 
 Closure* v0(int (*v1)(int)) {
