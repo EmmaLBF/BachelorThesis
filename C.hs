@@ -363,18 +363,42 @@ unCArg :: CArg -> CExpression a
 unCArg (CArg (tmp :: CExpression a)) = unsafeCoerce tmp
 
 rewriteExpr :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> CExpression a
+-- rewriteExpr ifun env closureRet funs (CallExpr (f :: CExpression (arg -> a)) x) =
+--     let x' = rewriteExpr ifun env closureRet funs x
+--     in case f of
+--         myVar@(Var fId) ->
+--             case (Map.lookup fId env, Map.member fId closureRet) of
+--                 (Nothing, True) -> unsafeCoerce $ ApplyClosure (unsafeCoerce myVar) x'
+--                 _ -> unsafeCoerce $ CallExpr (rewriteExpr ifun env closureRet funs myVar) x'
+--         _ ->
+--             let f' = rewriteExpr ifun env closureRet funs f
+--             in case outermostVar f of
+--                 Just fId | Map.member fId closureRet ->
+--                     unsafeCoerce $ ApplyClosure (unsafeCoerce f') x'
+--                 _ -> CallExpr f' x'
 rewriteExpr ifun env closureRet funs (CallExpr (f :: CExpression (arg -> a)) x) =
     let x' = rewriteExpr ifun env closureRet funs x
     in case f of
         myVar@(Var fId) ->
             case (Map.lookup fId env, Map.member fId closureRet) of
-                (Nothing, True) -> unsafeCoerce $ ApplyClosure (unsafeCoerce myVar) x'
+                (Nothing, True) ->
+                    -- closure variable: use ApplyClosure with cast
+                    let applied = unsafeCoerce $ ApplyClosure (unsafeCoerce myVar) x'
+                        originId = Map.findWithDefault fId fId closureRet
+                        retType  = Map.findWithDefault CClosurePtr originId funs
+                    in unsafeCoerce $ CastExpr retType (unsafeCoerce applied)
                 _ -> unsafeCoerce $ CallExpr (rewriteExpr ifun env closureRet funs myVar) x'
         _ ->
             let f' = rewriteExpr ifun env closureRet funs f
             in case outermostVar f of
                 Just fId | Map.member fId closureRet ->
-                    unsafeCoerce $ ApplyClosure (unsafeCoerce f') x'
+                    if Map.member fId env
+                    then CallExpr f' x'  -- factory function, leave for hoistClosureAllocs
+                    else -- closure variable result, add cast
+                        let applied  = unsafeCoerce $ ApplyClosure (unsafeCoerce f') x'
+                            originId = Map.findWithDefault fId fId closureRet
+                            retType  = Map.findWithDefault CClosurePtr originId funs
+                        in unsafeCoerce $ CastExpr retType (unsafeCoerce applied)
                 _ -> CallExpr f' x'
 rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Fst x) = Fst (rewriteExpr ifun m closureRet funs x)

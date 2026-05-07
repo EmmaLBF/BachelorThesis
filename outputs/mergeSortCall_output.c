@@ -113,9 +113,9 @@ typedef struct {
 Node* v28(void* env, void* v13_raw) {
   Node* v13 = (Node*)v13_raw;
   if (((Env_v28*)env)->v10 < ((Env_v28*)env)->v12) {
-    return cons(box_int(((Env_v28*)env)->v10), apply((Closure*)v7(((Env_v28*)env)->v11), (void*)(((Env_v28*)env)->v9)));
+    return cons(box_int(((Env_v28*)env)->v10), (Node*)apply((Closure*)v7(((Env_v28*)env)->v11), (void*)(((Env_v28*)env)->v9)));
   } else {
-    return cons(box_int(((Env_v28*)env)->v12), apply((Closure*)v7(v13), (void*)(((Env_v28*)env)->v8)));
+    return cons(box_int(((Env_v28*)env)->v12), (Node*)apply((Closure*)v7(v13), (void*)(((Env_v28*)env)->v8)));
   }
 }
 
@@ -144,7 +144,7 @@ Node* v31(void* env, void* v11_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env29;
   c->fn = (void* (*)(void*, void*))v29;
-  return (isEmpty(v30)) ? (((Env_v31*)env)->v8) : (apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v30)))), (void*)(tail(v30))));
+  return (isEmpty(v30)) ? (((Env_v31*)env)->v8) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v30)))), (void*)(tail(v30))));
 }
 
 Closure* v32(void* env, void* v10_raw) {
@@ -168,7 +168,7 @@ Node* v34(void* env, void* v9_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env32;
   c->fn = (void* (*)(void*, void*))v32;
-  return (isEmpty(v33)) ? (v9) : (apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v33)))), (void*)(tail(v33))));
+  return (isEmpty(v33)) ? (v9) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v33)))), (void*)(tail(v33))));
 }
 
 Closure* v7(Node* v8) {
@@ -182,7 +182,7 @@ Closure* v7(Node* v8) {
 
 Node* v36(Pair* v6) {
   Closure* v35 = v7(v0((Node*)fst(v6)));
-  return apply((Closure*)v35, (void*)(v0((Node*)snd(v6))));
+  return (Node*)apply((Closure*)v35, (void*)(v0((Node*)snd(v6))));
 }
 
 Pair* v37(void* env, void* v23_raw) {
@@ -222,7 +222,7 @@ Pair* v41(void* env, void* v20_raw) {
     Closure* c = malloc(sizeof(Closure));
     c->env = env39;
     c->fn = (void* (*)(void*, void*))v39;
-    return (isEmpty(v40)) ? (mk_pair(NULL, NULL)) : (apply((Closure*)(Pair*)apply((Closure*)c, box_int(*(int*)(head(v40)))), (void*)(tail(v40))));
+    return (isEmpty(v40)) ? (mk_pair(NULL, NULL)) : ((Pair*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v40)))), (void*)(tail(v40))));
   }
 }
 
@@ -307,7 +307,7 @@ Node* v54(void* env, void* v3_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env52;
   c->fn = (void* (*)(void*, void*))v52;
-  return (isEmpty(v53)) ? (cons(box_int(((Env_v54*)env)->v2), NULL)) : (apply((Closure*)(Node*)apply((Closure*)c, box_int(*(int*)(head(v53)))), (void*)(tail(v53))));
+  return (isEmpty(v53)) ? (cons(box_int(((Env_v54*)env)->v2), NULL)) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v53)))), (void*)(tail(v53))));
 }
 
 Closure* v55(void* env, void* v2_raw) {
@@ -328,7 +328,7 @@ Node* v0(Node* v1) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env55;
   c->fn = (void* (*)(void*, void*))v55;
-  return (isEmpty(v56)) ? (NULL) : (apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v56)))), (void*)(tail(v56))));
+  return (isEmpty(v56)) ? (NULL) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v56)))), (void*)(tail(v56))));
 }
 
 // main

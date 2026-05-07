@@ -33,7 +33,7 @@ Closure* v5(int v2) {
 
 int v0(Node* v1) {
   Node* v6 = v1;
-  return (isEmpty(v6)) ? (0) : (apply((Closure*)v5(*(int*)(head(v6))), (void*)(tail(v6))));
+  return (isEmpty(v6)) ? (0) : ((int)(intptr_t)apply((Closure*)v5(*(int*)(head(v6))), (void*)(tail(v6))));
 }
 
 // main
