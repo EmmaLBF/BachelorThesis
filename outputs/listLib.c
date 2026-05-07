@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdbool.h>
 
 typedef struct Node {
     void* head;
@@ -39,9 +40,13 @@ void printList(Node *list) {
   printList(list->tail);
 }
 
-int* mk_int(int v) { int* p = malloc(sizeof(int)); *p = v; return p; }
+// box / unbox
 
-bool* mk_bool(bool v) { bool* p = malloc(sizeof(bool)); *p = v; return p; }
+int* box_int(int v) { int* p = malloc(sizeof(int)); *p = v; return p; }
+int unbox_int(void* p) { return *(int*)p; }
+
+bool* box_bool(bool v) { bool* p = malloc(sizeof(bool)); *p = v; return p; }
+bool unbox_bool(void* p) { return *(bool*)p; }
 
 // pairs
 
