@@ -18,6 +18,9 @@ data CmpOp = Eq | Lt | Gt
 --  The Language (GADT, typed via phantom param)
 -- ─────────────────────────────────────────────
 
+-- Algebraic data types
+-- Pattern matching
+
 data Lang a where
   -- | Free variable – looked up in the environment at eval time
   Var :: (Typeable a) => Int -> Lang a
@@ -38,6 +41,14 @@ data Lang a where
   Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)
   Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a
   Snd :: (Typeable a, Typeable b) => Lang (a, b) -> Lang b
+  -- | LISTS
+  EmptyList  :: Typeable a => Lang [a]
+  ConsList :: Typeable a => Lang a -> Lang [a] -> Lang [a]
+  CaseList :: (Typeable a, Typeable b)
+           => Lang [a]          -- list to match on
+           -> Lang b            -- nil case
+           -> Lang (a -> [a] -> b)  -- cons case: head -> tail -> result
+           -> Lang b
 
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
@@ -84,6 +95,12 @@ eval = ev 0 Map.empty
     ev fresh env (Fst p) = fst (ev fresh env p)
     ev fresh env (Snd p) = snd (ev fresh env p)
     ev fresh env (Fix f) = fix (ev fresh env f)
+    ev _ _ EmptyList = []
+    ev fresh env (ConsList x l) = ev fresh env x : ev fresh env l
+    ev fresh env (CaseList l nilCase consCase) =
+      case ev fresh env l of
+        [] -> ev fresh env nilCase
+        (h:t) -> ev fresh env consCase h t
 
 -- Syntactic Sugar
 lam :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
@@ -138,6 +155,10 @@ fib = Fix $ lam $ \f -> lam $ \n ->
     n
     ((f `app` (n -: int 1)) +: (f `app` (n -: int 2)))
 
+fibCall :: Lang Int
+fibCall =
+  fib `app` int 5
+
 -- 4. GCD (using tuples to pass two arguments recursively)
 gcdLang :: Lang ((Int, Int) -> Int)
 gcdLang = Fix $ lam $ \f -> lam $ \p ->
@@ -147,6 +168,9 @@ gcdLang = Fix $ lam $ \f -> lam $ \p ->
         (b ==: int 0)
         a
         (f `app` Prod b (a %: b))
+
+gcdLangCall :: Lang Int
+gcdLangCall = gcdLang `app` Prod (int 30) (int 10)
 
 -- 5. Higher-Order Functions: apply a function twice
 twice :: (Typeable a) => Lang ((a -> a) -> (a -> a))
@@ -277,6 +301,97 @@ sumDigits = Fix $ lam $ \f -> lam $ \n ->
 letExample :: Lang Int
 letExample = let_ (int 42) $ \x ->
   x +: x
+
+-- helpers
+nil :: Typeable a => Lang [a]
+nil = EmptyList
+
+cons :: Typeable a => Lang a -> Lang [a] -> Lang [a]
+cons = ConsList
+
+-- sum a list
+sumList :: Lang ([Int] -> Int)
+sumList = Fix $ lam $ \f -> lam $ \xs ->
+  CaseList xs
+    (int 0)
+    (lam $ \h -> lam $ \t -> h +: (f `app` t))
+
+sumListCall :: Lang Int
+sumListCall = sumList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+-- length of a list
+lenList :: Lang ([Int] -> Int)
+lenList = Fix $ lam $ \f -> lam $ \xs ->
+  CaseList xs
+    (int 0)
+    (lam $ \_ -> lam $ \t -> int 1 +: (f `app` t))
+
+lenListCall :: Lang Int
+lenListCall = lenList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+-- map over a list
+mapList :: Lang ((Int -> Int) -> [Int] -> [Int])
+mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
+  CaseList xs
+    EmptyList
+    (lam $ \h -> lam $ \t -> ConsList (g `app` h) (f `app` g `app` t))
+
+mapListCall :: Lang [Int]
+mapListCall = (mapList `app` (lam $ \x -> x *: int 2))
+                      `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+mergeList :: Lang ([Int] -> [Int] -> [Int])
+mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
+  CaseList first
+    second
+    (lam $ \hFirst -> lam $ \tFirst ->
+      CaseList second
+        first
+        (lam $ \hSecond -> lam $ \tSecond ->
+          If
+            (hFirst <: hSecond)
+            (cons hFirst ((f `app` tFirst) `app` second))
+            (cons hSecond ((f `app` tSecond) `app` first))
+        )
+      )
+
+splitN :: Lang ((Int, [Int]) -> ([Int], [Int]))
+splitN = Fix $ lam $ \f -> lam $ \p ->
+  let_ (Fst p) $ \n ->
+  let_ (Snd p) $ \xs ->
+    If
+      (n ==: int 0)
+      (Prod nil xs)
+      (CaseList xs
+        (Prod nil nil)
+        (lam $ \h -> lam $ \t ->
+            let_ (f `app` Prod (n -: int 1) t) $ \recur->
+              Prod
+                (cons h (Fst recur))
+                (Snd recur)
+        )
+      )
+
+splitHalf :: Lang ([Int] -> ([Int], [Int]))
+splitHalf = lam $ \xs ->
+  let_ (lenList `app` xs) $ \n ->
+  let_ (n /: int 2) $ \half ->
+  splitN `app` Prod half xs
+
+mergeSort :: Lang ([Int] -> [Int])
+mergeSort = Fix $ lam $ \f -> lam $ \l ->
+    CaseList l
+      EmptyList
+      (lam $ \h -> lam $ \t ->
+        CaseList t
+          (cons h EmptyList)
+          (lam $ \_ -> lam $ \_ ->
+            let_ (splitHalf `app` l) $ \p -> (mergeList `app` (f `app` Fst p)) `app` (f `app` Snd p))
+      )
+
+mergeSortCall :: Lang [Int]
+mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))
+
 
 main :: IO ()
 main = do
