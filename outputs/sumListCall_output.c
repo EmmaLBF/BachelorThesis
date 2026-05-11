@@ -38,7 +38,7 @@ int v0(Node* v1) {
 
 // main
 int main(void) {
-  printf("%d\n", v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printInt(v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
   return 0;
 }
 

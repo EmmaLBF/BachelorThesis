@@ -73,33 +73,6 @@ fresh = do
   modify (+1)
   return n
 
-data CallTarget a
-  = FunVar Int
-  | PrevCall (CExpression a)
-
-getCallTarget :: CStatement a -> CallTarget a
-getCallTarget (DefFun _ i _ _)              = FunVar i
-getCallTarget (Seq _ y)                     = getCallTarget (unsafeCoerce y)
-getCallTarget (Return (CallExpr f arg))     = PrevCall (unsafeCoerce (CallExpr f arg))
-getCallTarget (Return (Var i)) = FunVar i
-getCallTarget _                             = error "not call target"
-
-removeLastReturn :: CStatement a -> CStatement a
-removeLastReturn (Seq x (Return _)) = x
-removeLastReturn (Seq x y)          = Seq x (removeLastReturn (unsafeCoerce y))
-removeLastReturn (Return _)         = Skip
-removeLastReturn x                  = x
-
-ensureReturn :: CStatement a -> CStatement a
-ensureReturn stmt = case stmt of
-  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
-  Seq x y -> Seq x (ensureReturn y)
-  _ -> stmt
-
-extractExpr :: CStatement a -> CExpression a
-extractExpr (Return e) = e
-extractExpr _ = error "Cannot extract: expected Return"
-
 translateExpr :: NL.NamedLang a -> CExpression a
 translateExpr (NL.Var n) = Var n
 translateExpr (NL.LInt n) = Val (IntV n)
@@ -120,41 +93,39 @@ bindResult i (Seq x y)   = Seq x (bindResult i y)
 bindResult i (If c t e)  = If c (bindResult i t) (bindResult i e)
 bindResult _ s            = s
 
+ensureReturn :: CStatement a -> CStatement a
+ensureReturn stmt = case stmt of
+  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
+  Seq x y -> Seq x (ensureReturn y)
+  _ -> stmt
+
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
   fStmt <- translate f  -- :: CStatement (arg -> a)
   xStmt <- translate x  -- :: CStatement arg
-  -- trace ("=== Apply ===\nfStmt: " ++ showCStmt 0 fStmt ++ "\nxStmt: " ++ showCStmt 0 xStmt) $
   case (fStmt, xStmt) of
-    -- f is a function def, x is a plain expr
     (DefFun _ fId _ _, Return xExpr) ->
       return $ Seq (unsafeCoerce fStmt)
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
-    -- f is a function def, x is also a function def
     (DefFun _ fId _ _, DefFun _ xId _ _) ->
       return $ Seq (unsafeCoerce fStmt)
              $ Seq (unsafeCoerce xStmt)
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
-    -- f is a function def, x needs hoisting
     (DefFun _ fId _ _, _) -> do
       xId <- fresh
       return $ Seq (unsafeCoerce fStmt)
              $ Seq (unsafeCoerce (bindResult xId xStmt))
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
-    -- f is a plain expr, x is a plain expr
     (Return fExpr, Return xExpr) ->
       return $ Return (CallExpr fExpr xExpr)
-    -- f is a plain expr, x needs hoisting
     (Return fExpr, _) -> do
       xId <- fresh
       return $ Seq (unsafeCoerce (bindResult xId xStmt))
              $ Return (CallExpr fExpr (Var xId :: CExpression arg))
-    -- f needs hoisting, x is a plain expr
     (_, Return xExpr) -> do
       fId <- fresh
       return $ Seq (unsafeCoerce (bindResult fId fStmt))
              $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
-    -- both need hoisting
     (_, _) -> do
       fId <- fresh
       xId <- fresh
@@ -192,12 +163,6 @@ translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (
   return $ Seq (unsafeCoerce consStmt)
          $ Seq (unsafeCoerce lHoisted)
          $ unsafeCoerce caseBody
--- translate (NL.Prod x y) = do
---   xs <- translate x
---   ys <- translate y
---   let xe = extractExpr xs
---   let ye = extractExpr ys
---   return $ unsafeCoerce Seq xs (Seq ys (unsafeCoerce (Return (Prod xe ye))))
 translate x = return $ Return (translateExpr x)
 
 unInt :: CValue Int -> Int
@@ -212,7 +177,7 @@ unList (ListV x) = x
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
 lookupEnv i1 (Extend i2 x remainder)
-  | i1 == i2 = 
+  | i1 == i2 =
       -- trace ("   % lookup v" ++ show i1 ++
       --       ": stored = " ++ show (DType.typeRep x) ++
       --       " | expect = " ++ show (DType.typeRep (Proxy :: Proxy a))) $

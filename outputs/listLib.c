@@ -40,6 +40,10 @@ void printList(Node *list) {
   printList(list->tail);
 }
 
+void printInt(int i) {
+  printf("%d\n", i);
+}
+
 // box / unbox
 
 int* box_int(int v) { int* p = malloc(sizeof(int)); *p = v; return p; }
