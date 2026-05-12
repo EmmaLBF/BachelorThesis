@@ -7,18 +7,12 @@
 #include "listLib.c"
 
 // function defitions
-Node* v6(void* env, void* v4_raw);
-Closure* v7(void* env, void* v3_raw);
+Node* v7(void* env, void* v3_raw, void* v4_raw);
 Node* v8(void* env, void* v2_raw);
 Closure* v0(int (*v1)(int));
 int v9(int v5);
 
 // closure defitions
-typedef struct {
-    int (*v1)(int);
-    int v3;
-} Env_v6;
-
 typedef struct {
     int (*v1)(int);
 } Env_v7;
@@ -28,20 +22,10 @@ typedef struct {
 } Env_v8;
 
 // function implementations
-Node* v6(void* env, void* v4_raw) {
-  Node* v4 = (Node*)v4_raw;
-  return cons(box_int(((Env_v6*)env)->v1(((Env_v6*)env)->v3)), (Node*)apply((Closure*)v0(((Env_v6*)env)->v1), (void*)(v4)));
-}
-
-Closure* v7(void* env, void* v3_raw) {
+Node* v7(void* env, void* v3_raw, void* v4_raw) {
   int v3 = *(int*)v3_raw;
-  Env_v6* env6 = malloc(sizeof(Env_v6));
-  env6->v3 = v3;
-  env6->v1 = ((Env_v7*)env)->v1;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env6;
-  c->fn = (void* (*)(void*, void*))v6;
-  return c;
+  Node* v4 = (Node*)v4_raw;
+  return cons(box_int(((Env_v7*)env)->v1(v3)), (Node*)apply((Closure*)v0(((Env_v7*)env)->v1), (void*)(v4)));
 }
 
 Node* v8(void* env, void* v2_raw) {
@@ -51,7 +35,7 @@ Node* v8(void* env, void* v2_raw) {
   Closure* c = malloc(sizeof(Closure));
   c->env = env7;
   c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v2)) ? (NULL) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v2)))), (void*)(tail(v2))));
+  return (isEmpty(v2)) ? (NULL) : ((Node*)((Closure*)c)->fn(((Closure*)c)->env, box_int(*(int*)(head(v2))), (void*)(tail(v2))));
 }
 
 Closure* v0(int (*v1)(int)) {

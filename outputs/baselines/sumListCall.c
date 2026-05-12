@@ -32,7 +32,7 @@ Closure* v5(int v2) {
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : ((int)(intptr_t)((Closure*)v5(*(int*)(head(v1))))->fn(((Closure*)v5(*(int*)(head(v1))))->env, (void*)(tail(v1))));
+  return (isEmpty(v1)) ? (0) : ((int)(intptr_t)apply((Closure*)v5(*(int*)(head(v1))), (void*)(tail(v1))));
 }
 
 // main

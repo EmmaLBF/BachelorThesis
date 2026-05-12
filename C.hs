@@ -962,7 +962,7 @@ mergeSortCall
 
 main :: IO ()
 main = do
-    let progName = "mergeSortCall"
+    let progName = "merged/" ++ "mergeSortCall"
     let (nl, c') = NL.translate 0 AL.mergeSortCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
@@ -970,11 +970,11 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
 
-    -- putStrLn "\n--- Merging Lambdas ---"
-    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
-    -- putStrLn $ showCStmt 0 mergedMap Map.empty merged
-    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    putStrLn "\n--- Merging Lambdas ---"
+    let (merged, mergedMap) = mergeLambdas c c Map.empty
+    putStrLn $ showCStmt 0 mergedMap Map.empty merged
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
     
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -988,12 +988,12 @@ main = do
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    let funImpl = showCStmt 0 Map.empty closureEnv funPart
-    let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
-    let retImpl = showCExpression retExpr Map.empty
-    -- let retImpl = showCExpression retExpr mergedMap
-    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
-     -- let funImpl = showCStmt 0 mergedMap closureEnv funPart
+    -- let funImpl = showCStmt 0 Map.empty closureEnv funPart
+    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
+    -- let retImpl = showCExpression retExpr Map.empty
+    let retImpl = showCExpression retExpr mergedMap
+    let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
+    let funImpl = showCStmt 0 mergedMap closureEnv funPart
 
     let content =
             "\n// imports" ++ imports ++
@@ -1008,7 +1008,7 @@ main = do
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
 
     -- writing to file
-    let fileName = "outputs/baselines/" ++ progName ++ ".c"
+    let fileName = "outputs/" ++ progName ++ ".c"
     handle <- openFile fileName WriteMode
     hPutStrLn handle content
     hClose handle

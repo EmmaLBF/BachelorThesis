@@ -7,38 +7,75 @@ import os
 import time
 import resource
 
+# colours
+RED     = "\033[31m"
+GREEN   = "\033[32m"
+YELLOW  = "\033[33m"
+BLUE    = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN    = "\033[36m"
+
+# styles
+BOLD    = "\033[1m"
+RESET   = "\033[0m"
+
+def fmt(label, value, colour=CYAN):
+    return f"{BOLD}{colour}{label}{RESET} {value}"
+
 def get_stats(path_out):
 
     # Binary size
     binary_size = os.path.getsize(path_out)
+    print(f"Binary size:   {binary_size} bytes")
 
     # Symbol count
     nm = subprocess.run(["nm", path_out], capture_output=True, text=True)
     symbol_count = len(nm.stdout.strip().splitlines())
-
-    # Perf: instructions, cycles, cache misses, branch misses
-    perf = subprocess.run(
-        ["perf", "stat", "-e",
-         "instructions,cycles,cache-misses,branch-misses",
-         f"./{path_out}"],
-        capture_output=True, text=True
-    )
-    # perf writes to stderr
-    print(perf.stderr)
-
-    # Valgrind malloc count
-    valgrind = subprocess.run(
-        ["valgrind", "--tool=massif", f"./{path_out}"],
-        capture_output=True, text=True
-    )
-
-    print(f"Binary size:   {binary_size} bytes")
     print(f"Symbol count:  {symbol_count}")
+
+    # Wall time + peak RSS via /usr/bin/time
+    print("\n-- Valgrind summary --")
+    time_result = subprocess.run(
+        ["/usr/bin/time", "-v", f"./{path_out}"],
+        capture_output=True, text=True
+    )
+    for line in time_result.stderr.splitlines():
+        line = line.strip()
+        if any(k in line for k in [
+            "Elapsed (wall clock)", "Maximum resident", 
+            "User time", "System time",
+            "Major (requiring I/O) page faults",
+            "Minor (reclaiming a frame) page faults",
+            "Voluntary context switches",
+            "Involuntary context switches"
+        ]):
+            print(line)
+
+    # Valgrind memcheck: malloc/free counts
+    print("\n-- Valgrind heap summary --")
+    memcheck_result = subprocess.run(
+        ["valgrind", f"./{path_out}"],
+        capture_output=True, text=True
+    )
+    for line in memcheck_result.stderr.splitlines():
+        if "total heap usage" in line:
+            print(line.strip())
+
+    # Valgrind callgrind: instruction count
+    callgrind_result = subprocess.run(
+        ["valgrind", "--tool=callgrind", "--callgrind-out-file=/dev/null",
+        f"./{path_out}"],
+        capture_output=True, text=True
+    )
+    for line in callgrind_result.stderr.splitlines():
+        if "I   refs" in line:
+            print(f"Instruction count: {line.split(':')[1].strip()}")
+            break
 
 def compile_and_run_c(c_file):
     try:
-        path     = "outputs/baselines/" + c_file + ".c"
-        path_out = "outputs/baselines/" + c_file
+        path     = "outputs/" + c_file + ".c"
+        path_out = "outputs/" + c_file
 
         # Lines of code
         with open(path) as f:
@@ -46,7 +83,8 @@ def compile_and_run_c(c_file):
 
         # Compile
         compile_cmd = ["gcc", path, "-o", path_out]
-        print(f"Compiling: {' '.join(compile_cmd)}")
+        print("\n" + ("-" * 30))
+        print(f"{BOLD}{RED}Compiling: {' '.join(compile_cmd)}{RESET}")
         subprocess.run(compile_cmd, check=True)
 
         # Run with timing and memory
@@ -61,10 +99,13 @@ def compile_and_run_c(c_file):
         # resource.getrusage tracks the last child process
         usage = resource.getrusage(resource.RUSAGE_CHILDREN)
 
+        print(f"\n------ Run Stats")
         print(f"Elapsed time:  {elapsed:.4f}s")
         print(f"Max RSS:       {usage.ru_maxrss / 1024:.2f} MB")   # bytes on Linux
         print(f"User CPU time: {usage.ru_utime:.4f}s")
         print(f"Sys CPU time:  {usage.ru_stime:.4f}s")
+
+        print(f"\n------ Code Stats")
         print(f"Lines of code (non-empty): {loc}")
         get_stats(path_out)
 
@@ -73,4 +114,17 @@ def compile_and_run_c(c_file):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-compile_and_run_c("mergeSort/100")
+progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall"]
+
+print("BASELINES ******")
+
+
+
+print("MERGED ******")
+for prog in progs:
+    compile_and_run_c("merged/" + prog)
+
+
+
+
+# compile_and_run_c("baselines/mergeSort/100")
