@@ -27,7 +27,8 @@ Node* tail(Node* xs) {
 
 typedef struct Closure {
     void* env;
-    void* (*fn)(void*, void*);
+    // void* (*fn)(void*, void*);
+    void* (*fn)();
 } Closure;
 
 void* apply(Closure* c, void* arg) {
