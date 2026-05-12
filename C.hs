@@ -549,47 +549,6 @@ checkCallStmt fun params stmt = case stmt of
     UpdateVar _ b      -> checkCallExpr fun params b
     _              -> True
 
--- returns true if stmt contains a call to ifun
--- checkCallsFun :: Int -> CStatement a -> Bool
--- checkCallsFun ifun (Return x) = checkCallsFunExpr ifun x
--- checkCallsFun ifun (DefFun _ _ _ x) = checkCallsFun ifun x
--- checkCallsFun ifun (DefVar _ x) = checkCallsFunExpr ifun x
--- checkCallsFun ifun (UpdateVar _ x) = checkCallsFunExpr ifun x
--- checkCallsFun ifun (BindExpr x _ y) = checkCallsFunExpr ifun x || checkCallsFun ifun y
--- checkCallsFun ifun (Seq x y) = checkCallsFun ifun x || checkCallsFun ifun y
--- checkCallsFun ifun (While x y) = checkCallsFunExpr ifun x || checkCallsFun ifun y
--- checkCallsFun ifun (If x y z) = checkCallsFunExpr ifun x || checkCallsFun ifun y || checkCallsFun ifun z
--- checkCallsFun _ _ = False
-
--- checkCallsFunExpr :: Int -> CExpression a -> Bool
--- checkCallsFunExpr ifun (CallExpr (Var i) _) | ifun == i = True
--- checkCallsFunExpr ifun (Not x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (Fst x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (Snd x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (IsEmpty x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (HeadList x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (TailList x) = checkCallsFunExpr ifun x
--- checkCallsFunExpr ifun (IndexList x y) = checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr ifun (ConsList x y) = checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr ifun (LIntOp _ x y) = checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr ifun (LCmpOp _ x y) = checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr ifun (Ternary z x y) = checkCallsFunExpr ifun z || checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr ifun (Prod x y) = checkCallsFunExpr ifun x || checkCallsFunExpr ifun y
--- checkCallsFunExpr _ _ = False
-
--- flattenDefs :: CStatement a -> CParams
--- flattenDefs (DefFun _ _ params body) = params ++ flattenDefs body
--- flattenDefs (Seq x _) = flattenDefs x
--- flattenDefs _ = []
-
--- innerMostDef :: CStatement a -> (CType, CStatement b)
--- innerMostDef stmt@(DefFun tret ifun params body) = 
---     case body of
---         Seq x@(DefFun _ _ _ body1) _ -> innerMostDef x
---         _ -> (tret, body)
--- innerMostDef (Seq x _) = innerMostDef x
--- innerMostDef _ = error $ "idk"
-
 -- retrun merged and map of functions to their new number of params
 -- the whole program unchanged, the current stmt, map of changed params
 mergeLambdas :: CStatement b -> CStatement a -> Map.Map Int Int -> (CStatement a, Map.Map Int Int)
@@ -775,8 +734,7 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
                 "Int"  -> "box_int(" ++ argStr ++ ")"
                 "Bool" -> "box_bool(" ++ argStr ++ ")"
                 _      -> "(void*)(" ++ argStr ++ ")"
-    in trace ("ARGS !!!!!! " ++ showCExpression func Map.empty ++ " | " ++ showCArgs args) $
-        case func of
+    in case func of
         Var i -> case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -789,9 +747,7 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
                 else    let clos2 = "((Closure*)" ++ baseCall ++ ")"
                             fn2 = clos2 ++ "->fn"
                         in fn2 ++ "(" ++ clos2 ++ "->env, " ++ formatArg (head rest) ++ ")"
-            Nothing ->
-                let clos = "(Closure*)" ++ showCExpression func m
-                in clos ++ "->fn(" ++ clos ++ "->env, " ++ formatArg (head args) ++ ")"
+            Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
         Val (ClosureV i) -> case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -804,12 +760,8 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
                 else    let clos2 = "((Closure*)" ++ baseCall ++ ")"
                             fn2 = clos2 ++ "->fn"
                         in fn2 ++ "(" ++ clos2 ++ "->env, " ++ formatArg (head rest) ++ ")"
-            Nothing ->
-                let clos = "(Closure*)" ++ showCExpression func m
-                in clos ++ "->fn(" ++ clos ++ "->env, " ++ formatArg (head args) ++ ")"
-        _ ->
-            let clos = "((Closure*)" ++ showCExpression func m ++ ")"
-            in clos ++ "->fn(" ++ clos ++ "->env, " ++ formatArg (head args) ++ ")"
+            Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
+        _ -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
 
 -- merges together nested calls if I merged together the params earlier
 showCExpression (CallExpr f arg) m =
@@ -1018,42 +970,45 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
 
-    putStrLn "\n--- Merging Lambdas ---"
-    let (merged, mergedMap) = mergeLambdas c c Map.empty
-    putStrLn $ showCStmt 0 mergedMap Map.empty merged
-
+    -- putStrLn "\n--- Merging Lambdas ---"
+    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
+    -- putStrLn $ showCStmt 0 mergedMap Map.empty merged
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    
     putStrLn "\n--- Printing C ---"
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
-    -- putStrLn $ showFunTypes (Map.toList funs)
     let imports =   "\n#include <stdbool.h>" ++
                     "\n#include <stdio.h>" ++
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
                     "\n#include \"listLib.c\"\n"
-
     let closureStructs = generateClosureStructs (Map.toList liftenv)
     let funDefs = showFunDefs defs
     let (funPart, mainBody) = splitTopLevel cbody
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
+    let funImpl = showCStmt 0 Map.empty closureEnv funPart
+    let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
+    let retImpl = showCExpression retExpr Map.empty
+    -- let retImpl = showCExpression retExpr mergedMap
+    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
+     -- let funImpl = showCStmt 0 mergedMap closureEnv funPart
+
     let content =
             "\n// imports" ++ imports ++
             "\n// function defitions" ++ funDefs ++
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty Map.empty closureStructs ++
-            "\n// function implementations" ++ showCStmt 0 mergedMap closureEnv funPart ++
-            "\n// main\nint main(void) {" ++ showCStmt 1 mergedMap closureEnv mainBodyWithoutRet ++
-            -- "\n// function implementations" ++ showCStmt 0 Map.empty closureEnv funPart ++
-            -- "\n// main\nint main(void) {" ++ showCStmt 1 Map.empty closureEnv mainBodyWithoutRet ++
+            "\n// function implementations" ++ funImpl ++
+            "\n// main\nint main(void) {" ++ mainBodyImpl ++
                     case show (typeRep mainBody) of
                         "Int" -> "\n  printInt("
                         "[Int]" -> "\n  printList("
                         _ -> error "cannot print"
-            ++ showCExpression retExpr mergedMap ++ ");\n" ++ "  return 0;\n}\n"
-            -- ++ showCExpression retExpr Map.empty ++ ");\n" ++ "  return 0;\n}\n"
+            ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
 
     -- writing to file
-    let fileName = "outputs/" ++ progName ++ "_output.c"
+    let fileName = "outputs/baselines/" ++ progName ++ ".c"
     handle <- openFile fileName WriteMode
     hPutStrLn handle content
     hClose handle
