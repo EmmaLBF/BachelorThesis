@@ -962,7 +962,8 @@ mergeSortCall
 
 main :: IO ()
 main = do
-    let progName = "merged/" ++ "mergeSortCall"
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progName = "baselines/" ++ "mergeSortCall"
     let (nl, c') = NL.translate 0 AL.mergeSortCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
@@ -970,30 +971,30 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
 
-    putStrLn "\n--- Merging Lambdas ---"
-    let (merged, mergedMap) = mergeLambdas c c Map.empty
-    putStrLn $ showCStmt 0 mergedMap Map.empty merged
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
-    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    -- putStrLn "\n--- Merging Lambdas ---"
+    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
+    -- putStrLn $ showCStmt 0 mergedMap Map.empty merged
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
     
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
                     "\n#include <stdio.h>" ++
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
-                    "\n#include \"listLib.c\"\n"
+                    libName
     let closureStructs = generateClosureStructs (Map.toList liftenv)
     let funDefs = showFunDefs defs
     let (funPart, mainBody) = splitTopLevel cbody
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    -- let funImpl = showCStmt 0 Map.empty closureEnv funPart
-    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
-    -- let retImpl = showCExpression retExpr Map.empty
-    let retImpl = showCExpression retExpr mergedMap
-    let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
-    let funImpl = showCStmt 0 mergedMap closureEnv funPart
+    let funImpl = showCStmt 0 Map.empty closureEnv funPart
+    let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
+    let retImpl = showCExpression retExpr Map.empty
+    -- let retImpl = showCExpression retExpr mergedMap
+    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
+    -- let funImpl = showCStmt 0 mergedMap closureEnv funPart
 
     let content =
             "\n// imports" ++ imports ++

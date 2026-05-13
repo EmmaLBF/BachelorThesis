@@ -83,8 +83,6 @@ def compile_and_run_c(c_file):
 
         # Compile
         compile_cmd = ["gcc", path, "-o", path_out]
-        print("\n" + ("-" * 30))
-        print(f"{BOLD}{RED}Compiling: {' '.join(compile_cmd)}{RESET}")
         subprocess.run(compile_cmd, check=True)
 
         # Run with timing and memory
@@ -92,7 +90,8 @@ def compile_and_run_c(c_file):
         start = time.perf_counter()
         result = subprocess.run(
             [f"./{path_out}"] if os.name != "nt" else [path_out],
-            check=True
+            check=True,
+            stdout=subprocess.DEVNULL
         )
         elapsed = time.perf_counter() - start
 
@@ -115,14 +114,32 @@ def compile_and_run_c(c_file):
         print(f"Unexpected error: {e}")
 
 progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall"]
+trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900]
 
-print("BASELINES ******")
+# print("BASELINES ******")
+# for prog in progs:
+#     compile_and_run_c("baselines/" + prog)
+
+print("BASELINES MERGESORT ******")
+mergeSortPath = "outputs/baselines/mergeSortCall.c"
+for trial in trials:
+    print("\n" + ("-" * 30))
+    print(f"{BOLD}{RED}Running: mergeSort | {trial} {RESET}")
+    with open(mergeSortPath) as f:
+        lines = f.readlines()
+        target_index = len(lines) - 4
+        new_line = "  printList(v0(LIST" + str(trial) + "()));\n"
+        lines[target_index] = new_line
+    with open(mergeSortPath, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
+    compile_and_run_c("baselines/mergeSortCall")
 
 
 
-print("MERGED ******")
-for prog in progs:
-    compile_and_run_c("merged/" + prog)
+# print("MERGED ******")
+# for prog in progs:
+#     compile_and_run_c("merged/" + prog)
 
 
 
