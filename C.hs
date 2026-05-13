@@ -714,16 +714,6 @@ showCExpression (Ternary cond thn els) m = "(" ++ showCExpression cond m ++ ") ?
 showCExpression (GetEnvField structId fieldId _) _ =
     "((Env_v" ++ show structId ++ "*)env)->v" ++ show fieldId
 showCExpression (CastExpr t x) m = showCCast t (showCExpression x m)
-
--- showCExpression (ApplyClosure f (arg :: CExpression b)) m =
---     let t = typeRep (Proxy :: Proxy b)
---         argStr = showCExpression arg m
---         voidArg = case show (typeRepTyCon t) of
---             "Int"  -> "box_int(" ++ argStr ++ ")"
---             "Bool" -> "box_bool(" ++ argStr ++ ")"
---             _      -> "(void*)(" ++ argStr ++ ")"
---     in "apply((Closure*)" ++ showCExpression f m ++ ", " ++ voidArg ++ ")"
-
 showCExpression (ApplyClosure f (arg :: CExpression b)) m =
     let (func, args) = collectArgsApply (ApplyClosure f arg)
         formatArg :: CArg -> String
@@ -963,7 +953,7 @@ mergeSortCall
 main :: IO ()
 main = do
     let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    let progName = "baselines/" ++ "mergeSortCall"
+    let progName = "merged/" ++ "mergeSortCall"
     let (nl, c') = NL.translate 0 AL.mergeSortCall
         (cl, _) = runState (CL.translate nl) c'
         c = translate cl
@@ -971,11 +961,11 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 cl
 
-    -- putStrLn "\n--- Merging Lambdas ---"
-    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
-    -- putStrLn $ showCStmt 0 mergedMap Map.empty merged
-    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    putStrLn "\n--- Merging Lambdas ---"
+    let (merged, mergedMap) = mergeLambdas c c Map.empty
+    putStrLn $ showCStmt 0 mergedMap Map.empty merged
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
     
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -989,12 +979,12 @@ main = do
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    let funImpl = showCStmt 0 Map.empty closureEnv funPart
-    let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
-    let retImpl = showCExpression retExpr Map.empty
-    -- let retImpl = showCExpression retExpr mergedMap
-    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
-    -- let funImpl = showCStmt 0 mergedMap closureEnv funPart
+    -- let funImpl = showCStmt 0 Map.empty closureEnv funPart
+    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv mainBodyWithoutRet
+    -- let retImpl = showCExpression retExpr Map.empty
+    let retImpl = showCExpression retExpr mergedMap
+    let mainBodyImpl = showCStmt 1 mergedMap closureEnv mainBodyWithoutRet
+    let funImpl = showCStmt 0 mergedMap closureEnv funPart
 
     let content =
             "\n// imports" ++ imports ++

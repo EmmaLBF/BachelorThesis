@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "listLib.c"
+#include "../listLib.c"
 
 // function defitions
 Node* v29(void* env, void* v12_raw, void* v13_raw);
@@ -236,7 +236,7 @@ Node* v0(Node* v1) {
 
 // main
 int main(void) {
-  printList(v0(cons(box_int(4), cons(box_int(6), cons(box_int(3), NULL)))));
+  printList(v0(LIST900()));
   return 0;
 }
 
