@@ -385,9 +385,9 @@ mergeSort = Fix $ lam $ \f -> lam $ \l ->
       (lam $ \h -> lam $ \t ->
         CaseList t
           (cons h EmptyList)
-          (lam $ \_ -> lam $ \_ ->
-            let_ (splitHalf `app` l) $ \p -> (mergeList `app` (f `app` Fst p)) `app` (f `app` Snd p))
-      )
+          (lam $ \th -> lam $ \tt ->
+            let_ (splitHalf `app` (cons h (cons th tt))) $ \p ->
+              (mergeList `app` (f `app` Fst p)) `app` (f `app` Snd p)))
 
 mergeSortCall :: Lang [Int]
 mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))

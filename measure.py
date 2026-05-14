@@ -78,12 +78,14 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
         print(f"{BOLD}{RED}Running: {c_file} | {trial} {RESET}")
 
         # replace call with last line
-        with open(path) as f:
-            lines = f.readlines()
-            target_index = len(lines) - index_to_remove
-            lines[target_index] = new_line
-        with open(path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+        if (index_to_remove > 0):
+            with open(path) as f:
+                lines = f.readlines()
+                target_index = len(lines) - index_to_remove
+                lines[target_index] = new_line
+            with open(path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+
 
         # Compile
         compile_cmd = ["gcc", path, "-o", path_out]
@@ -93,8 +95,9 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
         start = time.perf_counter()
         result = subprocess.run(
             [f"./{path_out}"] if os.name != "nt" else [path_out],
-            check=True,
-            stdout=subprocess.DEVNULL
+            check=True
+            # ,
+            # stdout=subprocess.DEVNULL
         )
         elapsed = time.perf_counter() - start
 
@@ -138,10 +141,11 @@ def runTrials(path_half):
 
 
 # print("BASELINES MERGESORT ******")
-# runTrials("outputs/baselines/mergeSortCall")
+for prog in progs:
+    compile_and_run_c(prog + "_output", -1, -1, "")
 
-print("LamMerged MERGESORT ******")
-runTrials("merged/mergeSortCall")
+# print("LamMerged MERGESORT ******")
+# runTrials("merged/mergeSortCall")
 
 # print("MERGED ******")
 # for prog in progs:
