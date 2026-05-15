@@ -7,41 +7,83 @@
 #include "listLib.c"
 
 // function defitions
-int v4(void* env, void* v3_raw);
-Closure* v5(int v2);
-int v0(Node* v1);
+Node* v45(Pair* v6);
+Pair* v17(Pair* v18);
+Pair* v75(Node* v14);
+Node* v0(Node* v1);
 
 // closure defitions
 typedef struct {
+    Node* v8;
+    Node* v9;
+    int v10;
+    Node* v11;
+} Env_v29;
+
+typedef struct {
+    Node* v8;
+    Node* v9;
+} Env_v33;
+
+typedef struct {
+    int v21;
+} Env_v46;
+
+typedef struct {
+    int v19;
+} Env_v52;
+
+typedef struct {
+    int v19;
+} Env_v55;
+
+typedef struct {
+    Pair* v18;
+} Env_v58;
+
+typedef struct {
+    Node* v14;
+} Env_v63;
+
+typedef struct {
+    Node* v14;
+} Env_v66;
+
+typedef struct {
     int v2;
-} Env_v4;
+} Env_v81;
 
 // function implementations
-int v4(void* env, void* v3_raw) {
-  Node* v3 = (Node*)v3_raw;
-  return (((Env_v4*)env)->v2 + v0(v3));
+Node* v45(Pair* v6) {
+  return v7(v0((Node*)fst(v6)), v0((Node*)snd(v6)));
 }
 
-Closure* v5(int v2) {
-  Env_v4* env4 = malloc(sizeof(Env_v4));
-  env4->v2 = v2;
+Pair* v17(Pair* v18) {
+  Env_v58* env58 = malloc(sizeof(Env_v58));
+  env58->v18 = v18;
   Closure* c = malloc(sizeof(Closure));
-  c->env = env4;
-  c->fn = (void* (*)(void*, void*))v4;
-  return c;
+  c->env = env58;
+  c->fn = (void* (*)(void*, void*))v58;
+  return (Pair*)apply((Closure*)c, box_int(*(int*)fst(v18)));
 }
 
-int v0(Node* v1) {
-  Closure* v6 = v5;
-  Node* v7 = v1;
-  return (isEmpty(v7)) ? (0) : ((int)(intptr_t)apply((Closure*)(int)(intptr_t)apply((Closure*)v6, box_int(*(int*)(head(v7)))), (void*)(tail(v7))));
+Pair* v75(Node* v14) {
+  Env_v66* env66 = malloc(sizeof(Env_v66));
+  env66->v14 = v14;
+  Closure* c = malloc(sizeof(Closure));
+  c->env = env66;
+  c->fn = (void* (*)(void*, void*))v66;
+  Node* v25 = v14;
+  return (Pair*)apply((Closure*)c, box_int((isEmpty(v25)) ? (0) : (v68(*(int*)(head(v25)), tail(v25)))));
+}
+
+Node* v0(Node* v1) {
+  return (isEmpty(v1)) ? (NULL) : (v85(*(int*)(head(v1)), tail(v1)));
 }
 
 // main
 int main(void) {
-  int (*v8)(Node*) = (int (*)(Node*))v0;
-  Node* v9 = cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)));
-  printInt(v8(v9));
+  printList(v0(cons(box_int(4), cons(box_int(6), cons(box_int(3), NULL)))));
   return 0;
 }
 
