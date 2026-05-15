@@ -9,9 +9,9 @@
 // function defitions
 Node* v6(void* env, void* v4_raw);
 Closure* v7(void* env, void* v3_raw);
-Node* v8(void* env, void* v2_raw);
+Node* v10(void* env, void* v2_raw);
 Closure* v0(int (*v1)(int));
-int v9(int v5);
+int v11(int v5);
 
 // closure defitions
 typedef struct {
@@ -25,7 +25,7 @@ typedef struct {
 
 typedef struct {
     int (*v1)(int);
-} Env_v8;
+} Env_v10;
 
 // function implementations
 Node* v6(void* env, void* v4_raw) {
@@ -44,10 +44,10 @@ Closure* v7(void* env, void* v3_raw) {
   return c;
 }
 
-Node* v8(void* env, void* v2_raw) {
+Node* v10(void* env, void* v2_raw) {
   Node* v2 = (Node*)v2_raw;
   Env_v7* env7 = malloc(sizeof(Env_v7));
-  env7->v1 = ((Env_v8*)env)->v1;
+  env7->v1 = ((Env_v10*)env)->v1;
   Closure* c = malloc(sizeof(Closure));
   c->env = env7;
   c->fn = (void* (*)(void*, void*))v7;
@@ -55,22 +55,21 @@ Node* v8(void* env, void* v2_raw) {
 }
 
 Closure* v0(int (*v1)(int)) {
-  Env_v8* env8 = malloc(sizeof(Env_v8));
-  env8->v1 = v1;
+  Env_v10* env10 = malloc(sizeof(Env_v10));
+  env10->v1 = v1;
   Closure* c = malloc(sizeof(Closure));
-  c->env = env8;
-  c->fn = (void* (*)(void*, void*))v8;
+  c->env = env10;
+  c->fn = (void* (*)(void*, void*))v10;
   return c;
 }
 
-int v9(int v5) {
+int v11(int v5) {
   return (v5 * 2);
 }
 
 // main
 int main(void) {
-  Closure* v10 = v0(v9);
-  printList((Node*)apply((Closure*)v10, (void*)(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL))))));
+  printList((Node*)apply((Closure*)v0(v11), (void*)(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL))))));
   return 0;
 }
 

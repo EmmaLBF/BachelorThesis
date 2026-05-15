@@ -23,7 +23,7 @@ RESET   = "\033[0m"
 def fmt(label, value, colour=CYAN):
     return f"{BOLD}{colour}{label}{RESET} {value}"
 
-def get_stats(path_out):
+def get_stats(path_out, outputs):
 
     time_result = subprocess.run(
         ["/usr/bin/time", "-v", f"./{path_out}"],
@@ -40,7 +40,8 @@ def get_stats(path_out):
         ]):
             splitLine = line.split(':', maxsplit=1)
             nameLine = splitLine[0].replace(' ', '')
-            print(nameLine + ":" + splitLine[1])
+            # print(nameLine + ":" + splitLine[1])
+            outputs[nameLine] = splitLine[1]
 
     # Valgrind memcheck: malloc/free counts
     memcheck_result = subprocess.run(
@@ -54,9 +55,12 @@ def get_stats(path_out):
             allocs      = "Allocs: " + nums[0].replace(',', '')
             frees       = "Frees: " + nums[2].replace(',', '')
             bytes_alloc = "BytesAlloced: " + nums[4].replace(',', '')
-            print(allocs)
-            print(frees)
-            print(bytes_alloc)
+            # print(allocs)
+            # print(frees)
+            # print(bytes_alloc)
+            outputs["Allocs"] = nums[0].replace(',', '')
+            outputs["Frees"] = nums[2].replace(',', '')
+            outputs["BytesAlloced"] = nums[4].replace(',', '')
 
     # Valgrind callgrind: instruction count
     callgrind_result = subprocess.run(
@@ -66,7 +70,8 @@ def get_stats(path_out):
     )
     for line in callgrind_result.stderr.splitlines():
         if "I   refs" in line:
-            print(f"InstructionCount: {line.split(':')[1].strip().replace(',', '')}")
+            # print(f"InstructionCount: {line.split(':')[1].strip().replace(',', '')}")
+            outputs["InstructionCount"] = line.split(':')[1].strip().replace(',', '')
             break
 
 def compile_and_run_c(c_file, trial, index_to_remove, new_line):
@@ -96,19 +101,22 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
         result = subprocess.run(
             [f"./{path_out}"] if os.name != "nt" else [path_out],
             check=True
-            # ,
-            # stdout=subprocess.DEVNULL
+            , stdout=subprocess.DEVNULL
         )
         elapsed = time.perf_counter() - start
 
         # resource.getrusage tracks the last child process
         usage = resource.getrusage(resource.RUSAGE_CHILDREN)
 
-        print(f"ElapsedTime(s): {elapsed:.4f}")
-        print(f"MaxRSS(MB): {usage.ru_maxrss / 1024:.2f}")   # bytes on Linux
-        print(f"UserCPUtime(s): {usage.ru_utime:.4f}")
-        print(f"SysCPUtime(s): {usage.ru_stime:.4f}")
-        get_stats(path_out)
+        # print(f"ElapsedTime(s): {elapsed:.4f}")
+        # print(f"MaxRSS(MB): {usage.ru_maxrss / 1024:.2f}")   # bytes on Linux
+        # print(f"UserCPUtime(s): {usage.ru_utime:.4f}")
+        # print(f"SysCPUtime(s): {usage.ru_stime:.4f}")
+
+        outputs = {"ElapsedTime(s)": elapsed, "UserCPUtime(s)": usage.ru_utime, "SysCPUtime(s)": usage.ru_stime, "MaxRSS(MB)": usage.ru_maxrss}
+        get_stats(path_out, outputs)
+
+        return outputs
 
     except subprocess.CalledProcessError as e:
         print(f"Compilation/Execution failed: {e}")
@@ -136,18 +144,31 @@ def runTrials(path_half):
     print(f"Binary_size(bytes): {binary_size}")
     print(f"Symbol_count: {symbol_count}")
 
+    all_outputs = {}
     for trial in trials:
-        compile_and_run_c(path_half, trial, 4, "  printList(v0(LIST" + str(trial) + "()));\n")
+        res = compile_and_run_c(path_half, trial, 4, "  printList(v0(LIST" + str(trial) + "()));\n")
+        all_outputs[trial] = res
+    
+    cols = list(next(iter(all_outputs.values())).keys())
 
+    print("n " + " ".join(cols))
+    for n, row in all_outputs.items():
+        print(str(n) + " " + " ".join(str(row[c]).strip() for c in cols))
+
+
+
+print("LamMerged MERGESORT ******")
+runTrials("merged/mergeSortCall")
+
+# print("Basic MERGESORT ******")
+# runTrials("baselines/mergeSortCall")
 
 # print("BASELINES MERGESORT ******")
-for prog in progs:
-    compile_and_run_c(prog + "_output", -1, -1, "")
+# for prog in progs:
+#     print(compile_and_run_c(prog + "_output", -1, -1, ""))
 
-# print("LamMerged MERGESORT ******")
-# runTrials("merged/mergeSortCall")
 
 # print("MERGED ******")
 # for prog in progs:
-#     compile_and_run_c("merged/" + prog)
+#     compile_and_run_c("merged/" + prog, -1, -1, "")
 # compile_and_run_c("baselines/mergeSort/100")

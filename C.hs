@@ -965,11 +965,13 @@ mergeSortCall
 
 main :: IO ()
 main = do
-    -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    let libName = "\n#include \"listLib.c\"\n"
-    -- let progName = "merged/" ++ "sumListCall"
-    let progName ="mergeSortCall_output"
-    let (nl, c') = NL.translate 0 AL.mergeSortCall
+    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
+    let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
+    let (progName, progCode) = progsList !! 1
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progPath = "baselines/" ++ progName
+
+    let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
         (clOpt, newBinds) = CL.optimizeBindings clBase Map.empty
         clOptRepl = CL.replaceVarBindingStmt clOpt newBinds
@@ -981,8 +983,10 @@ main = do
     putStrLn "\n--- Merging Lambdas ---"
     let (merged, mergedMap) = mergeLambdas c c Map.empty
     putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
-    let (cbody, closureEnv, liftenv, funs, defs) = lambdaLift merged
-    -- let (cbody, closureEnv, liftenv, funs, defs) = lambdaLift c
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+
     let strFunTypes = getStrFunTypes defs Map.empty
     
     putStrLn "\n--- Printing C ---"
@@ -997,10 +1001,10 @@ main = do
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    -- print funs
     -- let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
     -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
     -- let retImpl = showCExpression retExpr Map.empty
+
     let retImpl = showCExpression retExpr mergedMap
     let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
     let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
@@ -1018,7 +1022,7 @@ main = do
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
 
     -- writing to file
-    let fileName = "outputs/" ++ progName ++ ".c"
+    let fileName = "outputs/" ++ progPath ++ ".c"
     handle <- openFile fileName WriteMode
     hPutStrLn handle content
     hClose handle
