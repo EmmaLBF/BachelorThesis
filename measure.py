@@ -157,15 +157,15 @@ def runTrials(path_half):
 
 
 
-print("LamMerged MERGESORT ******")
-runTrials("merged/mergeSortCall")
+# print("LamMerged MERGESORT ******")
+# runTrials("merged/mergeSortCall")
 
 # print("Basic MERGESORT ******")
 # runTrials("baselines/mergeSortCall")
 
-# print("BASELINES MERGESORT ******")
-# for prog in progs:
-#     print(compile_and_run_c(prog + "_output", -1, -1, ""))
+print("BASELINES MERGESORT ******")
+for prog in progs:
+    print(compile_and_run_c(prog + "_output", -1, -1, ""))
 
 
 # print("MERGED ******")

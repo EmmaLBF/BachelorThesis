@@ -55,112 +55,117 @@ getFun i (def@(DefFun _ ifun _ _) : rest) =
     else getFun i rest
 getFun _ _ = error "not valid def"
 
-inlineFunsExpr :: Int -> [CStatement a] -> Map.Map Int Int -> CExpression a -> (CStatement a, CExpression a)
+inlineFunsExpr :: Int -> [CStatement a] -> Map.Map Int Int -> CExpression a -> (CStatement a, CExpression a, [Int])
 inlineFunsExpr ifun defs callMap (CallExpr f x) =
     case f of
         (Var _ i) | i /= ifun ->
             -- trace ("\nINLINING CALL VAR " ++ show i) $
             case Map.lookup i callMap of
-                Just n | n == 1 ->
+                Just n | n <= 3 -> -- at most 3 calls
                     case getFun i defs of
-                        Just (DefFun _ _ [CParam ip tp] body) ->
+                        Just (DefFun _ ifun1 [CParam ip tp] body) ->
                             -- trace ("\nINLINING " ++ show i ++ " | calls = " ++ show n) $
-                            let (xPre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+                            let (xPre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
                                 ct = fromTypeRep (typeRep tp)
-                                -- bind the argument to the param name, then inline the body
-                                inlined = Seq xPre (BindExpr ct x' ip (removeFirstReturn body))
-                                -- the "expression" result is whatever body returns
-                                retExpr = findFirstReturn body
-                                
-                            in 
+                                (body', r') = inlineFuns ifun1 defs callMap body
+                                bodyWithoutRet = removeFirstReturn body'
+                                retExpr = findFirstReturn body'
+                                inlined = Seq xPre (BindExpr ct x' ip bodyWithoutRet)
+                            in
                                 -- trace ("\nRET " ++ showCExpression retExpr Map.empty) $
-                                (inlined, retExpr)
+                                (inlined, retExpr, i : (r ++ r') )
                         _ -> error "cannot find funcimpl"
-                _ -> let (xPre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-                     in (xPre, CallExpr f (unsafeCoerce x'))
-        test -> 
+                _ -> let (xPre, x', removed) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+                     in (xPre, CallExpr f (unsafeCoerce x'), removed)
+        _ ->
             -- trace ("\nINLINING CALL NOT VAR " ++ showCExpression test Map.empty ) $
-            let (xPre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-             in (xPre, CallExpr f (unsafeCoerce x'))
+            let (xPre, x', removed) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+             in (xPre, CallExpr f (unsafeCoerce x'), removed)
 inlineFunsExpr ifun defs callMap (Ternary c t e) =
-    let (cp, c') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-        (tp, t') = inlineFunsExpr ifun defs callMap t
-        (ep, e') = inlineFunsExpr ifun defs callMap e
-    in (Seq cp (Seq tp ep), Ternary (unsafeCoerce c') t' e')
+    let (cp, c', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
+        (tp, t', r') = inlineFunsExpr ifun defs callMap t
+        (ep, e', r'') = inlineFunsExpr ifun defs callMap e
+    in (Seq cp (Seq tp ep), Ternary (unsafeCoerce c') t' e', r ++ r' ++ r'')
 inlineFunsExpr ifun defs callMap (Not x) =
-    let (p, x') = inlineFunsExpr ifun defs callMap x
-    in (p, Not x')
+    let (p, x', r) = inlineFunsExpr ifun defs callMap x
+    in (p, Not x', r)
 inlineFunsExpr ifun defs callMap (HeadList x) =
-    let (p, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, HeadList (unsafeCoerce x'))
+    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (p, HeadList (unsafeCoerce x'), r)
 inlineFunsExpr ifun defs callMap (TailList x) =
-    let (p, x') = inlineFunsExpr ifun defs callMap x
-    in (p, TailList x')
+    let (p, x', r) = inlineFunsExpr ifun defs callMap x
+    in (p, TailList x', r)
 inlineFunsExpr ifun defs callMap (IsEmpty (x :: CExpression [a])) =
-    let (p, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, IsEmpty (unsafeCoerce x' :: CExpression [a]))
+    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (p, IsEmpty (unsafeCoerce x' :: CExpression [a]), r)
 inlineFunsExpr ifun defs callMap (Fst (x :: CExpression (a, b))) =
-    let (p, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, unsafeCoerce $ Fst (unsafeCoerce x' :: CExpression (a, b)))
+    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (p, unsafeCoerce $ Fst (unsafeCoerce x' :: CExpression (a, b)), r)
 inlineFunsExpr ifun defs callMap (Snd (x :: CExpression (a, b))) =
-    let (p, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, unsafeCoerce $ Snd (unsafeCoerce x' :: CExpression (a, b)))
+    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (p, unsafeCoerce $ Snd (unsafeCoerce x' :: CExpression (a, b)), r)
 inlineFunsExpr ifun defs callMap (LIntOp op x y) =
-    let (xp, x') = inlineFunsExpr ifun defs callMap x
-        (yp, y') = inlineFunsExpr ifun defs callMap y
-    in (Seq xp yp, LIntOp op x' y')
+    let (xp, x', r) = inlineFunsExpr ifun defs callMap x
+        (yp, y', r') = inlineFunsExpr ifun defs callMap y
+    in (Seq xp yp, LIntOp op x' y', r ++ r')
 inlineFunsExpr ifun defs callMap (LCmpOp op x y) =
-    let (xp, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
-    in (Seq xp yp, LCmpOp op (unsafeCoerce x') (unsafeCoerce y'))
+    let (xp, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+        (yp, y', r') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
+    in (Seq xp yp, LCmpOp op (unsafeCoerce x') (unsafeCoerce y'), r ++ r')
 inlineFunsExpr ifun defs callMap (Prod x y) =
-    let (xp, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
-    in (Seq xp yp, Prod (unsafeCoerce x') (unsafeCoerce y'))
+    let (xp, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+        (yp, y', r') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
+    in (Seq xp yp, Prod (unsafeCoerce x') (unsafeCoerce y'), r ++ r')
 inlineFunsExpr ifun defs callMap (ConsList x y) =
-    let (xp, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y') = inlineFunsExpr ifun defs callMap y
-    in (Seq xp yp, ConsList (unsafeCoerce x') (unsafeCoerce y'))
+    let (xp, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+        (yp, y', r') = inlineFunsExpr ifun defs callMap y
+    in (Seq xp yp, ConsList (unsafeCoerce x') (unsafeCoerce y'), r ++ r')
 inlineFunsExpr ifun defs callMap (IndexList x y) =
-    let (xp, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
-    in (Seq xp yp, IndexList (unsafeCoerce x') (unsafeCoerce y'))
+    let (xp, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+        (yp, y', r') = inlineFunsExpr ifun defs callMap (unsafeCoerce y)
+    in (Seq xp yp, IndexList (unsafeCoerce x') (unsafeCoerce y'), r ++ r')
 inlineFunsExpr ifun defs callMap (CastExpr t x) =
-    let (p, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, CastExpr t x')
+    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (p, CastExpr t x', r)
 inlineFunsExpr ifun defs callMap (ApplyClosure (f :: CExpression fa) (x :: CExpression b)) =
-    let (fp, f') = inlineFunsExpr ifun defs callMap (unsafeCoerce f)
-        (xp, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (Seq fp xp, unsafeCoerce $ ApplyClosure (unsafeCoerce f' :: CExpression fa) (unsafeCoerce x' :: CExpression b))
-inlineFunsExpr _ _ _ x = (Skip, x)
+    let (fp, f', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce f)
+        (xp, x', r') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (Seq fp xp, unsafeCoerce $ ApplyClosure (unsafeCoerce f' :: CExpression fa) (unsafeCoerce x' :: CExpression b), r ++ r')
+inlineFunsExpr _ _ _ x = (Skip, x, [])
 
 -- current function, all fun defs, map of calls
-inlineFuns :: Int -> [CStatement a] -> Map.Map Int Int -> CStatement a -> (CStatement a, [Int])
-inlineFuns _ defs callMap (DefFun tret ifun params body) = 
+inlineFuns :: Int -> [CStatement a] -> Map.Map Int Int  -> CStatement a -> (CStatement a, [Int])
+inlineFuns _ defs callMap (DefFun tret ifun params body) =
     let (body', r) = inlineFuns ifun defs callMap body
     in (DefFun tret ifun params body', r)
 inlineFuns ifun defs callMap (Return x) =
-    let (pre, x') = inlineFunsExpr ifun defs callMap x
-    in Seq pre (Return x')
+    let (pre, x', r) = inlineFunsExpr ifun defs callMap x
+    in (Seq pre (Return x'), r)
 inlineFuns ifun defs callMap (BindExpr t x i y) =
-    let (pre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        rebind = unsafeCoerce $ BindExpr t (unsafeCoerce x' :: CExpression Int) i 
-                    (inlineFuns ifun defs callMap y)
-    in Seq pre rebind
-inlineFuns ifun defs callMap (Seq x y) = Seq (inlineFuns ifun defs callMap x) (inlineFuns ifun defs callMap y)
+    let (pre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+        (y', r') = inlineFuns ifun defs callMap y
+        rebind = unsafeCoerce $ BindExpr t (unsafeCoerce x' :: CExpression Int) i y'
+    in (Seq pre rebind, r ++ r')
+inlineFuns ifun defs callMap (Seq x y) =
+    let (x', r) = inlineFuns ifun defs callMap x
+        (y', r') = inlineFuns ifun defs callMap y
+    in (Seq x' y', r ++ r')
 inlineFuns ifun defs callMap (If c x y) =
-    let (pre, c') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-    in Seq pre (If (unsafeCoerce c') (inlineFuns ifun defs callMap x) (inlineFuns ifun defs callMap y))
+    let (pre, c', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
+        (x', r') = inlineFuns ifun defs callMap x
+        (y', r'') = inlineFuns ifun defs callMap y
+    in (Seq pre (If (unsafeCoerce c') x' y'), r ++ r' ++ r'')
 inlineFuns ifun defs callMap (While c x) =
-    let (pre, c') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-    in Seq pre (While (unsafeCoerce c') (inlineFuns ifun defs callMap x))
+    let (pre, c', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
+        (x', r') = inlineFuns ifun defs callMap x
+    in (Seq pre (While (unsafeCoerce c') x'), r ++ r')
 inlineFuns ifun defs callMap (DefVar t i x) =
-    let (pre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in Seq pre (DefVar t i (unsafeCoerce x' :: CExpression Int))
+    let (pre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in (Seq pre (DefVar t i (unsafeCoerce x' :: CExpression Int)), r)
 inlineFuns ifun defs callMap (UpdateVar i x) =
-    let (pre, x') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in Seq pre (UpdateVar i (unsafeCoerce x' :: CExpression Int))
-inlineFuns _ _ _ x = x
+    let (pre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
+    in( Seq pre (UpdateVar i (unsafeCoerce x' :: CExpression Int)),r)
+inlineFuns _ _ _ x = (x, [])
 
 
 
@@ -169,19 +174,19 @@ inlineFuns _ _ _ x = x
 
 removeDefFromList :: Int -> [CStatement a] -> [CStatement a]
 removeDefFromList _ [] = []
-removeDefFromList i (def@(DefFun _ ifun _ _) : rest) 
+removeDefFromList i (def@(DefFun _ ifun _ _) : rest)
     | i == ifun = rest
     | otherwise = def : removeDefFromList i rest
 removeDefFromList _ _ = error "not fun"
 
--- pass map of calls
-removeDeadFuns :: Map.Map Int Int -> [CStatement a] -> CStatement a -> (CStatement a, [CStatement a])
-removeDeadFuns callMap defs def@(DefFun _ ifun _ _) = case Map.lookup ifun callMap of
-    Just n | n > 0 -> (def, defs) -- still used
-    _ -> (Skip, removeDefFromList ifun defs)
+-- pass list of removed funs
+removeDeadFuns :: [Int] -> [CStatement a] -> CStatement a -> (CStatement a, [CStatement a])
+removeDeadFuns removedFuns defs def@(DefFun _ ifun _ _) =
+    if ifun `elem` removedFuns then (Skip, removeDefFromList ifun defs)
+    else (def, defs) -- still used
 removeDeadFuns m d (Seq x y) =
-    let (x', d') = (removeDeadFuns m d x)
-        (y', d'') = (removeDeadFuns m d' y)
+    let (x', d') = removeDeadFuns m d x
+        (y', d'') = removeDeadFuns m d' y
     in (Seq x' y', d'')
 removeDeadFuns _ d x = (x, d)
 
@@ -205,7 +210,7 @@ findReturn _ = Nothing
 
 isTailRecursive :: Int -> CStatement a -> Bool
 isTailRecursive ifun body =
-    trace ("RETURN " ++ show ifun ++ " ||| " ++ case (findReturn body) of
+    trace ("RETURN " ++ show ifun ++ " ||| " ++ case findReturn body of
         Just n -> showCExpression n Map.empty
         Nothing -> "nothing") $
     case findReturn body of
@@ -220,7 +225,7 @@ hasTailCall _ _ = False
 
 -- Function unrolling
 unrollFunctions :: CStatement a -> CStatement a
-unrollFunctions (DefFun tret ifun params body) = 
+unrollFunctions (DefFun tret ifun params body) =
     if isTailRecursive ifun body then
         trace ("UNROLLING " ++ show ifun ++ " | " ++ showCStmt 0 Map.empty Map.empty Map.empty body) $
         DefFun tret ifun params (unrollFunctions body)
@@ -258,15 +263,16 @@ hello = do
 
     -- putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
     -- let cbody = unrollFunctions cbody1
-    
+
     let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
     let strFunTypes = getStrFunTypes defs Map.empty
-    
+
     putStrLn "\n--- Inlining funs ---"
     putStrLn $ showCStmt 0 mergedMap closureEnv strFunTypes cbody
     let callMap = countFunctionCalls cbody Map.empty
     let (cbody', removedFuns) = inlineFuns (-1) defs callMap cbody
-    let (cbody'', defs') = removeDeadFuns callMap' defs cbody'
+    let (cbody'', defs') = removeDeadFuns removedFuns defs cbody'
+    print callMap
     -- putStrLn $ showCStmt 0 mergedMap closureEnv strFunTypes cbody'
 
     putStrLn "\n--- Printing C ---"
@@ -296,7 +302,7 @@ hello = do
                         "[Int]" -> "\n  printList("
                         _ -> error "cannot print"
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
-    
+
     -- writing to file
     let fileName = "outputs/" ++ progPath ++ ".c"
     handle <- openFile fileName WriteMode

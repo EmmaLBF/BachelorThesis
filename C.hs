@@ -701,7 +701,7 @@ showCValue (ListV l) =
   case l of
     [] -> ""
     (h:t) -> showCValue h ++ ", " ++ showCValue (ListV t)
-showCValue (ClosureV _) = "c"
+showCValue (ClosureV i) = "c" ++ show i
 
 showCExpression :: CExpression a -> Map.Map Int Int -> String
 showCExpression (Var _ i) _ = "v" ++ show i
@@ -726,7 +726,7 @@ showCExpression (ConsList (x :: CExpression a) l) m =
     let x' = box (fromTypeRep (typeRep (Proxy :: Proxy a))) (showCExpression x m)
     in "cons(" ++ x' ++ ", " ++ showCExpression l m ++ ")"
 showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
-showCExpression (Ternary cond thn els) m = "(" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ ")"
+showCExpression (Ternary cond thn els) m = "((" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ "))"
 showCExpression (GetEnvField _ structId fieldId) _ =
     "((Env_v" ++ show structId ++ "*)env)->v" ++ show fieldId
 showCExpression (CastExpr t x) m = showCCast t (showCExpression x m)
@@ -829,9 +829,9 @@ showCStmt indent _ _ _ (AllocClosure structId implId parentId directParams paren
         ++ " = malloc(sizeof(Env_v" ++ show structId ++ "));"
     ++ showDirect directParams
     ++ showParent parentParams
-    ++ "\n" ++ indentStr indent ++ "Closure* c = malloc(sizeof(Closure));"
-    ++ "\n" ++ indentStr indent ++ "c->env = env" ++ show structId ++ ";"
-    ++ "\n" ++ indentStr indent ++ "c"
+    ++ "\n" ++ indentStr indent ++ "Closure* c" ++ show structId ++ " = malloc(sizeof(Closure));"
+    ++ "\n" ++ indentStr indent ++ "c" ++ show structId ++ "->env = env" ++ show structId ++ ";"
+    ++ "\n" ++ indentStr indent ++ "c" ++ show structId
     ++ "->fn = (void* (*)(void*, void*))v" ++ show implId ++ ";"
   where
     showDirect [] = ""
@@ -954,6 +954,8 @@ gcc ./outputs/mapListCall_output.c -o ./outputs/mapListCall_output
 
 gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 ./outputs/mergeSortCall_output
+
+gcc ./outputs/mergeSortCall.c -o ./outputs/mergeSortCall_output
 
 fibCall
 gcdLangCall
