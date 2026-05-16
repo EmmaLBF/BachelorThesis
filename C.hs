@@ -100,6 +100,7 @@ data CValue a where
     PairV :: CValue a -> CValue b -> CValue (a, b)
     ListV :: [CValue a] -> CValue [a]
     ClosureV :: Int -> CValue a
+    EnvV :: Int -> CValue a
 
 data CExpression a where
     Val :: CValue a -> CExpression a
@@ -137,7 +138,9 @@ data CStatement a where
     While :: CExpression Bool -> CStatement a -> CStatement a
     Skip :: CStatement a
     DefClosureStruct :: Int -> CParams -> CStatement a  -- same, but fields are concrete types
-    AllocClosure :: Int -> Int -> Int -> CParams -> CParams -> CStatement a -- structId  implId  directParams  parentEnvParams
+    AllocClosure :: Int -> CStatement a -- closureId
+    AllocEnv :: Int -> Int -> CParams -> CParams -> CStatement a
+    -- envId parentId directParams parentParams
 
 type LiftEnv = Map.Map Int CParams
 type Lifted a = [CStatement a]
@@ -314,7 +317,7 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                 closureVar    = unsafeCoerce (Val (ClosureV f) :: CExpression Int)
                 directPs      = ownExtraPs \\ parentExtraPs
                 parentPs      = ownExtraPs `intersect` parentExtraPs
-                alloc         = AllocClosure f f ifun directPs parentPs
+                alloc         = [AllocEnv f ifun directPs parentPs, AllocClosure f]
             in case Map.lookup f closureRet of
                 Just _ ->
                     let (factoryArgs, applyArgs') = splitAt (length directPs) args'
@@ -327,11 +330,11 @@ hoistClosureAllocs ifun env closureRet funs (expr@(CallExpr _ _) :: CExpression 
                                         in unsafeCoerce $ applyWithCast retType firstApplied rest
                             in (allArgAllocs, unsafeCoerce applied)
                         -- has captures: alloc closure, apply all args
-                        else (allArgAllocs ++ [alloc], unsafeCoerce $ applyWithCast retType closureVar args')
+                        else (allArgAllocs ++ alloc, unsafeCoerce $ applyWithCast retType closureVar args')
                 Nothing ->
                     if null ownExtraPs
                         then (allArgAllocs, unsafeCoerce $ rebuildCall myVar args')
-                        else (allArgAllocs ++ [alloc], unsafeCoerce $ applyWithCast retType closureVar args')
+                        else (allArgAllocs ++ alloc, unsafeCoerce $ applyWithCast retType closureVar args')
         _ ->
             let rebuilt = rebuildCall (unsafeCoerce func) args'
             in (allArgAllocs, unsafeCoerce rebuilt)
@@ -391,10 +394,10 @@ hoistClosureAllocs ifun env _ _ expr@(Var _ f) =
         closureVar    = unsafeCoerce (Val (ClosureV f) :: CExpression Int)
         directPs      = ownExtraPs \\ parentExtraPs
         parentPs      = ownExtraPs `intersect` parentExtraPs
-        alloc         = AllocClosure f f ifun directPs parentPs
+        alloc         = [AllocEnv f ifun directPs parentPs, AllocClosure f]
     in if null ownExtraPs
        then ([], expr)             -- no captures, plain function pointer, leave as-is
-       else ([alloc], unsafeCoerce closureVar)  -- has captures, emit alloc, replace with c
+       else (alloc, unsafeCoerce closureVar)  -- has captures, emit alloc, replace with c
 hoistClosureAllocs _ _ _ _ x = ([], x)
 
 unCArg :: CArg -> CExpression a
@@ -527,8 +530,8 @@ liftStmt _ env closureRet funs (DefFun tret ifun params body) =
                             parentPs = innerExtraPs \\ directPs
                         in if null innerExtraPs
                             then (body', closureRet'')
-                            else (Seq (AllocClosure ifun1 ifun1 ifun directPs parentPs)
-                                    (Return (Val (ClosureV ifun1))), Map.insert ifun ifun1 closureRet'')
+                            else (Seq (AllocEnv ifun1 ifun directPs parentPs) (Seq (AllocClosure ifun1) (Return (Val (ClosureV ifun1))))
+                                , Map.insert ifun ifun1 closureRet'')
                     thisDef =
                         let innerExtraPs = Map.findWithDefault [] ifun1 env''
                         in if null innerExtraPs
@@ -702,6 +705,7 @@ showCValue (ListV l) =
     [] -> ""
     (h:t) -> showCValue h ++ ", " ++ showCValue (ListV t)
 showCValue (ClosureV i) = "c" ++ show i
+showCValue (EnvV i) = "env" ++ show i
 
 showCExpression :: CExpression a -> Map.Map Int Int -> String
 showCExpression (Var _ i) _ = "v" ++ show i
@@ -737,51 +741,58 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
             let argStr = showCExpression a m
             in boxForApply (fromTypeRep (typeRep (Proxy :: Proxy c))) argStr
     in case func of
-        Var _ i -> case Map.lookup i m of
+        Var _ i -> 
+            trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
+            case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
-                    clos = "((Closure*)" ++ showCExpression func m  ++ ")"
-                    fnCast = clos ++ "->fn"
-                    allArgs = intercalate ", " ((clos ++ "->env") : map formatArg merged)
-                    baseCall = fnCast ++ "(" ++ allArgs ++ ")"
-                in if null rest
-                then baseCall
-                else    let clos2 = "((Closure*)" ++ baseCall ++ ")"
-                            fn2 = clos2 ++ "->fn"
-                        in fn2 ++ "(" ++ clos2 ++ "->env, " ++ formatArg (head rest) ++ ")"
+                    applyCall expr argList =
+                        let clos = "((Closure*)" ++ expr ++ ")"
+                            fnCast = clos ++ "->fn"
+                            allArgs = intercalate ", " ((clos ++ "->env") : map formatArg argList)
+                        in fnCast ++ "(" ++ allArgs ++ ")"
+                    baseCall = applyCall (showCExpression func m) merged
+                in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
             Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
-        Val (ClosureV i) -> case Map.lookup i m of
+        Val (ClosureV i) -> 
+            trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
+            case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
-                    clos = "((Closure*)" ++ showCExpression func m  ++ ")"
-                    fnCast = clos ++ "->fn"
-                    allArgs = intercalate ", " ((clos ++ "->env") : map formatArg merged)
-                    baseCall = fnCast ++ "(" ++ allArgs ++ ")"
-                in if null rest
-                then baseCall
-                else    let clos2 = "((Closure*)" ++ baseCall ++ ")"
-                            fn2 = clos2 ++ "->fn"
-                        in fn2 ++ "(" ++ clos2 ++ "->env, " ++ formatArg (head rest) ++ ")"
+                    applyCall expr argList =
+                        let clos = "((Closure*)" ++ expr ++ ")"
+                            fnCast = clos ++ "->fn"
+                            allArgs = intercalate ", " ((clos ++ "->env") : map formatArg argList)
+                        in fnCast ++ "(" ++ allArgs ++ ")"
+                    baseCall = applyCall (showCExpression func m) merged
+                in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
             Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
         _ -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
 
 -- merges together nested calls if I merged together the params earlier
 showCExpression (CallExpr f arg) m =
     let (func, args) = collectArgs (CallExpr f arg)
+        formatArgs [] = []
+        formatArgs (CArg (Val (EnvV j)) : rest) =
+            ("env" ++ show j) : map (\(CArg (a :: CExpression c)) ->
+                let t = fromTypeRep (typeRep (Proxy :: Proxy c))
+                in trace ("BOXARG type=" ++ show t ++ " expr=" ++ showCExpression a m) $
+                boxForApply t (showCExpression a m)) rest
+        formatArgs args' = map (\(CArg (a :: CExpression c)) -> showCExpression a m) args'
     in case func of
         Var _ i -> case Map.lookup i m of
             Just n ->
                 -- trace ("SHOW MAP var" ++ show i ++ " = "  ++ show m) $
                 let (merged, rest) = Prelude.splitAt n args
-                    baseCall = "v" ++ show i ++ "(" ++ intercalate ", " (Prelude.map (\(CArg a) -> showCExpression a m) merged) ++ ")"
+                    baseCall = "v" ++ show i ++ "(" ++ intercalate ", " (formatArgs merged) ++ ")"
                 in if Prelude.null rest
                    then baseCall
-                   else baseCall ++ "(" ++ intercalate ", " (Prelude.map (\(CArg a) -> showCExpression a m) rest) ++ ")"
+                   else baseCall ++ "(" ++ intercalate ", " (formatArgs rest) ++ ")"
             Nothing ->
-                foldl (\acc (CArg a) -> acc ++ "(" ++ showCExpression a m ++ ")")
+                foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")")
                       ("v" ++ show i) args
         _ ->
-            foldl (\acc (CArg a) -> acc ++ "(" ++ showCExpression a m ++ ")")
+            foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")")
                   (showCExpression func m) args
 
 showCStmt :: Int -> Map.Map Int Int -> ClosureReturnEnv -> Map.Map Int String -> CStatement a -> String
@@ -824,25 +835,26 @@ showCStmt indent _ _ _ (DefClosureStruct ifun p) =
     "\n" ++ indentStr indent ++ "typedef struct {\n"
     ++ showStructDefVars p
     ++ "} Env_v" ++ show ifun ++ ";\n"
-showCStmt indent _ _ _ (AllocClosure structId implId parentId directParams parentParams) =
-    "\n" ++ indentStr indent ++ "Env_v" ++ show structId ++ "* env" ++ show structId
-        ++ " = malloc(sizeof(Env_v" ++ show structId ++ "));"
+showCStmt indent _ _ _ (AllocClosure funId) =
+    "\n" ++ indentStr indent ++ "Closure* c" ++ show funId ++ " = malloc(sizeof(Closure));"
+    ++ "\n" ++ indentStr indent ++ "c" ++ show funId ++ "->env = env" ++ show funId ++ ";"
+    ++ "\n" ++ indentStr indent ++ "c" ++ show funId
+    ++ "->fn = (void* (*)(void*, void*))v" ++ show funId ++ ";"
+showCStmt indent _ _ _ (AllocEnv envId parentId directParams parentParams) =
+    "\n" ++ indentStr indent ++ "Env_v" ++ show envId ++ "* env" ++ show envId
+        ++ " = malloc(sizeof(Env_v" ++ show envId ++ "));"
     ++ showDirect directParams
     ++ showParent parentParams
-    ++ "\n" ++ indentStr indent ++ "Closure* c" ++ show structId ++ " = malloc(sizeof(Closure));"
-    ++ "\n" ++ indentStr indent ++ "c" ++ show structId ++ "->env = env" ++ show structId ++ ";"
-    ++ "\n" ++ indentStr indent ++ "c" ++ show structId
-    ++ "->fn = (void* (*)(void*, void*))v" ++ show implId ++ ";"
   where
     showDirect [] = ""
     showDirect (CParam ip _ : rest) =
-        "\n" ++ indentStr indent ++ "env" ++ show structId ++ "->v" ++ show ip
+        "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip
         ++ " = " ++ "v" ++ show ip ++ ";"
         ++ showDirect rest
     showDirect (_ : rest) = showDirect rest
     showParent [] = ""
     showParent (CParam ip _ : rest) =
-        "\n" ++ indentStr indent ++ "env" ++ show structId ++ "->v" ++ show ip
+        "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip
             ++ " = ((Env_v" ++ show parentId ++ "*)env)->v" ++ show ip ++ ";"
         ++ showParent rest
     showParent (_ : rest) = showParent rest
@@ -969,7 +981,7 @@ main :: IO ()
 main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
-    let (progName, progCode) = progsList !! 1
+    let (progName, progCode) = progsList !! 0
     let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
     let progPath = "baselines/" ++ progName
 
@@ -982,12 +994,12 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 clBase
 
-    putStrLn "\n--- Merging Lambdas ---"
-    let (merged, mergedMap) = mergeLambdas c c Map.empty
-    putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    -- putStrLn "\n--- Merging Lambdas ---"
+    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
+    -- putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
 
-    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
 
     let strFunTypes = getStrFunTypes defs Map.empty
     
@@ -1003,13 +1015,13 @@ main = do
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    -- let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
-    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
-    -- let retImpl = showCExpression retExpr Map.empty
+    let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
+    let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
+    let retImpl = showCExpression retExpr Map.empty
 
-    let retImpl = showCExpression retExpr mergedMap
-    let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
-    let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
+    -- let retImpl = showCExpression retExpr mergedMap
+    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
+    -- let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
 
     let content =
             "\n// imports" ++ imports ++

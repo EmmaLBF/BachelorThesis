@@ -38,29 +38,29 @@ Closure* v7(void* env, void* v3_raw) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
   env6->v3 = v3;
   env6->v1 = ((Env_v7*)env)->v1;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env6;
-  c->fn = (void* (*)(void*, void*))v6;
-  return c;
+  Closure* c6 = malloc(sizeof(Closure));
+  c6->env = env6;
+  c6->fn = (void* (*)(void*, void*))v6;
+  return c6;
 }
 
 Node* v10(void* env, void* v2_raw) {
   Node* v2 = (Node*)v2_raw;
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v1 = ((Env_v10*)env)->v1;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env7;
-  c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v2)) ? (NULL) : ((Node*)apply((Closure*)apply((Closure*)c, box_int(*(int*)(head(v2)))), (void*)(tail(v2))));
+  Closure* c7 = malloc(sizeof(Closure));
+  c7->env = env7;
+  c7->fn = (void* (*)(void*, void*))v7;
+  return ((isEmpty(v2)) ? (NULL) : ((Node*)apply((Closure*)apply((Closure*)c7, box_int(*(int*)(head(v2)))), (void*)(tail(v2)))));
 }
 
 Closure* v0(int (*v1)(int)) {
   Env_v10* env10 = malloc(sizeof(Env_v10));
   env10->v1 = v1;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env10;
-  c->fn = (void* (*)(void*, void*))v10;
-  return c;
+  Closure* c10 = malloc(sizeof(Closure));
+  c10->env = env10;
+  c10->fn = (void* (*)(void*, void*))v10;
+  return c10;
 }
 
 int v11(int v5) {

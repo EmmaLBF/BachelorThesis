@@ -17,7 +17,116 @@ import Unsafe.Coerce (unsafeCoerce)
 -- remove boxing when not necessary
 
 
--- Inline function
+-- REMOVE CLOSURE ALLOCS
+countClosureUses :: Int -> CStatement a -> Int
+countClosureUses i (Return x) = countClosureUsesExpr i x
+countClosureUses i (Seq x y) = countClosureUses i x + countClosureUses i y
+countClosureUses i (BindExpr _ x _ y) = countClosureUsesExpr i (unsafeCoerce x) + countClosureUses i y
+countClosureUses i (If c t e) = countClosureUsesExpr i (unsafeCoerce c) + countClosureUses i t + countClosureUses i e
+countClosureUses i (While c x) = countClosureUsesExpr i (unsafeCoerce c) + countClosureUses i x
+countClosureUses _ _ = 0
+
+countClosureUsesExpr :: Int -> CExpression a -> Int
+countClosureUsesExpr i (Val (ClosureV j)) = if i == j then 1 else 0
+countClosureUsesExpr i (Var _ j) = if i == j then 1 else 0
+countClosureUsesExpr i (ApplyClosure f x) = countClosureUsesExpr i (unsafeCoerce f) + countClosureUsesExpr i (unsafeCoerce x)
+countClosureUsesExpr i (CallExpr f x) = countClosureUsesExpr i (unsafeCoerce f) + countClosureUsesExpr i (unsafeCoerce x)
+countClosureUsesExpr i (Ternary c t e) = countClosureUsesExpr i (unsafeCoerce c) + countClosureUsesExpr i (unsafeCoerce t) + countClosureUsesExpr i (unsafeCoerce e)
+countClosureUsesExpr i (CastExpr _ f) = countClosureUsesExpr i f
+countClosureUsesExpr _ _                      = 0
+
+-- rewrite the single use of closure i to a direct call using envVar
+rewriteClosureUse :: Int -> CStatement b -> CStatement b
+rewriteClosureUse i (Return x) = Return (rewriteClosureUseExpr i (unsafeCoerce x))
+rewriteClosureUse i (Seq (AllocClosure j) y)
+    | i == j = rewriteClosureUse i y
+rewriteClosureUse i (Seq x y) = Seq (rewriteClosureUse i x) (rewriteClosureUse i y)
+rewriteClosureUse i (BindExpr t (x :: CExpression a) j y) =
+    BindExpr t (rewriteClosureUseExpr i (unsafeCoerce x) :: CExpression a) j (rewriteClosureUse i y)
+rewriteClosureUse i (If c t e) = If (rewriteClosureUseExpr i (unsafeCoerce c)) (rewriteClosureUse i t) (rewriteClosureUse i e)
+rewriteClosureUse i (While c x) = While (rewriteClosureUseExpr i (unsafeCoerce c)) (rewriteClosureUse i x)
+rewriteClosureUse _ x = x
+
+rewriteApply :: Int -> CExpression a -> CExpression a
+rewriteApply i (ApplyClosure f (arg :: CExpression b)) =
+    case rewriteApply i (unsafeCoerce f) :: CExpression a of
+        call@CallExpr{} -> unsafeCoerce $ CallExpr (call :: CExpression (b -> Int)) arg
+        f' -> unsafeCoerce $ ApplyClosure f' (arg :: CExpression b)
+rewriteApply i (Val (ClosureV i'))
+    | i == i' = unsafeCoerce $ CallExpr
+        (Var CTVoidPtr i :: CExpression (Int -> Int))
+        (Val (EnvV i) :: CExpression Int)
+rewriteApply _ x = x
+
+rewriteClosureUseExpr :: Int -> CExpression b -> CExpression b
+-- rewriteClosureUseExpr i (ApplyClosure f (arg :: CExpression arg)) =
+--     let (f', args) = collectArgsApply (ApplyClosure f arg)
+--     in case f' of
+--         (Val (ClosureV i')) | i == i' ->
+--             trace ("ARGS = " ++ show i ++ " | " ++ showCArgs args) $
+--             unsafeCoerce $ rebuildCall (CallExpr 
+--                     (Var CTVoidPtr i :: CExpression (Int -> Int)) 
+--                     (Val (EnvV i) :: CExpression Int)) args
+--         _ -> unsafeCoerce $ ApplyClosure 
+--             (rewriteClosureUseExpr i (unsafeCoerce f))
+--             (rewriteClosureUseExpr i (unsafeCoerce arg) :: CExpression arg)
+rewriteClosureUseExpr i (ApplyClosure f (arg :: CExpression arg)) =
+    unsafeCoerce $ rewriteApply i (ApplyClosure f arg)
+rewriteClosureUseExpr i (Ternary (c :: CExpression Bool) (t :: CExpression b) (e :: CExpression b)) =
+    unsafeCoerce $ Ternary
+        (rewriteClosureUseExpr i (unsafeCoerce c) :: CExpression Bool)
+        (rewriteClosureUseExpr i (unsafeCoerce t) :: CExpression b)
+        (rewriteClosureUseExpr i (unsafeCoerce e) :: CExpression b)
+rewriteClosureUseExpr i (CallExpr (f :: CExpression (a -> b)) x) =
+    unsafeCoerce $ CallExpr
+        (rewriteClosureUseExpr i (unsafeCoerce f) :: CExpression (a -> b))
+        (rewriteClosureUseExpr i (unsafeCoerce x))
+rewriteClosureUseExpr i (CastExpr t x) =
+    unsafeCoerce $ CastExpr t (rewriteClosureUseExpr i (unsafeCoerce x))
+rewriteClosureUseExpr _ x = x
+
+-- top level pass
+removeClosureAllocs :: CStatement a -> (CStatement a, [Int])
+removeClosureAllocs (Seq (AllocClosure i) rest)
+    | countClosureUses i rest == 1 =
+        -- trace (if i == 63 then "REMOVE " ++ show  i else "") $
+        let rest' = rewriteClosureUse i rest
+            (x', r) = removeClosureAllocs rest'
+        in (x', i : r)
+    | otherwise =
+        -- trace (if i == 63 then "REMOVE NOT " ++ show i ++ " | " ++ show (countClosureUses i rest) else "") $
+        let (x', r) = removeClosureAllocs rest
+        in (Seq (AllocClosure i) x', r)
+removeClosureAllocs (Seq (AllocEnv i implId directPs parentPs) rest)
+    | countClosureUses i rest == 1 =
+        -- trace ("REMOVE1 " ++ show i ++ " | " ++ show (countClosureUses i rest)) $
+        let rest' = rewriteClosureUse i rest
+            (x', r) = removeClosureAllocs rest'
+        in (Seq (AllocEnv i implId directPs parentPs) x', i : r)
+    | otherwise =
+        -- trace (if i == 63 then "REMOVE NOT1 " ++ show i ++ " | " ++ show (countClosureUses i rest) ++ " \n " ++ showCStmt 0 Map.empty Map.empty Map.empty rest else "") $
+        let (x', r) = removeClosureAllocs rest
+        in (Seq (AllocEnv i implId directPs parentPs) x', r)
+removeClosureAllocs (Seq x y) =
+    let (x', r) = removeClosureAllocs x
+        (y', r') = removeClosureAllocs y
+    in (Seq x' y', r ++ r')
+removeClosureAllocs (If cond x y) =
+    let (x', r) = removeClosureAllocs x
+        (y', r') = removeClosureAllocs y
+    in (If cond x' y', r ++ r')
+removeClosureAllocs (While cond x) =
+    let (x', r) = removeClosureAllocs x
+    in (While cond x', r)
+removeClosureAllocs (DefFun tret ifun ps x) =
+    let (x', r) = removeClosureAllocs x
+    in (DefFun tret ifun ps x', r)
+removeClosureAllocs (BindExpr t x i y) =
+    let (y', r) = removeClosureAllocs y
+    in (BindExpr t x i y', r)
+removeClosureAllocs x = (x, [])
+
+-- INLINE FUNCTIONS
 countFunctionCallsExpr :: CExpression a -> Map.Map Int Int -> Map.Map Int Int
 countFunctionCallsExpr (CallExpr f x) m =
     case f of
@@ -191,6 +300,10 @@ removeDeadFuns m d (Seq x y) =
 removeDeadFuns _ d x = (x, d)
 
 
+
+
+-- Function unrolling
+
 -- int fact_iter(int n, int acc) {
 --     while (1) {
 --         if (n <= 1) return acc;
@@ -223,7 +336,6 @@ hasTailCall ifun (CallExpr f _) = outermostVar f == Just ifun
 hasTailCall ifun (Ternary _ t e) = hasTailCall ifun t || hasTailCall ifun e
 hasTailCall _ _ = False
 
--- Function unrolling
 unrollFunctions :: CStatement a -> CStatement a
 unrollFunctions (DefFun tret ifun params body) =
     if isTailRecursive ifun body then
@@ -267,12 +379,21 @@ hello = do
     let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
     let strFunTypes = getStrFunTypes defs Map.empty
 
-    putStrLn "\n--- Inlining funs ---"
-    putStrLn $ showCStmt 0 mergedMap closureEnv strFunTypes cbody
-    let callMap = countFunctionCalls cbody Map.empty
-    let (cbody', removedFuns) = inlineFuns (-1) defs callMap cbody
-    let (cbody'', defs') = removeDeadFuns removedFuns defs cbody'
-    print callMap
+    -- putStrLn "\n--- Inlining funs ---"
+    -- putStrLn $ showCStmt 0 mergedMap closureEnv strFunTypes cbody
+    -- let callMap = countFunctionCalls cbody Map.empty
+    -- let (cbody', removedFuns) = inlineFuns (-1) defs callMap cbody
+    -- let (cbody'', defs') = removeDeadFuns removedFuns defs cbody'
+    -- print callMap
+
+    putStrLn "\n--- Removing Closure Allocs ---"
+    let (cbody''', removedClosures) = removeClosureAllocs cbody
+    print mergedMap
+    let mergedMap' = foldr (\i m ->
+                        let current = Map.findWithDefault 1 i m
+                        in Map.insert i (current + 1) m
+                    ) mergedMap removedClosures
+    print mergedMap'
     -- putStrLn $ showCStmt 0 mergedMap closureEnv strFunTypes cbody'
 
     putStrLn "\n--- Printing C ---"
@@ -282,14 +403,15 @@ hello = do
                     "\n#include <stdint.h>" ++
                     libName
     let closureStructs = generateClosureStructs (Map.toList liftenv)
-    let funDefs = showFunDefs defs'
-    let (funPart, mainBody) = splitTopLevel cbody''
+    -- let funDefs = showFunDefs defs'
+    let funDefs = showFunDefs defs
+    let (funPart, mainBody) = splitTopLevel cbody'''
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    let retImpl = showCExpression retExpr mergedMap
-    let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
-    let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
+    let retImpl = showCExpression retExpr mergedMap'
+    let mainBodyImpl = showCStmt 1 mergedMap' closureEnv strFunTypes mainBodyWithoutRet
+    let funImpl = showCStmt 0 mergedMap' closureEnv strFunTypes funPart
 
     let content =
             "\n// imports" ++ imports ++

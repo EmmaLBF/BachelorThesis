@@ -101,7 +101,7 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
         result = subprocess.run(
             [f"./{path_out}"] if os.name != "nt" else [path_out],
             check=True
-            , stdout=subprocess.DEVNULL
+            # , stdout=subprocess.DEVNULL
         )
         elapsed = time.perf_counter() - start
 
@@ -165,7 +165,7 @@ def runTrials(path_half):
 
 print("BASELINES MERGESORT ******")
 for prog in progs:
-    print(compile_and_run_c(prog + "_output", -1, -1, ""))
+    print(compile_and_run_c("baselines/" + prog, -1, -1, ""))
 
 
 # print("MERGED ******")
