@@ -570,7 +570,6 @@ liftStmt fun env closureRet funs (BindExpr t x i y) =
         t' = case x'' of
             Val (ClosureV _) -> CTClosure
             Var _ f | Map.member f closureRet ->
-                -- closure-returning factory with no captures: fn ptr, but return type is Closure*
                 case t of
                     CTFun arg _ -> CTFun arg CTClosure
                     _           -> t
@@ -742,7 +741,6 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
             in boxForApply (fromTypeRep (typeRep (Proxy :: Proxy c))) argStr
     in case func of
         Var _ i -> 
-            -- trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
             case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -755,7 +753,6 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
                 in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
             Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
         Val (ClosureV i) -> 
-            -- trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
             case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -783,7 +780,6 @@ showCExpression (CallExpr f (arg :: CExpression a)) m =
     in case func of
         Var _ i -> case Map.lookup i m of
             Just n ->
-                -- trace ("SHOW MAP var" ++ show i ++ " = "  ++ show m) $
                 let (merged, rest) = Prelude.splitAt n args
                     baseCall = "v" ++ show i ++ "(" ++ intercalate ", " (formatArgs merged) ++ ")"
                 in if Prelude.null rest
@@ -983,9 +979,9 @@ main :: IO ()
 main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
-    let (progName, progCode) = progsList !! 0
+    let (progName, progCode) = progsInt !! 3
     let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    let progPath = "baselines/" ++ progName
+    let progPath = "mergedLams/" ++ progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
@@ -996,12 +992,12 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 clBase
 
-    -- putStrLn "\n--- Merging Lambdas ---"
-    -- let (merged, mergedMap) = mergeLambdas c c Map.empty
-    -- putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
-    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
+    putStrLn "\n--- Merging Lambdas ---"
+    let (merged, mergedMap) = mergeLambdas c c Map.empty
+    putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
+    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
 
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
+    -- let (cbody, closureEnv, liftenv, _, defs) = lambdaLift c
 
     let strFunTypes = getStrFunTypes defs Map.empty
     
@@ -1017,13 +1013,13 @@ main = do
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
 
-    let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
-    let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
-    let retImpl = showCExpression retExpr Map.empty
+    -- let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
+    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
+    -- let retImpl = showCExpression retExpr Map.empty
 
-    -- let retImpl = showCExpression retExpr mergedMap
-    -- let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
-    -- let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
+    let retImpl = showCExpression retExpr mergedMap
+    let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
+    let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
 
     let content =
             "\n// imports" ++ imports ++

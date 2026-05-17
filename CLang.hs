@@ -426,7 +426,7 @@ main = do
     let (opt, newBinds) = optimizeBindings cl Map.empty
     let opt' = replaceVarBindingStmt opt newBinds
     putStrLn $ showCStmt 0 opt'
-    let evOpt = eval opt' Empty
+    let _ = eval opt' Empty
     -- putStrLn $ showCValue evOpt
 
     putStrLn "\n--- Evaluating ---"

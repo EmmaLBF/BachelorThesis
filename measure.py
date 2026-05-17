@@ -40,7 +40,6 @@ def get_stats(path_out, outputs):
         ]):
             splitLine = line.split(':', maxsplit=1)
             nameLine = splitLine[0].replace(' ', '')
-            # print(nameLine + ":" + splitLine[1])
             outputs[nameLine] = splitLine[1]
 
     # Valgrind memcheck: malloc/free counts
@@ -52,12 +51,6 @@ def get_stats(path_out, outputs):
         if "total heap usage" in line:
             data = line.split("total heap usage:")[1]
             nums = re.findall(r'[\d,]+', data)
-            allocs      = "Allocs: " + nums[0].replace(',', '')
-            frees       = "Frees: " + nums[2].replace(',', '')
-            bytes_alloc = "BytesAlloced: " + nums[4].replace(',', '')
-            # print(allocs)
-            # print(frees)
-            # print(bytes_alloc)
             outputs["Allocs"] = nums[0].replace(',', '')
             outputs["Frees"] = nums[2].replace(',', '')
             outputs["BytesAlloced"] = nums[4].replace(',', '')
@@ -70,7 +63,6 @@ def get_stats(path_out, outputs):
     )
     for line in callgrind_result.stderr.splitlines():
         if "I   refs" in line:
-            # print(f"InstructionCount: {line.split(':')[1].strip().replace(',', '')}")
             outputs["InstructionCount"] = line.split(':')[1].strip().replace(',', '')
             break
 
@@ -91,7 +83,6 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
             with open(path, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
 
-
         # Compile
         compile_cmd = ["gcc", path, "-o", path_out]
         subprocess.run(compile_cmd, check=True)
@@ -101,21 +92,15 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
         result = subprocess.run(
             [f"./{path_out}"] if os.name != "nt" else [path_out],
             check=True
-            # , stdout=subprocess.DEVNULL
+            , stdout=subprocess.DEVNULL
         )
         elapsed = time.perf_counter() - start
 
         # resource.getrusage tracks the last child process
         usage = resource.getrusage(resource.RUSAGE_CHILDREN)
 
-        # print(f"ElapsedTime(s): {elapsed:.4f}")
-        # print(f"MaxRSS(MB): {usage.ru_maxrss / 1024:.2f}")   # bytes on Linux
-        # print(f"UserCPUtime(s): {usage.ru_utime:.4f}")
-        # print(f"SysCPUtime(s): {usage.ru_stime:.4f}")
-
-        outputs = {"ElapsedTime(s)": elapsed, "UserCPUtime(s)": usage.ru_utime, "SysCPUtime(s)": usage.ru_stime, "MaxRSS(MB)": usage.ru_maxrss}
+        outputs = {"ElapsedTime(s)": elapsed, "UserCPUtime(s)": usage.ru_utime, "SysCPUtime(s)": usage.ru_stime, "MaxRSS(kb)": usage.ru_maxrss}
         get_stats(path_out, outputs)
-
         return outputs
 
     except subprocess.CalledProcessError as e:
@@ -123,8 +108,29 @@ def compile_and_run_c(c_file, trial, index_to_remove, new_line):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
+def only_run(c_file):
+    try:
+        path     = "outputs/" + c_file + ".c"
+        path_out = "outputs/" + c_file
+        
+        print(f"{BOLD}{RED}Running: {c_file} {RESET}")
+
+        # Compile
+        compile_cmd = ["gcc", path, "-o", path_out]
+        subprocess.run(compile_cmd, check=True)
+
+        # Run with timing and memory
+        result = subprocess.run(
+            [f"./{path_out}"] if os.name != "nt" else [path_out],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Compilation/Execution failed: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
 progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall"]
-trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900]
+trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 def runTrials(path_half):
     path_out = "outputs/" + path_half
@@ -158,17 +164,15 @@ def runTrials(path_half):
 
 
 # print("LamMerged MERGESORT ******")
-# runTrials("merged/mergeSortCall")
+# runTrials("mergedLams/mergeSortCall")
 
-# print("Basic MERGESORT ******")
-# runTrials("baselines/mergeSortCall")
-
-print("BASELINES MERGESORT ******")
-for prog in progs:
-    print(compile_and_run_c("baselines/" + prog, -1, -1, ""))
+print("Basic MERGESORT ******")
+runTrials("inlined/mergeSortCall")
 
 
-# print("MERGED ******")
-# for prog in progs:
-#     compile_and_run_c("merged/" + prog, -1, -1, "")
-# compile_and_run_c("baselines/mergeSort/100")
+# print("Test All Basic ******")
+# for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
+#     print("\n" + ("-" * 30))
+#     print("\n" + folder)
+#     for prog in progs:
+#         only_run(folder + "/" + prog)

@@ -85,20 +85,14 @@ Node* v33(void* env33, void* v10_raw, void* v11_raw) {
   env29->v11 = v11;
   env29->v8 = ((Env_v33*)env33)->v8;
   env29->v9 = ((Env_v33*)env33)->v9;
-  Closure* c29 = malloc(sizeof(Closure));
-  c29->env = env29;
-  c29->fn = (void* (*)(void*, void*))v29;
-  return ((isEmpty(((Env_v33*)env33)->v9)) ? (((Env_v33*)env33)->v8) : ((Node*)((Closure*)c29)->fn(((Closure*)c29)->env, box_int(*(int*)(head(((Env_v33*)env33)->v9))), (void*)(tail(((Env_v33*)env33)->v9)))));
+  return ((isEmpty(((Env_v33*)env33)->v9)) ? (((Env_v33*)env33)->v8) : ((Node*)v29(env29, box_int(*(int*)(head(((Env_v33*)env33)->v9))), (void*)(tail(((Env_v33*)env33)->v9)))));
 }
 
 Node* v7(Node* v8, Node* v9) {
   Env_v33* env33 = malloc(sizeof(Env_v33));
   env33->v8 = v8;
   env33->v9 = v9;
-  Closure* c33 = malloc(sizeof(Closure));
-  c33->env = env33;
-  c33->fn = (void* (*)(void*, void*))v33;
-  return ((isEmpty(v8)) ? (v9) : ((Node*)((Closure*)c33)->fn(((Closure*)c33)->env, box_int(*(int*)(head(v8))), (void*)(tail(v8)))));
+  return ((isEmpty(v8)) ? (v9) : ((Node*)v33(env33, box_int(*(int*)(head(v8))), (void*)(tail(v8)))));
 }
 
 Node* v45(Pair* v6) {
@@ -115,10 +109,7 @@ Pair* v52(void* env52, void* v21_raw, void* v22_raw) {
   Node* v22 = (Node*)v22_raw;
   Env_v46* env46 = malloc(sizeof(Env_v46));
   env46->v21 = v21;
-  Closure* c46 = malloc(sizeof(Closure));
-  c46->env = env46;
-  c46->fn = (void* (*)(void*, void*))v46;
-  return (Pair*)apply((Closure*)c46, (void*)(v17(mk_pair(box_int((((Env_v52*)env52)->v19 - 1)), v22))));
+  return (Pair*)v46(env46, (void*)(v17(mk_pair(box_int((((Env_v52*)env52)->v19 - 1)), v22))));
 }
 
 Pair* v55(void* env55, void* v20_raw) {
@@ -126,12 +117,7 @@ Pair* v55(void* env55, void* v20_raw) {
   if ((((Env_v55*)env55)->v19 == 0)) {
     return mk_pair(NULL, v20);
   } else {
-    Env_v52* env52 = malloc(sizeof(Env_v52));
-    env52->v19 = ((Env_v55*)env55)->v19;
-    Closure* c52 = malloc(sizeof(Closure));
-    c52->env = env52;
-    c52->fn = (void* (*)(void*, void*))v52;
-    return ((isEmpty(v20)) ? (mk_pair(NULL, NULL)) : ((Pair*)((Closure*)c52)->fn(((Closure*)c52)->env, box_int(*(int*)(head(v20))), (void*)(tail(v20)))));
+    return ((isEmpty(v20)) ? (mk_pair(NULL, NULL)) : ((Pair*)v52(env55, box_int(*(int*)(head(v20))), (void*)(tail(v20)))));
   }
 }
 
@@ -139,19 +125,13 @@ Pair* v58(void* env58, void* v19_raw) {
   int v19 = *(int*)v19_raw;
   Env_v55* env55 = malloc(sizeof(Env_v55));
   env55->v19 = v19;
-  Closure* c55 = malloc(sizeof(Closure));
-  c55->env = env55;
-  c55->fn = (void* (*)(void*, void*))v55;
-  return (Pair*)apply((Closure*)c55, (void*)((Node*)snd(((Env_v58*)env58)->v18)));
+  return (Pair*)v55(env55, (void*)((Node*)snd(((Env_v58*)env58)->v18)));
 }
 
 Pair* v17(Pair* v18) {
   Env_v58* env58 = malloc(sizeof(Env_v58));
   env58->v18 = v18;
-  Closure* c58 = malloc(sizeof(Closure));
-  c58->env = env58;
-  c58->fn = (void* (*)(void*, void*))v58;
-  return (Pair*)apply((Closure*)c58, box_int(*(int*)fst(v18)));
+  return (Pair*)v58(env58, box_int(*(int*)fst(v18)));
 }
 
 Pair* v63(void* env63, void* v16_raw) {
@@ -161,12 +141,7 @@ Pair* v63(void* env63, void* v16_raw) {
 
 Pair* v66(void* env66, void* v15_raw) {
   int v15 = *(int*)v15_raw;
-  Env_v63* env63 = malloc(sizeof(Env_v63));
-  env63->v14 = ((Env_v66*)env66)->v14;
-  Closure* c63 = malloc(sizeof(Closure));
-  c63->env = env63;
-  c63->fn = (void* (*)(void*, void*))v63;
-  return (Pair*)apply((Closure*)c63, box_int((v15 / 2)));
+  return (Pair*)v63(env66, box_int((v15 / 2)));
 }
 
 int v68(int v26, Node* v27) {
@@ -180,10 +155,7 @@ int v24(Node* v25) {
 Pair* v75(Node* v14) {
   Env_v66* env66 = malloc(sizeof(Env_v66));
   env66->v14 = v14;
-  Closure* c66 = malloc(sizeof(Closure));
-  c66->env = env66;
-  c66->fn = (void* (*)(void*, void*))v66;
-  return (Pair*)apply((Closure*)c66, box_int(v24(v14)));
+  return (Pair*)v66(env66, box_int(v24(v14)));
 }
 
 Node* v81(void* env81, void* v4_raw, void* v5_raw) {
@@ -195,10 +167,7 @@ Node* v81(void* env81, void* v4_raw, void* v5_raw) {
 Node* v85(int v2, Node* v3) {
   Env_v81* env81 = malloc(sizeof(Env_v81));
   env81->v2 = v2;
-  Closure* c81 = malloc(sizeof(Closure));
-  c81->env = env81;
-  c81->fn = (void* (*)(void*, void*))v81;
-  return ((isEmpty(v3)) ? (cons(box_int(v2), NULL)) : ((Node*)((Closure*)c81)->fn(((Closure*)c81)->env, box_int(*(int*)(head(v3))), (void*)(tail(v3)))));
+  return ((isEmpty(v3)) ? (cons(box_int(v2), NULL)) : ((Node*)v81(env81, box_int(*(int*)(head(v3))), (void*)(tail(v3)))));
 }
 
 Node* v0(Node* v1) {

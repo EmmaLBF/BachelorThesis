@@ -28,10 +28,8 @@ countClosureUses _ _ = 0
 
 countClosureUsesExpr :: Int -> CExpression a -> Int
 countClosureUsesExpr i (Val (ClosureV j)) = if i == j then 1 else 0
--- countClosureUsesExpr i (Var _ j) = if i == j then 1 else 0
 countClosureUsesExpr i (ApplyClosure f x) = countClosureUsesExpr i (unsafeCoerce f) + countClosureUsesExpr i (unsafeCoerce x)
 countClosureUsesExpr i (CallExpr f x) =
-    -- countClosureUsesExpr i (unsafeCoerce f) + countClosureUsesExpr i (unsafeCoerce x)
     let (func, args) = collectArgs (CallExpr f x)
         funcCount = countClosureUsesExpr i (unsafeCoerce func)
         argsCount = foldr (\(CArg a) acc -> countClosureUsesExpr i (unsafeCoerce a) + acc) 0 args
@@ -85,30 +83,24 @@ rewriteClosureUseExpr _ _ x = x
 removeClosureAllocs :: CStatement a -> (CStatement a, [Int])
 removeClosureAllocs (Seq (AllocClosure i) rest)
     | countClosureUses i rest == 1 =
-        trace ("REMOVE " ++ show  i) $
         let rest' = rewriteClosureUse i i rest
             (x', r) = removeClosureAllocs rest'
         in (x', i : r)
     | otherwise =
-        trace ("REMOVE NOT " ++ show i ++ " | " ++ show (countClosureUses i rest)) $
         let (x', r) = removeClosureAllocs rest
         in (Seq (AllocClosure i) x', r)
 removeClosureAllocs (Seq (AllocEnv i implId directPs parentPs) rest)
     | countClosureUses i rest == 1 =
-        trace ("REMOVE1 " ++ show i ++ " | " ++ show implId) $
         if null directPs
             then
                 let rest' = rewriteClosureUse i implId rest
                     (x', r) = removeClosureAllocs rest'
-                in trace ("ahhhhhhh " ++ show r) $
-                    (x', i : r)
+                in (x', i : r)
             else
                 let rest' = rewriteClosureUse i i rest
                     (x', r) = removeClosureAllocs rest'
-                in trace "ahhhhhhh1" $
-                    (Seq (AllocEnv i implId directPs parentPs) x', i : r)
+                in (Seq (AllocEnv i implId directPs parentPs) x', i : r)
     | otherwise =
-        trace ("REMOVE NOT1 " ++ show i ++ " | " ++ show (countClosureUses i rest)) $
         let (x', r) = removeClosureAllocs rest
         in (Seq (AllocEnv i implId directPs parentPs) x', r)
 removeClosureAllocs (Seq x y) =
@@ -130,13 +122,14 @@ removeClosureAllocs (BindExpr t x i y) =
     in (BindExpr t x i y', r)
 removeClosureAllocs x = (x, [])
 
--- INLINE FUNCTIONS
+
+-- ****** INLINE FUNCTIONS
 countFunctionCallsExpr :: CExpression a -> Map.Map Int Int -> Map.Map Int Int
 countFunctionCallsExpr (CallExpr f x) m =
     let (func, args) = collectArgs (CallExpr f x)
         m' = case func of
                 Var _ i -> Map.insertWith (+) i 1 m
-                _       -> m
+                _ -> m
     in foldr (\(CArg a) acc -> countFunctionCallsExpr (unsafeCoerce a) acc) m' args
 countFunctionCallsExpr (Not x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (LIntOp _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
@@ -172,244 +165,12 @@ getFun i (def@(DefFun _ ifun _ _) : rest) =
     else getFun i rest
 getFun _ _ = error "not valid def"
 
--- params, body, ifun, defs, callMap
-bindParams :: Int -> [CStatement Int] -> Map.Map Int Int -> CParams -> [CArg] -> CStatement Int -> (CStatement Int, Map.Map Int Int)
-bindParams _ _ callMap [] _ inner = (inner, callMap)
-bindParams ifun defs callMap (CParam ip tp : ps) (CArg arg : as') inner =
-    let (xPre, arg', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce arg)
-        ct = fromTypeRep (typeRep tp)
-        (inner', callMap'') = bindParams ifun defs callMap' ps as' inner
-    in (Seq (unsafeCoerce xPre) (BindExpr ct (unsafeCoerce arg' :: CExpression Int) ip inner'), callMap'')
-bindParams _ _ _ _ _ _ = error "bindParams mismatch"
-
-
-inlineFunsExpr :: Int -> [CStatement a] -> Map.Map Int Int -> CExpression a -> (CStatement a, CExpression a, Map.Map Int Int)
-inlineFunsExpr ifun defs callMap (CallExpr f x) =
-    let (f', args) = collectArgs (CallExpr f x)
-    in case f' of
-        (Var _ i) | i /= ifun ->
-            -- trace ("\nINLINING CALL VAR " ++ show i) $
-            case Map.lookup i callMap of
-                Just n | n <= 3 -> -- at most 3 calls
-                    case getFun i defs of
-                        Just (DefFun _ ifun1 params body) ->
-                            let selfCalls = Map.findWithDefault 0 ifun1 (countFunctionCalls body Map.empty)
-                            in  if selfCalls <= 0 then
-                                    let retExpr = findFirstReturn body
-                                        bodyNoRet = removeFirstReturn body
-                                        funArgs = take (length params) args
-                                        (inlined, callMap') = bindParams ifun (map unsafeCoerce defs) callMap params funArgs (unsafeCoerce bodyNoRet)
-                                        callMap'' = if Map.findWithDefault 0 ifun1 (countFunctionCalls inlined Map.empty) > 0 
-                                            then Map.insert i 4000 callMap'
-                                            else Map.insertWith (-) i 1 callMap'
-                                        callMap''' = Map.insert i 0 callMap''
-                                        (retPre, retExpr', callMap'''') = inlineFunsExpr ifun defs callMap''' (unsafeCoerce retExpr)
-                                        finalPre = Seq (unsafeCoerce inlined) (unsafeCoerce retPre)
-                                    in (unsafeCoerce finalPre, retExpr', callMap'''')
-                                else -- recursive, don't inline
-                                    let (xPre, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-                                    in (xPre, CallExpr f (unsafeCoerce x'), Map.insert i (4000) callMap')
-                        _ ->
-                            let (xPre, x', removed) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-                            in (xPre, CallExpr f (unsafeCoerce x'), removed)
-                _ -> let (xPre, x', removed) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-                     in (xPre, CallExpr f (unsafeCoerce x'), removed)
-        _ ->
-            -- trace ("\nINLINING CALL NOT VAR " ++ showCExpression test Map.empty ) $
-            let (xPre, x', removed) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-             in (xPre, CallExpr f (unsafeCoerce x'), removed)
-inlineFunsExpr ifun defs callMap (Ternary c t e) =
-    let (cp, c', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-        (tp, t', callMap'') = inlineFunsExpr ifun defs callMap' t
-        (ep, e', callMap''') = inlineFunsExpr ifun defs callMap'' e
-    in (Seq cp (Seq tp ep), Ternary (unsafeCoerce c') t' e', callMap''')
-inlineFunsExpr ifun defs callMap (Not x) =
-    let (p, x', callMap') = inlineFunsExpr ifun defs callMap x
-    in (p, Not x', callMap')
-inlineFunsExpr ifun defs callMap (HeadList x) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, HeadList (unsafeCoerce x'), r)
-inlineFunsExpr ifun defs callMap (TailList x) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap x
-    in (p, TailList x', r)
-inlineFunsExpr ifun defs callMap (IsEmpty (x :: CExpression [a])) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, IsEmpty (unsafeCoerce x' :: CExpression [a]), r)
-inlineFunsExpr ifun defs callMap (Fst (x :: CExpression (a, b))) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, unsafeCoerce $ Fst (unsafeCoerce x' :: CExpression (a, b)), r)
-inlineFunsExpr ifun defs callMap (Snd (x :: CExpression (a, b))) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, unsafeCoerce $ Snd (unsafeCoerce x' :: CExpression (a, b)), r)
-inlineFunsExpr ifun defs callMap (LIntOp op x y) =
-    let (xp, x', callMap') = inlineFunsExpr ifun defs callMap x
-        (yp, y', callMap'') = inlineFunsExpr ifun defs callMap' y
-    in (Seq xp yp, LIntOp op x' y', callMap'')
-inlineFunsExpr ifun defs callMap (LCmpOp op x y) =
-    let (xp, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y', callMap'') = inlineFunsExpr ifun defs callMap' (unsafeCoerce y)
-    in (Seq xp yp, LCmpOp op (unsafeCoerce x') (unsafeCoerce y'), callMap'')
-inlineFunsExpr ifun defs callMap (Prod x y) =
-    let (xp, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y', callMap'') = inlineFunsExpr ifun defs callMap' (unsafeCoerce y)
-    in (Seq xp yp, Prod (unsafeCoerce x') (unsafeCoerce y'), callMap'')
-inlineFunsExpr ifun defs callMap (ConsList x y) =
-    let (xp, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y', callMap'') = inlineFunsExpr ifun defs callMap' y
-    in (Seq xp yp, ConsList (unsafeCoerce x') (unsafeCoerce y'), callMap'')
-inlineFunsExpr ifun defs callMap (IndexList x y) =
-    let (xp, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (yp, y', callMap'') = inlineFunsExpr ifun defs callMap' (unsafeCoerce y)
-    in (Seq xp yp, IndexList (unsafeCoerce x') (unsafeCoerce y'), callMap'')
-inlineFunsExpr ifun defs callMap (CastExpr t x) =
-    let (p, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (p, CastExpr t x', r)
-inlineFunsExpr ifun defs callMap (ApplyClosure (f :: CExpression fa) (x :: CExpression b)) =
-    let (fp, f', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce f)
-        (xp, x', callMap'') = inlineFunsExpr ifun defs callMap' (unsafeCoerce x)
-    in (Seq fp xp, unsafeCoerce $ ApplyClosure (unsafeCoerce f' :: CExpression fa) (unsafeCoerce x' :: CExpression b), callMap'')
-inlineFunsExpr _ _ callMap x = (Skip, x, callMap)
-
--- current function, all fun defs, map of calls
-inlineFuns :: Int -> [CStatement a] -> Map.Map Int Int  -> CStatement a -> (CStatement a, Map.Map Int Int)
-inlineFuns _ defs callMap (DefFun tret ifun params body) =
-    let (body', r) = inlineFuns ifun defs callMap body
-    in 
-        -- trace ("\nINLINGING " ++ show ifun ++ "BODY:\n" ++ showCStmt 0 Map.empty Map.empty Map.empty body
-        -- ++ "\n---------" ++ showCStmt 0 Map.empty Map.empty Map.empty body' ++ "\n" ++ show callMap) $
-        (DefFun tret ifun params body', r)
--- inlineFuns _ defs callMap (DefFun tret ifun params body) =
---     let localCallMap = countFunctionCalls body Map.empty
---         mergedMap = Map.unionWith min callMap localCallMap
---         (body', callMap') = inlineFuns ifun defs mergedMap body
---     in (DefFun tret ifun params body', callMap')
-inlineFuns ifun defs callMap (Return x) =
-    let (pre, x', r) = inlineFunsExpr ifun defs callMap x
-    in (Seq pre (Return x'), r)
-inlineFuns ifun defs callMap (BindExpr t x i y) =
-    let (pre, x', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-        (y', callMap'') = inlineFuns ifun defs callMap' y
-        rebind = unsafeCoerce $ BindExpr t (unsafeCoerce x' :: CExpression Int) i y'
-    in (Seq pre rebind, callMap'')
-inlineFuns ifun defs callMap (Seq x y) =
-    let (x', callMap') = inlineFuns ifun defs callMap x
-        (y', callMap'') = inlineFuns ifun defs callMap' y
-    in (Seq x' y', callMap'')
-inlineFuns ifun defs callMap (If c x y) =
-    let (pre, c', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-        (x', callMap'') = inlineFuns ifun defs callMap' x
-        (y', callMap''') = inlineFuns ifun defs callMap'' y
-    in (Seq pre (If (unsafeCoerce c') x' y'), callMap''')
-inlineFuns ifun defs callMap (While c x) =
-    let (pre, c', callMap') = inlineFunsExpr ifun defs callMap (unsafeCoerce c)
-        (x', callMap'') = inlineFuns ifun defs callMap' x
-    in (Seq pre (While (unsafeCoerce c') x'), callMap'')
-inlineFuns ifun defs callMap (DefVar t i x) =
-    let (pre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in (Seq pre (DefVar t i (unsafeCoerce x' :: CExpression Int)), r)
-inlineFuns ifun defs callMap (UpdateVar i x) =
-    let (pre, x', r) = inlineFunsExpr ifun defs callMap (unsafeCoerce x)
-    in( Seq pre (UpdateVar i (unsafeCoerce x' :: CExpression Int)), r)
-inlineFuns _ _ callMap x = (x, callMap)
-
-
--- inlineUntilFixed :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
--- inlineUntilFixed defs body =
---     let callMap = countFunctionCalls body Map.empty  -- recompute each pass
---         (body', callMap') = inlineFuns (-1) defs callMap body
---         removed = Map.keys $ Map.filter (== 0) $ Map.intersectionWith (\old new -> new) callMap callMap'
---     in 
---         -- trace ("\n" ++ show callMap ++ " | " ++ show removed) $
---         if callMap == callMap'
---         then (body', [])
---         else
---             let defs' = foldr removeDefFromList defs removed
---                 (body'', removed') = inlineUntilFixed defs' body'
---             in (body'', removed ++ removed')
-
--- inlineUntilFixed :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
--- inlineUntilFixed defs body =
---     let callMap = countFunctionCalls body Map.empty
---         (body', callMap') = inlineFuns (-1) defs callMap body
---         fullyRemoved = Map.keys $ Map.filter (<= 0) callMap'
---         defs' = foldr removeDefFromList defs fullyRemoved
---     in 
---         trace ("FIXED\n" ++ show callMap ++ " | " ++ show callMap') $
---         if null fullyRemoved
---        then (body', [])
---        else
---            let (body'', removed') = inlineUntilFixed defs' body'
---            in (body'', fullyRemoved ++ removed')
-
 endsInIf :: CStatement a -> Bool
-endsInIf (If _ _ _)       = True
-endsInIf (Seq _ y)        = endsInIf y
+endsInIf If {} = True
+endsInIf (Seq _ y) = endsInIf y
 endsInIf (BindExpr _ _ _ y) = endsInIf y
-endsInIf _                = False
+endsInIf _ = False
 
-replaceVarBinding :: CExpression a -> Map.Map Int CArg -> CExpression a
-replaceVarBinding (Var t i) m =
-    case Map.lookup i m of
-        Just (CArg n) -> unsafeCoerce n
-        Nothing       -> Var t i
-replaceVarBinding (GetEnvField t structId fieldId) m =
-    case Map.lookup structId m of
-        Just (CArg (Val (EnvV newId))) -> GetEnvField t newId fieldId
-        Just (CArg (Var _ newId))      -> GetEnvField t newId fieldId
-        _                              -> GetEnvField t structId fieldId
-replaceVarBinding (Not x) m = Not (replaceVarBinding x m)
-replaceVarBinding (LIntOp op x y) m = LIntOp op (replaceVarBinding x m) (replaceVarBinding y m)
-replaceVarBinding (LCmpOp op x y) m = LCmpOp op (replaceVarBinding x m) (replaceVarBinding y m)
-replaceVarBinding (Ternary x y z) m = Ternary (replaceVarBinding x m) (replaceVarBinding y m) (replaceVarBinding z m)
-replaceVarBinding (CallExpr x y) m = CallExpr (replaceVarBinding x m) (replaceVarBinding y m)
-replaceVarBinding (Prod x y) m = Prod (replaceVarBinding x m) (replaceVarBinding y m)
-replaceVarBinding (Fst x) m = Fst (replaceVarBinding x m)
-replaceVarBinding (Snd x) m = Snd (replaceVarBinding x m)
-replaceVarBinding (HeadList x) m = HeadList (replaceVarBinding x m)
-replaceVarBinding (TailList x) m = TailList (replaceVarBinding x m)
-replaceVarBinding (IsEmpty x) m = IsEmpty (replaceVarBinding x m)
-replaceVarBinding (IndexList i x) m = IndexList i (replaceVarBinding x m)
-replaceVarBinding (ConsList x y) m = ConsList (replaceVarBinding x m) (replaceVarBinding y m)
-replaceVarBinding expr _ = expr
-
-replaceVarBindingStmt :: CStatement a -> Map.Map Int CArg -> CStatement a
-replaceVarBindingStmt (BindExpr t x i y) m =
-  BindExpr t (replaceVarBinding x m) i (replaceVarBindingStmt y m)
-replaceVarBindingStmt (Seq x y) m =
-  Seq (replaceVarBindingStmt x m) (replaceVarBindingStmt y m)
-replaceVarBindingStmt (If cond x y) m =
-  let cond' = replaceVarBinding cond m
-      x' = replaceVarBindingStmt x m
-      y' = replaceVarBindingStmt y m
-  in If cond' x' y'
-replaceVarBindingStmt (While cond x) m =
-  let cond' = replaceVarBinding cond m
-      x' = replaceVarBindingStmt x m
-  in While cond' x'
-replaceVarBindingStmt (DefFun tret ifun param body) m =
-  let body' = replaceVarBindingStmt body m
-  in DefFun tret ifun param body'
-replaceVarBindingStmt (Return x) m = Return (replaceVarBinding x m)
-replaceVarBindingStmt (DefVar t i x) m = DefVar t i (replaceVarBinding x m)
-replaceVarBindingStmt (UpdateVar i x) m = UpdateVar i (replaceVarBinding x m)
--- replaceVarBindingStmt (AllocEnv envId parentId directPs parentPs) m = 
-replaceVarBindingStmt x _ = x
-
-
--- inlinePass :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
--- inlinePass defs body =
---     let callMap = countFunctionCalls body Map.empty
---         -- find functions safe to inline: called <= 3 times and not recursive
---         safeToInline = Map.keys $ Map.filter (<= 1) $ Map.filterWithKey
---             (\i _ -> case getFun i defs of
---                 Just (DefFun _ i' _ b) -> 
---                     Map.findWithDefault 0 i' (countFunctionCalls b Map.empty) == 0
---                     && not (endsInIf b)
---                 _ -> False) callMap
---     in foldr (\i (b, removed) ->
---             let (b', didInline) = inlineOne i defs b
---             in if didInline then (b', i : removed) else (b, removed)
---         ) (body, []) safeToInline
 inlinePass :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
 inlinePass defs body =
     let callMap = countFunctionCalls body Map.empty
@@ -432,17 +193,6 @@ inlineOne i defs body =
                 body' = inlineCallsTo i params bodyNoRet retExpr body
             in (body', True)
         _ -> (body, False)
-
-ternaryToIf :: CStatement a -> CStatement a
-ternaryToIf (Return (Ternary c t e)) = 
-    If (unsafeCoerce c) 
-       (ternaryToIf (Return (unsafeCoerce t))) 
-       (ternaryToIf (Return (unsafeCoerce e)))
-ternaryToIf (Seq x y)              = Seq (ternaryToIf x) (ternaryToIf y)
-ternaryToIf (DefFun t i ps b)      = DefFun t i ps (ternaryToIf b)
-ternaryToIf (BindExpr t x i y)     = BindExpr t x i (ternaryToIf y)
-ternaryToIf (If c x y)             = If c (ternaryToIf x) (ternaryToIf y)
-ternaryToIf x                      = x
 
 -- Replace all CallExpr (Var i) args with inlined body
 inlineCallsTo :: Int -> CParams -> CStatement a -> CExpression a -> CStatement a -> CStatement a
@@ -495,24 +245,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
                         ) Skip (zip params funArgs)
                     pre = Seq (unsafeCoerce bindings) (unsafeCoerce fbodyNoRet)
                 in (unsafeCoerce pre, unsafeCoerce retExpr)
-                --     allSubst = Map.fromList
-                --         [ case p of
-                --             CParam ip _  -> (ip, arg)
-                --             CParamEnv ip -> (ip, arg)
-                --         | (p, arg) <- zip params funArgs ]
-                --     body'    = replaceVarBindingStmt (unsafeCoerce fbodyNoRet) allSubst
-                --     ret'     = replaceVarBinding (unsafeCoerce retExpr) allSubst
-                -- in (unsafeCoerce body', unsafeCoerce ret')
-            _ -> 
-                -- keep original CArg wrappers to preserve types
-                -- let goArg (CArg (ag :: CExpression c)) = 
-                --         let (p, a') = goExpr ag  -- p :: CStatement c, a' :: CExpression c
-                --         in (unsafeCoerce p :: CStatement Int, CArg a')  -- CArg a' preserves c
-                --     (pres, args') = unzip $ map goArg args
-                --     pre = foldr (Seq . unsafeCoerce) Skip pres
-                --     rebuilt = rebuildCall (unsafeCoerce func) args'
-                -- in (unsafeCoerce pre, unsafeCoerce rebuilt)
-                (Skip, expr)
+            _ -> (Skip, expr)
     goExpr (Ternary c t e) =
         let (pc, c') = goExpr (unsafeCoerce c)
             (pt, t') = goExpr t
@@ -553,8 +286,7 @@ inlineUntilFixed defs body =
 
 
 
--- Dead Code Elimination
-
+-- ****** Dead Code Elimination
 removeDefFromList :: Int -> [CStatement a] -> [CStatement a]
 removeDefFromList _ [] = []
 removeDefFromList i (def@(DefFun _ ifun _ _) : rest)
@@ -624,6 +356,55 @@ unrollFunctions s = s
 
 -- Common Subexpression elimination
 
+replaceVarBinding :: CExpression a -> Map.Map Int CArg -> CExpression a
+replaceVarBinding (Var t i) m =
+    case Map.lookup i m of
+        Just (CArg n) -> unsafeCoerce n
+        Nothing       -> Var t i
+replaceVarBinding (GetEnvField t structId fieldId) m =
+    case Map.lookup structId m of
+        Just (CArg (Val (EnvV newId))) -> GetEnvField t newId fieldId
+        Just (CArg (Var _ newId))      -> GetEnvField t newId fieldId
+        _                              -> GetEnvField t structId fieldId
+replaceVarBinding (Not x) m = Not (replaceVarBinding x m)
+replaceVarBinding (LIntOp op x y) m = LIntOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (LCmpOp op x y) m = LCmpOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Ternary x y z) m = Ternary (replaceVarBinding x m) (replaceVarBinding y m) (replaceVarBinding z m)
+replaceVarBinding (CallExpr x y) m = CallExpr (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Prod x y) m = Prod (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Fst x) m = Fst (replaceVarBinding x m)
+replaceVarBinding (Snd x) m = Snd (replaceVarBinding x m)
+replaceVarBinding (HeadList x) m = HeadList (replaceVarBinding x m)
+replaceVarBinding (TailList x) m = TailList (replaceVarBinding x m)
+replaceVarBinding (IsEmpty x) m = IsEmpty (replaceVarBinding x m)
+replaceVarBinding (IndexList i x) m = IndexList i (replaceVarBinding x m)
+replaceVarBinding (ConsList x y) m = ConsList (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding expr _ = expr
+
+replaceVarBindingStmt :: CStatement a -> Map.Map Int CArg -> CStatement a
+replaceVarBindingStmt (BindExpr t x i y) m =
+  BindExpr t (replaceVarBinding x m) i (replaceVarBindingStmt y m)
+replaceVarBindingStmt (Seq x y) m =
+  Seq (replaceVarBindingStmt x m) (replaceVarBindingStmt y m)
+replaceVarBindingStmt (If cond x y) m =
+  let cond' = replaceVarBinding cond m
+      x' = replaceVarBindingStmt x m
+      y' = replaceVarBindingStmt y m
+  in If cond' x' y'
+replaceVarBindingStmt (While cond x) m =
+  let cond' = replaceVarBinding cond m
+      x' = replaceVarBindingStmt x m
+  in While cond' x'
+replaceVarBindingStmt (DefFun tret ifun param body) m =
+  let body' = replaceVarBindingStmt body m
+  in DefFun tret ifun param body'
+replaceVarBindingStmt (Return x) m = Return (replaceVarBinding x m)
+replaceVarBindingStmt (DefVar t i x) m = DefVar t i (replaceVarBinding x m)
+replaceVarBindingStmt (UpdateVar i x) m = UpdateVar i (replaceVarBinding x m)
+replaceVarBindingStmt x _ = x
+
+
+
 
 
 hello :: IO ()
@@ -631,8 +412,8 @@ hello = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
     let (progName, progCode) = progsList !! 1
-    let libName = "\n#include \"" ++ "listLib.c\"\n"
-    let progPath = progName
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progPath = "inlined/" ++ progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
