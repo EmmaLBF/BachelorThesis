@@ -12,11 +12,15 @@ import Control.Monad.State
 import Data.Typeable as DType
 import Debug.Trace
 import Unsafe.Coerce (unsafeCoerce)
+import qualified Data.Map as Map
 
 -- TODO add algebraic datatypes
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
+
+data CArg where
+  CArg :: Typeable a => CExpression a -> CArg
 
 type CParams = [CParam]
 
@@ -73,33 +77,6 @@ fresh = do
   modify (+1)
   return n
 
-data CallTarget a
-  = FunVar Int
-  | PrevCall (CExpression a)
-
-getCallTarget :: CStatement a -> CallTarget a
-getCallTarget (DefFun _ i _ _)              = FunVar i
-getCallTarget (Seq _ y)                     = getCallTarget (unsafeCoerce y)
-getCallTarget (Return (CallExpr f arg))     = PrevCall (unsafeCoerce (CallExpr f arg))
-getCallTarget (Return (Var i)) = FunVar i
-getCallTarget _                             = error "not call target"
-
-removeLastReturn :: CStatement a -> CStatement a
-removeLastReturn (Seq x (Return _)) = x
-removeLastReturn (Seq x y)          = Seq x (removeLastReturn (unsafeCoerce y))
-removeLastReturn (Return _)         = Skip
-removeLastReturn x                  = x
-
-ensureReturn :: CStatement a -> CStatement a
-ensureReturn stmt = case stmt of
-  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
-  Seq x y -> Seq x (ensureReturn y)
-  _ -> stmt
-
-extractExpr :: CStatement a -> CExpression a
-extractExpr (Return e) = e
-extractExpr _ = error "Cannot extract: expected Return"
-
 translateExpr :: NL.NamedLang a -> CExpression a
 translateExpr (NL.Var n) = Var n
 translateExpr (NL.LInt n) = Val (IntV n)
@@ -118,49 +95,26 @@ bindResult :: Int -> CStatement a -> CStatement a
 bindResult i (Return x)  = BindExpr x i Skip
 bindResult i (Seq x y)   = Seq x (bindResult i y)
 bindResult i (If c t e)  = If c (bindResult i t) (bindResult i e)
-bindResult _ s            = s
+bindResult i def@(DefFun (_ :: Proxy b) ifun (_, _ :: Proxy arg) _) =
+  let var = Var ifun :: CExpression (arg -> b)
+  in Seq def (BindExpr var i Skip)
+bindResult _ s = s
+
+ensureReturn :: CStatement a -> CStatement a
+ensureReturn stmt = case stmt of
+  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
+  Seq x y -> Seq x (ensureReturn y)
+  _ -> stmt
 
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
-  fStmt <- translate f  -- :: CStatement (arg -> a)
-  xStmt <- translate x  -- :: CStatement arg
-  -- trace ("=== Apply ===\nfStmt: " ++ showCStmt 0 fStmt ++ "\nxStmt: " ++ showCStmt 0 xStmt) $
-  case (fStmt, xStmt) of
-    -- f is a function def, x is a plain expr
-    (DefFun _ fId _ _, Return xExpr) ->
-      return $ Seq (unsafeCoerce fStmt)
-             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
-    -- f is a function def, x is also a function def
-    (DefFun _ fId _ _, DefFun _ xId _ _) ->
-      return $ Seq (unsafeCoerce fStmt)
-             $ Seq (unsafeCoerce xStmt)
-             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
-    -- f is a function def, x needs hoisting
-    (DefFun _ fId _ _, _) -> do
-      xId <- fresh
-      return $ Seq (unsafeCoerce fStmt)
-             $ Seq (unsafeCoerce (bindResult xId xStmt))
-             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
-    -- f is a plain expr, x is a plain expr
-    (Return fExpr, Return xExpr) ->
-      return $ Return (CallExpr fExpr xExpr)
-    -- f is a plain expr, x needs hoisting
-    (Return fExpr, _) -> do
-      xId <- fresh
-      return $ Seq (unsafeCoerce (bindResult xId xStmt))
-             $ Return (CallExpr fExpr (Var xId :: CExpression arg))
-    -- f needs hoisting, x is a plain expr
-    (_, Return xExpr) -> do
-      fId <- fresh
-      return $ Seq (unsafeCoerce (bindResult fId fStmt))
-             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) xExpr)
-    -- both need hoisting
-    (_, _) -> do
-      fId <- fresh
-      xId <- fresh
-      return $ Seq (unsafeCoerce (bindResult fId fStmt))
-             $ Seq (unsafeCoerce (bindResult xId xStmt))
-             $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
+  fStmt <- translate f
+  xStmt <- translate x
+  fId <- fresh
+  xId <- fresh
+  return $ Seq (unsafeCoerce (bindResult fId fStmt))
+         $ Seq (unsafeCoerce (bindResult xId xStmt))
+         $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
 translate (NL.If cond t f) = do
   ct <- translate t
   cf <- translate f
@@ -172,33 +126,89 @@ translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
   let body = case cf of
               (DefFun _ ifun1 _ _) -> Seq cf (Return (Var ifun1))
               _ -> cf
-      def = DefFun (Proxy :: Proxy b) ifun (i, arg) body
-  return (unsafeCoerce def)
+  return (unsafeCoerce (DefFun (Proxy :: Proxy b) ifun (i, arg) body))
 translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
   cf <- translate f
   return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (ensureReturn (unsafeCoerce cf))))
 translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (a1 -> [a1] -> a))) = do
   let nilExpr  = translateExpr nilCase
   consStmt <- translate consCase
-  lId      <- fresh
-  lStmt    <- translate l
-  let fId = case consStmt of
-              DefFun _ i _ _ -> i
-              _ -> error "not a function"
-      listVar = Var lId :: CExpression [a1]
-      callExpr = CallExpr (CallExpr (Var fId) (HeadList listVar)) (TailList listVar)
+  lStmt <- translate l
+  cId <- fresh -- bind id for consCase
+  lId <- fresh -- bind id for list
+  let listVar  = Var lId :: CExpression [a1]
+      callExpr = CallExpr (CallExpr (Var cId) (HeadList listVar)) (TailList listVar)
       caseBody = Return (Ternary (IsEmpty listVar) nilExpr callExpr)
-      lHoisted = bindResult lId (unsafeCoerce lStmt)
-  return $ Seq (unsafeCoerce consStmt)
-         $ Seq (unsafeCoerce lHoisted)
+  return $ Seq (unsafeCoerce (bindResult cId consStmt))
+         $ Seq (unsafeCoerce (bindResult lId lStmt))
          $ unsafeCoerce caseBody
--- translate (NL.Prod x y) = do
---   xs <- translate x
---   ys <- translate y
---   let xe = extractExpr xs
---   let ye = extractExpr ys
---   return $ unsafeCoerce Seq xs (Seq ys (unsafeCoerce (Return (Prod xe ye))))
 translate x = return $ Return (translateExpr x)
+
+replaceVarBinding :: CExpression a -> Map.Map Int CArg -> CExpression a
+replaceVarBinding (Var i) m =
+  case Map.lookup i m of
+    Just (CArg n) -> unsafeCoerce n
+    Nothing -> Var i
+replaceVarBinding (Not x) m = Not (replaceVarBinding x m)
+replaceVarBinding (LIntOp op x y) m = LIntOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (LCmpOp op x y) m = LCmpOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Ternary x y z) m = Ternary (replaceVarBinding x m) (replaceVarBinding y m) (replaceVarBinding z m)
+replaceVarBinding (CallExpr x y) m = CallExpr (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Prod x y) m = Prod (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Fst x) m = Fst (replaceVarBinding x m)
+replaceVarBinding (Snd x) m = Snd (replaceVarBinding x m)
+replaceVarBinding (HeadList x) m = HeadList (replaceVarBinding x m)
+replaceVarBinding (TailList x) m = TailList (replaceVarBinding x m)
+replaceVarBinding (IsEmpty x) m = IsEmpty (replaceVarBinding x m)
+replaceVarBinding (IndexList i x) m = IndexList i (replaceVarBinding x m)
+replaceVarBinding (ConsList x y) m = ConsList (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding expr _ = expr
+
+replaceVarBindingStmt :: CStatement a -> Map.Map Int CArg -> CStatement a
+replaceVarBindingStmt (BindExpr x i y) m =
+  BindExpr (replaceVarBinding x m) i (replaceVarBindingStmt y m)
+replaceVarBindingStmt (Seq x y) m =
+  Seq (replaceVarBindingStmt x m) (replaceVarBindingStmt y m)
+replaceVarBindingStmt (If cond x y) m =
+  let cond' = replaceVarBinding cond m
+      x' = replaceVarBindingStmt x m
+      y' = replaceVarBindingStmt y m
+  in If cond' x' y'
+replaceVarBindingStmt (While cond x) m =
+  let cond' = replaceVarBinding cond m
+      x' = replaceVarBindingStmt x m
+  in While cond' x'
+replaceVarBindingStmt (DefFun tret ifun param body) m =
+  let body' = replaceVarBindingStmt body m
+  in DefFun tret ifun param body'
+replaceVarBindingStmt (Return x) m = Return (replaceVarBinding x m)
+replaceVarBindingStmt (DefVar i x) m = DefVar i (replaceVarBinding x m)
+replaceVarBindingStmt (UpdateVar i x) m = UpdateVar i (replaceVarBinding x m)
+replaceVarBindingStmt Skip _ = Skip
+
+-- map stores for each var we have unbound what its value is now
+-- so if we had let v8 = v7 in ..., store v8 -> v7 in map
+optimizeBindings :: CStatement a -> Map.Map Int CArg -> (CStatement a, Map.Map Int CArg)
+optimizeBindings (BindExpr x i y) m = 
+  let x' = replaceVarBinding x m
+  in (y, Map.insert i (CArg x') m)
+optimizeBindings (Seq x y) m =
+  let (x', m') = optimizeBindings x m
+      (y', m'') = optimizeBindings y m'
+  in (Seq x' y', m'')
+optimizeBindings (If cond x y) m =
+  let (x', m') = optimizeBindings x m
+      (y', m'') = optimizeBindings y m'
+  in (If cond x' y', m'')
+optimizeBindings (While cond x) m =
+  let (x', m') = optimizeBindings x m
+  in (While cond x', m')
+optimizeBindings (DefFun tret ifun param body) m =
+  let (body', m') = optimizeBindings body m
+  in (DefFun tret ifun param body', m')
+optimizeBindings x m = (x, m)
+
+-- EVALUATION
 
 unInt :: CValue Int -> Int
 unInt (IntV x) = x
@@ -212,7 +222,7 @@ unList (ListV x) = x
 lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
 lookupEnv _ Empty = Nothing
 lookupEnv i1 (Extend i2 x remainder)
-  | i1 == i2 = 
+  | i1 == i2 =
       -- trace ("   % lookup v" ++ show i1 ++
       --       ": stored = " ++ show (DType.typeRep x) ++
       --       " | expect = " ++ show (DType.typeRep (Proxy :: Proxy a))) $
@@ -331,19 +341,6 @@ showProx p =
         ("->",   [a, b]) -> showProx b ++ " (*)(" ++ showProx a ++ ")"
         _                -> show p
 
-showProxList :: DType.TypeRep -> String
-showProxList p =
-    let args = typeRepArgs p
-        con  = show (DType.typeRepTyCon p)
-    in case (con, args) of
-        ("Int",  [])     -> "int"
-        ("Bool", [])     -> "bool"
-        ("()",   [])     -> "void*"
-        ("[]",   [a])     -> showProxList a ++ "*"
-        ("(,)",  [_, _]) -> "Pair*"
-        ("->",   [a, b]) -> showProxList b ++ " (*)(" ++ showProxList a ++ ")"
-        _                -> show p
-
 showLitStmt :: Int -> CStatement a -> String
 showLitStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "UpdateVar " ++ show i ++ " = " ++ showCExpression x
 showLitStmt indent (If cond t f) =
@@ -395,35 +392,42 @@ showCStmt indent (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExp
 showCStmt _ Skip = ""
 
 showCExpression :: CExpression a -> String
+showCExpression EmptyList = "NULL"
+showCExpression (Val v) = showCValue v
 showCExpression (Var i) = "v" ++ show i
 showCExpression (Not x) = "!" ++ showCExpression x
+showCExpression (Fst p) = showCExpression p ++ ".at(0)"
+showCExpression (Snd p) = showCExpression p ++ ".at(1)"
 showCExpression (LIntOp op x y) = "(" ++ showCExpression x ++ " " ++ showBinOp op ++ " " ++ showCExpression y ++ ")"
 showCExpression (LCmpOp op x y) = "(" ++ showCExpression x ++ " " ++ showCmpOp op ++ " " ++ showCExpression y ++ ")"
-showCExpression (Val v) = showCValue v
 showCExpression (CallExpr f arg) = showCExpression f ++ "(" ++ showCExpression arg ++ ")"
 showCExpression (Prod l r) = "(" ++ showCExpression l ++ "," ++ showCExpression r ++ ")"
-showCExpression (Fst p) = showCExpression p ++ "[0]"
-showCExpression (Snd p) = showCExpression p ++ "[1]"
-showCExpression EmptyList = "NULL"
 showCExpression (ConsList x l) = "cons(&(" ++ showProx (DType.typeRep x) ++ "){" ++ showCExpression x ++ "}, " ++ showCExpression l ++ ")"
 showCExpression (IsEmpty l) = "isEmpty(" ++ showCExpression l ++ ")"
-showCExpression (HeadList l) = "*(" ++ showProxList (DType.typeRep l) ++ ")" ++ "head(" ++ showCExpression l ++ ")"
+showCExpression (HeadList l) = "*(" ++ showProx (DType.typeRep l) ++ ")" ++ "head(" ++ showCExpression l ++ ")"
 showCExpression (TailList l) = "tail(" ++ showCExpression l ++ ")"
 showCExpression (IndexList l i) = showCExpression l ++ "[" ++ showCExpression i ++ "]"
 showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" ++ showCExpression thn ++ ") : (" ++ showCExpression els ++ ")"
 
-showEnv :: Env -> String
-showEnv Empty = ""
-showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showEnv r
+-- showEnv :: Env -> String
+-- showEnv Empty = ""
+-- showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showEnv r
 
 main :: IO ()
 main = do
-    let (nl, c') = NL.translate 0 AL.mapListCall
+    let (nl, c') = NL.translate 0 AL.mergeSortCall
         cl = evalState (translate nl) c'
         ev = eval cl Empty
     putStrLn $ NL.pretty nl
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 cl
     -- putStrLn $ showLitStmt 0 cl
+    putStrLn "--- Opt ---"
+    let (opt, newBinds) = optimizeBindings cl Map.empty
+    let opt' = replaceVarBindingStmt opt newBinds
+    putStrLn $ showCStmt 0 opt'
+    let _ = eval opt' Empty
+    -- putStrLn $ showCValue evOpt
+
     putStrLn "\n--- Evaluating ---"
     putStrLn $ showCValue ev

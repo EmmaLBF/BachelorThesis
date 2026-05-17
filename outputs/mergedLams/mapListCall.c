@@ -4,10 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "listLib.c"
+#include "../listLib.c"
 
 // function defitions
-Node* v7(void* env, void* v3_raw, void* v4_raw);
+Node* v7(void* env7, void* v3_raw, void* v4_raw);
 Node* v0(int (*v1)(int), Node* v2);
 int v11(int v5);
 
@@ -17,19 +17,19 @@ typedef struct {
 } Env_v7;
 
 // function implementations
-Node* v7(void* env, void* v3_raw, void* v4_raw) {
+Node* v7(void* env7, void* v3_raw, void* v4_raw) {
   int v3 = *(int*)v3_raw;
   Node* v4 = (Node*)v4_raw;
-  return cons(box_int(((Env_v7*)env)->v1(v3)), v0(((Env_v7*)env)->v1, v4));
+  return cons(box_int(((Env_v7*)env7)->v1(v3)), v0(((Env_v7*)env7)->v1, v4));
 }
 
 Node* v0(int (*v1)(int), Node* v2) {
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v1 = v1;
-  Closure* c = malloc(sizeof(Closure));
-  c->env = env7;
-  c->fn = (void* (*)(void*, void*))v7;
-  return (isEmpty(v2)) ? (NULL) : ((Node*)((Closure*)c)->fn(((Closure*)c)->env, box_int(*(int*)(head(v2))), (void*)(tail(v2))));
+  Closure* c7 = malloc(sizeof(Closure));
+  c7->env = env7;
+  c7->fn = (void* (*)(void*, void*))v7;
+  return ((isEmpty(v2)) ? (NULL) : ((Node*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int(*(int*)(head(v2))), (void*)(tail(v2)))));
 }
 
 int v11(int v5) {

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "listLib.c"
+#include "../listLib.c"
 
 // function defitions
 int v5(int v2, Node* v3);
@@ -17,7 +17,7 @@ int v5(int v2, Node* v3) {
 }
 
 int v0(Node* v1) {
-  return (isEmpty(v1)) ? (0) : (v5(*(int*)(head(v1)), tail(v1)));
+  return ((isEmpty(v1)) ? (0) : (v5(*(int*)(head(v1)), tail(v1))));
 }
 
 // main
