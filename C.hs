@@ -664,7 +664,7 @@ showCParams params =
   where
     isEnv (CParamEnv _) = True
     isEnv _ = False
-    showParam _ (CParamEnv _) = "void* env"
+    showParam _ (CParamEnv i) = "void* env" ++ show i
     showParam True (CParam i _) = "void* v" ++ show i ++ "_raw" -- closure function, use void*
     showParam False (CParam i t) = printDecl ("v" ++ show i) (fromTypeRep (typeRep t))  -- plain function, keep type
 
@@ -732,7 +732,7 @@ showCExpression (ConsList (x :: CExpression a) l) m =
 showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
 showCExpression (Ternary cond thn els) m = "((" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ "))"
 showCExpression (GetEnvField _ structId fieldId) _ =
-    "((Env_v" ++ show structId ++ "*)env)->v" ++ show fieldId
+    "((Env_v" ++ show structId ++ "*)env" ++ show structId ++ ")->v" ++ show fieldId
 showCExpression (CastExpr t x) m = showCCast t (showCExpression x m)
 showCExpression (ApplyClosure f (arg :: CExpression b)) m =
     let (func, args) = collectArgsApply (ApplyClosure f arg)
@@ -742,7 +742,7 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
             in boxForApply (fromTypeRep (typeRep (Proxy :: Proxy c))) argStr
     in case func of
         Var _ i -> 
-            trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
+            -- trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
             case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -755,7 +755,7 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
                 in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
             Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
         Val (ClosureV i) -> 
-            trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
+            -- trace ("MERGE APPLY -> " ++ show i ++ " = " ++ show (length args)) $
             case Map.lookup i m of
             Just n ->
                 let (merged, rest) = splitAt n args
@@ -770,13 +770,14 @@ showCExpression (ApplyClosure f (arg :: CExpression b)) m =
         _ -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ formatArg (CArg arg) ++ ")"
 
 -- merges together nested calls if I merged together the params earlier
-showCExpression (CallExpr f arg) m =
+showCExpression (CallExpr f (arg :: CExpression a)) m =
     let (func, args) = collectArgs (CallExpr f arg)
         formatArgs [] = []
         formatArgs (CArg (Val (EnvV j)) : rest) =
             ("env" ++ show j) : map (\(CArg (a :: CExpression c)) ->
                 let t = fromTypeRep (typeRep (Proxy :: Proxy c))
-                in trace ("BOXARG type=" ++ show t ++ " expr=" ++ showCExpression a m) $
+                in 
+                trace ("BOXARG type=" ++ show t ++ " | " ++ show (fromTypeRep (typeRep (Proxy :: Proxy a))) ++ " expr=" ++ showCExpression a m) $
                 boxForApply t (showCExpression a m)) rest
         formatArgs args' = map (\(CArg (a :: CExpression c)) -> showCExpression a m) args'
     in case func of
@@ -798,7 +799,7 @@ showCExpression (CallExpr f arg) m =
 showCStmt :: Int -> Map.Map Int Int -> ClosureReturnEnv -> Map.Map Int String -> CStatement a -> String
 showCStmt indent m _ _ (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m closures funs (If cond t f) =
-    "\n" ++ indentStr indent ++ "if " ++ showCExpression cond m ++ " {"
+    "\n" ++ indentStr indent ++ "if (" ++ showCExpression cond m ++ ") {"
     ++  showCStmt (indent + 1) m closures funs t
     ++ "\n" ++ indentStr indent  ++ "} else {"
     ++ showCStmt (indent + 1) m closures funs f
@@ -828,7 +829,10 @@ showCStmt indent m closures funs (DefFun ct ifun params body) =
     ++ showCStmt (indent + 1) m closures funs body
     ++ "\n" ++ indentStr indent ++ "}\n"
 showCStmt indent m _ _ (DefVar ct i x) =
-    "\n" ++ indentStr indent ++ printDecl ("v" ++ show i) ct
+    "\n" ++ indentStr indent ++ 
+        case x of
+            (Val (EnvV _)) -> printDecl ("env" ++ show i) ct
+            _ -> printDecl ("v" ++ show i) ct
     ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m _ _ (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExpression x m ++ ";"
 showCStmt indent _ _ _ (DefClosureStruct ifun p) =
@@ -855,7 +859,7 @@ showCStmt indent _ _ _ (AllocEnv envId parentId directParams parentParams) =
     showParent [] = ""
     showParent (CParam ip _ : rest) =
         "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip
-            ++ " = ((Env_v" ++ show parentId ++ "*)env)->v" ++ show ip ++ ";"
+            ++ " = ((Env_v" ++ show parentId ++ "*)env" ++ show parentId ++ ")->v" ++ show ip ++ ";"
         ++ showParent rest
     showParent (_ : rest) = showParent rest
 showCStmt _ _ _ _ Skip = ""
@@ -909,22 +913,20 @@ generateClosureStructs [(ifun, p)] = DefClosureStruct ifun p
 generateClosureStructs (i:is) = Seq (generateClosureStructs [i]) (generateClosureStructs is)
 
 findFirstReturn :: CStatement a -> CExpression a
-findFirstReturn (Return x) = x
-findFirstReturn (Seq x y) =
-    case x of
-        (Return i) -> i
-        DefFun {} -> findFirstReturn y
-        _ -> findFirstReturn y
-findFirstReturn (BindExpr _ _ _ y) = findFirstReturn y
-findFirstReturn _ = error "no return"
+findFirstReturn (Return x)        = x
+findFirstReturn (Seq _ y)         = findFirstReturn y
+findFirstReturn (BindExpr _ _ _ y)= findFirstReturn y
+findFirstReturn (If _ t _)        = findFirstReturn t  -- both branches should match
+findFirstReturn (While _ x)       = findFirstReturn x
+findFirstReturn _                 = error "no return found"
 
 removeFirstReturn :: CStatement a -> CStatement a
-removeFirstReturn (Return _) = Skip
-removeFirstReturn (Seq (Return _) y) = Seq Skip y
-removeFirstReturn (Seq x@DefFun {} y) = Seq x (removeFirstReturn y)
-removeFirstReturn (Seq x y) = Seq x (removeFirstReturn y)
-removeFirstReturn (BindExpr t x i y) = BindExpr t x i (removeFirstReturn y)
-removeFirstReturn x = x
+removeFirstReturn (Return _)           = Skip
+removeFirstReturn (Seq x y)            = Seq x (removeFirstReturn y)
+removeFirstReturn (BindExpr t x i y)   = BindExpr t x i (removeFirstReturn y)
+removeFirstReturn (If c t e)           = If c (removeFirstReturn t) (removeFirstReturn e)
+removeFirstReturn (While c x)          = While c (removeFirstReturn x)
+removeFirstReturn x                    = x
 
 splitTopLevel :: CStatement a -> (CStatement a, CStatement a)
 splitTopLevel (Seq l@DefFun {} y) =
