@@ -166,8 +166,13 @@ def runTrials(path_half):
 # print("LamMerged MERGESORT ******")
 # runTrials("mergedLams/mergeSortCall")
 
-print("Basic MERGESORT ******")
-runTrials("inlined/mergeSortCall")
+# print("Basic MERGESORT ******")
+# runTrials("inlined/mergeSortCall")
+
+print("Testing ******")
+print("\n" + ("-" * 30))
+for prog in progs:
+    only_run(prog)
 
 
 # print("Test All Basic ******")

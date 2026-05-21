@@ -1,10 +1,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Avoid lambda" #-}
-{-# HLINT ignore "Replace case with fromMaybe" #-}
+-- {-# HLINT ignore "Avoid lambda" #-}
+-- {-# HLINT ignore "Replace case with fromMaybe" #-}
 {-# LANGUAGE LambdaCase #-}
-
 
 module C where
 
@@ -47,47 +46,6 @@ data CType
     | CTFun CType CType
     | CTVoidPtr
     deriving (Show, Eq)
-
-fromTypeRep :: TypeRep -> CType
-fromTypeRep p =
-    let args = typeRepArgs p
-        con  = show (typeRepTyCon p)
-    in case (con, args) of
-        ("Int",  [])     -> CTInt
-        ("Bool", [])     -> CTBool
-        ("()",   [])     -> CTVoid
-        ("[]",   [_])    -> CTNode
-        ("(,)",  [_,_])  -> CTPair
-        ("->",   [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
-        _                -> CTVoidPtr   -- unknown, erase
-
-printDecl :: String -> CType -> String
-printDecl name CTInt         = "int " ++ name
-printDecl name CTBool        = "bool " ++ name
-printDecl name CTVoid        = "void* " ++ name
-printDecl name CTNode        = "Node* " ++ name
-printDecl name CTPair        = "Pair* " ++ name
-printDecl name CTClosure     = "Closure* " ++ name
-printDecl name CTVoidPtr     = "void* " ++ name
-printDecl name (CTPtr t)     = printDecl ("*" ++ name) t
-printDecl name (CTFun a b)   = printFunPtr name a b
-
-printFunPtr :: String -> CType -> CType -> String
-printFunPtr name arg ret =
-    case ret of
-        CTFun a2 b2 -> printFunPtr ("(*" ++ name ++ ")(" ++ printType arg ++ ")") a2 b2
-        _           -> printType ret ++ " (*" ++ name ++ ")(" ++ printType arg ++ ")"
-
-printType :: CType -> String
-printType CTInt     = "int"
-printType CTBool    = "bool"
-printType CTVoid    = "void"
-printType CTNode    = "Node*"
-printType CTPair    = "Pair*"
-printType CTClosure = "Closure*"
-printType CTVoidPtr = "void*"
-printType (CTPtr t) = printType t ++ "*"
-printType (CTFun a b) = printType b ++ " (*)(" ++ printType a ++ ")"
 
 data CArg where
   CArg :: CType -> CExpression a -> CArg
@@ -240,7 +198,7 @@ addBoxingExpr x = x
 paramsToMap :: CParams -> CParamMap
 paramsToMap = Map.fromList . Prelude.map toEntry
   where
-    toEntry p@(CParam i _)        = (i, p)
+    toEntry p@(CParam i _) = (i, p)
     toEntry p@(CParamEnv i) = (i, p)
 
 merge :: (CParamMap, CParamMap) -> (CParamMap, CParamMap) -> (CParamMap, CParamMap)
@@ -298,6 +256,39 @@ freeVars s =
     let (free, bound) = freeVarsStmt s
     in Map.difference free bound
 
+--------- HOISTING HELPERS
+
+paramId :: CParam -> Int
+paramId (CParam i _)  = i
+paramId (CParamEnv i) = i
+
+findReturn :: CStatement a -> Maybe (CExpression a)
+findReturn (Return x) = Just x
+findReturn (BindExpr _ _ _ y) = findReturn y
+findReturn (Seq _ y) = findReturn y
+findReturn (If _ x _) = findReturn x
+findReturn (While _ x) = findReturn x
+findReturn _ = Nothing
+
+findDefFun :: Int -> CStatement a -> Maybe Int
+findDefFun i (Seq (DefFun _ ifun1 _ _) _) | ifun1 == i = Just ifun1
+findDefFun i (Seq _ y) = findDefFun i y
+findDefFun i (BindExpr _ _ _ y) = findDefFun i y
+findDefFun _ _ = Nothing
+
+-- Extract the id of the inner function/closure that a DefFun body returns,
+-- whether it came from a lambda (DefFun pattern) or an Apply (BindExpr pattern).
+getInnerFunId :: CStatement a -> Maybe Int
+getInnerFunId body =
+    case findReturn body of
+        Just (Var _ ret1) -> findDefFun ret1 body
+        _ -> Nothing
+
+outermostVar :: CExpression a -> Maybe Int
+outermostVar (CallExpr _ _ f _) = outermostVar f
+outermostVar (Var _ f) = Just f
+outermostVar _ = Nothing
+
 --------- HOISTING
 
 rebuildCall :: CType -> CExpression a -> [CArg] -> CExpression a
@@ -315,10 +306,6 @@ collectArgsApply (ApplyClosure tx f x) =
     let (f', as) = collectArgsApply (unsafeCoerce f)
     in (f', as ++ [CArg tx x])
 collectArgsApply e = (e, [])
-
-paramId :: CParam -> Int
-paramId (CParam i _)  = i
-paramId (CParamEnv i) = i
 
 applyWithCast :: CType -> CExpression a -> [CArg] -> CExpression b
 applyWithCast _ base [] = unsafeCoerce base
@@ -349,7 +336,7 @@ hoistClosureAllocs ifun env closureRet funs expr@(CallExpr tf _ _ _) =
             in case Map.lookup ivar closureRet of
                 Just _ ->
                     let (factoryArgs, applyArgs') = splitAt (length directPs) args'
-                    in if null ownExtraPs
+                    in  if null ownExtraPs
                         then -- no captures: first applyArg is plain C call, rest via ApplyClosure
                             let applied = case applyArgs' of
                                     [] -> rebuildCall tvar myVar factoryArgs
@@ -476,7 +463,7 @@ rewriteExpr ifun m _  _ (Var t i) =
             findParam [CParam ip tp] toFind
                 | ip == toFind = Just (CParam ip tp)
                 | otherwise = Nothing
-            findParam (p:rest) toFind = 
+            findParam (p:rest) toFind =
                 let param = findParam [p] toFind
                 in case param of
                     Nothing -> findParam rest toFind
@@ -507,31 +494,6 @@ rewriteStmt ifun env closureRet funs (UpdateVar t i x) =
         (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
     in foldr (Seq . unsafeCoerce) (UpdateVar t i x'') allocs
 rewriteStmt _ _ _ _ x = x
-
--- Extract the id of the inner function/closure that a DefFun body returns,
--- whether it came from a lambda (DefFun pattern) or an Apply (BindExpr pattern).
-getInnerFunId :: CStatement a -> Maybe Int
-getInnerFunId body =
-    case findReturn body of
-        Just (Var _ ret1) -> findDefFun ret1 body
-        _                 -> Nothing
-  where
-    findReturn :: CStatement a -> Maybe (CExpression a)
-    findReturn (Return x)           = Just x
-    findReturn (Seq _ y)            = findReturn y
-    findReturn (BindExpr _ _ _ y)   = findReturn y
-    findReturn _                    = Nothing
-
-    findDefFun :: Int -> CStatement a -> Maybe Int
-    findDefFun i (Seq (DefFun _ ifun1 _ _) _) | ifun1 == i = Just ifun1
-    findDefFun i (Seq _ y)                                  = findDefFun i y
-    findDefFun i (BindExpr _ _ _ y)                         = findDefFun i y
-    findDefFun _ _                                          = Nothing
-
-outermostVar :: CExpression a -> Maybe Int
-outermostVar (CallExpr _ _ f _) = outermostVar f
-outermostVar (Var _ f) = Just f
-outermostVar _ = Nothing
 
 liftStmt :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CStatement a -> (LiftEnv, ClosureReturnEnv, FunTypes, Lifted a, CStatement a)
 liftStmt _ env closureRet funs (DefFun tret ifun params body) =
@@ -678,12 +640,49 @@ mergeLambdas _ stmt m = (stmt, m)
 
 -- SHOW
 
-showStructDefVars :: CParams -> String
-showStructDefVars [] = ""
-showStructDefVars (CParam ip tp : rest) =
-    "    " ++ printDecl ("v" ++ show ip) tp ++ ";\n"
-    ++ showStructDefVars rest
-showStructDefVars (_ : rest) = showStructDefVars rest
+-- convert haskell type to my CType
+fromTypeRep :: TypeRep -> CType
+fromTypeRep p =
+    let args = typeRepArgs p
+        con = show (typeRepTyCon p)
+    in case (con, args) of
+        ("Int", []) -> CTInt
+        ("Bool", []) -> CTBool
+        ("()", []) -> CTVoid
+        ("[]", [_]) -> CTNode
+        ("(,)", [_,_]) -> CTPair
+        ("->", [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
+        _  -> CTVoidPtr
+
+-- print type for var decl, give string "v" + id
+printDecl :: String -> CType -> String
+printDecl name CTInt = "int " ++ name
+printDecl name CTBool = "bool " ++ name
+printDecl name CTVoid = "void* " ++ name
+printDecl name CTNode = "Node* " ++ name
+printDecl name CTPair = "Pair* " ++ name
+printDecl name CTClosure = "Closure* " ++ name
+printDecl name CTVoidPtr = "void* " ++ name
+printDecl name (CTPtr t) = printDecl ("*" ++ name) t
+printDecl name (CTFun a b) = printFunPtr name a b
+
+-- print type for function pointers, need to have recursive ()* with args
+printFunPtr :: String -> CType -> CType -> String
+printFunPtr name arg ret =
+    case ret of
+        CTFun a2 b2 -> printFunPtr ("(*" ++ name ++ ")(" ++ printType arg ++ ")") a2 b2
+        _ -> printType ret ++ " (*" ++ name ++ ")(" ++ printType arg ++ ")"
+
+printType :: CType -> String
+printType CTInt = "int"
+printType CTBool = "bool"
+printType CTVoid = "void"
+printType CTNode = "Node*"
+printType CTPair = "Pair*"
+printType CTClosure = "Closure*"
+printType CTVoidPtr = "void*"
+printType (CTPtr t) = printType t ++ "*"
+printType (CTFun a b) = printType b ++ " (*)(" ++ printType a ++ ")"
 
 showCParams :: CParams -> String
 showCParams params =
@@ -695,11 +694,6 @@ showCParams params =
     showParam _ (CParamEnv i) = "void* env" ++ show i
     showParam True (CParam i _) = "void* v" ++ show i ++ "_raw" -- closure function, use void*
     showParam False (CParam i t) = printDecl ("v" ++ show i) t  -- plain function, keep type
-
-showCCast :: CType -> String -> String
-showCCast CTInt  e = "(int)(intptr_t)" ++ e
-showCCast CTBool e = "(bool)(intptr_t)" ++ e
-showCCast t      e = "(" ++ printType t ++ ")" ++ e
 
 showProxFunc :: String -> CParams -> CType -> String
 showProxFunc name params (CTFun arg ret) =
@@ -757,7 +751,10 @@ showCExpression (ConsList _ x l) m = "cons(" ++ showCExpression x m ++ ", " ++ s
 showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
 showCExpression (Ternary _ cond thn els) m = "((" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ "))"
 showCExpression (GetEnvField _ structId fieldId) _ = "((Env_v" ++ show structId ++ "*)env" ++ show structId ++ ")->v" ++ show fieldId
-showCExpression (CastExpr t x) m = showCCast t (showCExpression x m)
+showCExpression (CastExpr t x) m = case t of
+    CTInt -> "(int)(intptr_t)" ++ showCExpression x m
+    CTBool -> "(bool)(intptr_t)" ++ showCExpression x m
+    _ -> "(" ++ printType t ++ ")" ++ showCExpression x m
 showCExpression (ApplyClosure targ f arg) m =
     let (func, args) = collectArgsApply (ApplyClosure targ f arg)
         varId = case func of
@@ -766,17 +763,15 @@ showCExpression (ApplyClosure targ f arg) m =
             _ -> -1
     in  if varId > 0 then
             case Map.lookup varId m of
-            Just n ->
-                let (merged, rest) = splitAt n args
-                    applyCall expr argList =
-                        let clos = "((Closure*)" ++ expr ++ ")"
-                            allArgs = intercalate ", " ((clos ++ "->env") :  map (`showCArg` m) argList)
-                        in  "((Closure*)" ++ expr ++ ")->fn" ++ "(" ++ allArgs ++ ")"
-                    baseCall = applyCall (showCExpression func m) merged
-                in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
-            Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
+                Just n ->
+                    let (merged, rest) = splitAt n args
+                        applyCall expr argList =
+                            let allArgs = intercalate ", " (("((Closure*)" ++ expr ++ ")->env") :  map (`showCArg` m) argList)
+                            in  "((Closure*)" ++ expr ++ ")->fn" ++ "(" ++ allArgs ++ ")"
+                        baseCall = applyCall (showCExpression func m) merged
+                    in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
+                Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
         else "apply((Closure*)" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
-
 -- merges together nested calls if I merged together the params earlier
 showCExpression (CallExpr tf tx f arg) m =
     let (func, args) = collectArgs (CallExpr tf tx f arg)
@@ -835,7 +830,7 @@ showCStmt indent m _ _ (DefVar ct i x) =
 showCStmt indent m _ _ (Return x) =  "\n" ++ indentStr indent ++ "return " ++ showCExpression x m ++ ";"
 showCStmt indent _ _ _ (DefClosureStruct ifun p) =
     "\n" ++ indentStr indent ++ "typedef struct {\n"
-    ++ showStructDefVars p
+    ++ concatMap (\case CParam ip tp -> "    " ++ printDecl ("v" ++ show ip) tp ++ ";\n"; _ -> "") p
     ++ "} Env_v" ++ show ifun ++ ";\n"
 showCStmt indent _ _ _ (AllocClosure funId) =
     "\n" ++ indentStr indent ++ "Closure* c" ++ show funId ++ " = malloc(sizeof(Closure));"
@@ -949,39 +944,12 @@ getStrFunTypes (_ : rest) m = getStrFunTypes rest m
 
 
 {-
-gcc ./outputs/fibCall_output.c -o ./outputs/fibCall_output
-./outputs/fibCall_output
-
-gcc ./outputs/gcdLangCall_output.c -o ./outputs/gcdLangCall_output
-./outputs/gcdLangCall_output
-
-gcc ./outputs/sumListCall_output.c -o ./outputs/sumListCall_output
-./outputs/sumListCall_output
-
-gcc ./outputs/lenListCall_output.c -o ./outputs/lenListCall_output
-./outputs/lenListCall_output
-
-gcc ./outputs/mapListCall_output.c -o ./outputs/mapListCall_output
-./outputs/mapListCall_output
-
 gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 ./outputs/mergeSortCall_output
-
-gcc ./outputs/mergeSortCall.c -o ./outputs/mergeSortCall_output
-
-fibCall
-gcdLangCall
-sumListCall
-lenListCall
-mapListCall
-mergeSortCall
 -}
 
-main :: IO ()
-main = do
-    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
-    let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
-    let (progName, progCode) = progsList !! 1
+run :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
+run progName progCode canMerge = do
     -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
     -- let progPath = "mergedLams/" ++ progName
     let libName = "\n#include \"listLib.c\"\n"
@@ -996,14 +964,13 @@ main = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 clBase
 
-    putStrLn "\n--- Merging Lambdas ---"
-    let (merged, mergedMap) = mergeLambdas c c Map.empty
-    putStrLn $ showCStmt 0 mergedMap Map.empty Map.empty merged
-    let (cbody', closureEnv, liftenv, _, defs) = lambdaLift merged
-
-    -- let (cbody', closureEnv, liftenv, _, defs) = lambdaLift c
+    let ((cbody', closureEnv, liftenv, _, defs), mergedMap) = 
+            if canMerge then
+                let (merged, mergedLams) = mergeLambdas c c Map.empty
+                in (lambdaLift merged, mergedLams)
+            else (lambdaLift c, Map.empty)
+    
     let cbody = addBoxing cbody'
-
     let strFunTypes = getStrFunTypes defs Map.empty
 
     putStrLn "\n--- Printing C ---"
@@ -1017,10 +984,6 @@ main = do
     let (funPart, mainBody) = splitTopLevel cbody
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
-
-    -- let funImpl = showCStmt 0 Map.empty closureEnv strFunTypes funPart
-    -- let mainBodyImpl = showCStmt 1 Map.empty closureEnv strFunTypes mainBodyWithoutRet
-    -- let retImpl = showCExpression retExpr Map.empty
 
     let retImpl = showCExpression retExpr mergedMap
     let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
@@ -1044,3 +1007,11 @@ main = do
     hPutStrLn handle content
     hClose handle
     putStrLn $ "Successfully wrote to " ++ fileName
+
+main :: IO ()
+main = do
+    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
+    let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
+
+    mapM_ (\(name, prog) -> run name prog True) progsInt
+    mapM_ (\(name, prog) -> run name prog True) progsList

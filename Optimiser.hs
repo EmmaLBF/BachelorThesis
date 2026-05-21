@@ -316,14 +316,6 @@ removeDeadFuns _ d x = (x, d)
 --     }
 -- }
 
-findReturn :: CStatement a -> Maybe (CExpression a)
-findReturn (Return x) = Just x
-findReturn (BindExpr _ _ _ y) = findReturn y
-findReturn (Seq _ y) = findReturn y
-findReturn (If _ x _) = findReturn x
-findReturn (While _ x) = findReturn x
-findReturn _ = Nothing
-
 isTailRecursive :: Int -> CStatement a -> Bool
 isTailRecursive ifun body =
     trace ("RETURN " ++ show ifun ++ " ||| " ++ case findReturn body of
@@ -426,9 +418,10 @@ hello = do
     print mergedMap
 
     putStrLn "\n--- Lifting Lambdas ---"
-    let (cbody, closureEnv, liftenv, _, defs) = lambdaLift merged
-    putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody
+    let (cbody0, closureEnv, liftenv, _, defs) = lambdaLift merged
+    putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody0
     let strFunTypes = getStrFunTypes defs Map.empty
+    let cbody = addBoxing cbody0 -- boxing values
 
     putStrLn "\n--- Removing Closure Allocs ---"
     let (cbody', removedClosures) = removeClosureAllocs cbody
