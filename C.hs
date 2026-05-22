@@ -950,10 +950,12 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 
 run :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
 run progName progCode canMerge = do
-    -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    -- let progPath = "mergedLams/" ++ progName
-    let libName = "\n#include \"listLib.c\"\n"
-    let progPath = progName
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progPath = 
+            if canMerge then "mergedLams/" ++ progName
+            else "baselines/" ++ progName
+    -- let libName = "\n#include \"listLib.c\"\n"
+    -- let progPath = progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
@@ -1013,5 +1015,6 @@ main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
 
-    mapM_ (\(name, prog) -> run name prog True) progsInt
-    mapM_ (\(name, prog) -> run name prog True) progsList
+    let canMerge = True
+    mapM_ (\(name, prog) -> run name prog canMerge) progsInt
+    mapM_ (\(name, prog) -> run name prog canMerge) progsList

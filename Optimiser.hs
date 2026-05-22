@@ -9,12 +9,60 @@ import qualified CLang as CL
 
 import Debug.Trace
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Control.Monad.State
 import Data.Typeable
 import System.IO
 import Unsafe.Coerce (unsafeCoerce)
 
--- remove boxing when not necessary
+stripBox :: CExpression a -> CExpression a
+stripBox (Box _ x) = unsafeCoerce x
+stripBox x         = x
+
+-- ESCAPE ANALYSIS
+
+data EscapeResult = EscapeResult
+    { escapedVars :: Set.Set Int   -- var ids that flow into heap
+    , escapedEnvs :: Set.Set Int   -- env ids that outlive the frame
+    } deriving (Show)
+
+mergeEscape :: EscapeResult -> EscapeResult -> EscapeResult
+mergeEscape a b = EscapeResult
+    (Set.union (escapedVars a) (escapedVars b))
+    (Set.union (escapedEnvs a) (escapedEnvs b))
+
+-- (vars, envs)
+getReturnVars :: CExpression a -> EscapeResult -> EscapeResult
+getReturnVars (Var _ i) r = r { escapedVars = Set.insert i (escapedVars r) }
+getReturnVars (Val (EnvV i)) r = r { escapedEnvs = Set.insert i (escapedEnvs r) }
+getReturnVars (Not x) m = getReturnVars x m
+getReturnVars (Fst _ x) m = getReturnVars x m
+getReturnVars (Snd _ x) m = getReturnVars x m
+getReturnVars (IsEmpty x) m = getReturnVars x m
+getReturnVars (HeadList x) m = getReturnVars x m
+getReturnVars (TailList x) m = getReturnVars x m
+getReturnVars (CastExpr _ x) m = getReturnVars x m
+getReturnVars (Box _ x) m = getReturnVars x m
+getReturnVars (Unbox _ x) m = getReturnVars x m
+getReturnVars (Ternary _ _ t e) m = mergeEscape (getReturnVars t m) (getReturnVars e m)
+getReturnVars (ConsList _ x y) m = mergeEscape (getReturnVars x m) (getReturnVars y m)
+getReturnVars (Prod _ _ x y) m = mergeEscape (getReturnVars x m) (getReturnVars y m)
+getReturnVars (LIntOp _ x y) m = mergeEscape (getReturnVars x m) (getReturnVars y m)
+getReturnVars (LCmpOp _ x y) m = mergeEscape (getReturnVars x m) (getReturnVars y m)
+getReturnVars (CallExpr _ _ f x) m = mergeEscape (getReturnVars f m) (getReturnVars x m)
+getReturnVars (ApplyClosure _ f x) m = mergeEscape (getReturnVars f m) (getReturnVars x m)
+getReturnVars _ m = m
+
+escapeAnalysis :: CStatement a -> EscapeResult -> EscapeResult
+escapeAnalysis (DefFun _ _ _ body) r = escapeAnalysis body r
+escapeAnalysis (Seq x y) r = escapeAnalysis y (escapeAnalysis x r)
+escapeAnalysis (Return x) r = getReturnVars x r
+escapeAnalysis (BindExpr _ _ _ y) r = escapeAnalysis y r  -- x doesn't escape by being bound
+escapeAnalysis (If _ t e) r = mergeEscape (escapeAnalysis t r) (escapeAnalysis e r)
+escapeAnalysis (While _ x) r = escapeAnalysis x r
+escapeAnalysis _ r = r
+-- escapeAnalysis _ = error "not valid"
+
 
 
 -- REMOVE CLOSURE ALLOCS
@@ -36,7 +84,35 @@ countClosureUsesExpr i expr@CallExpr{} =
     in funcCount + argsCount
 countClosureUsesExpr i (Ternary _ c t e) = countClosureUsesExpr i c + countClosureUsesExpr i t + countClosureUsesExpr i e
 countClosureUsesExpr i (CastExpr _ f) = countClosureUsesExpr i f
+countClosureUsesExpr i (Box _ f) = countClosureUsesExpr i f
+countClosureUsesExpr i (Unbox _ f) = countClosureUsesExpr i f
 countClosureUsesExpr _ _ = 0
+
+-- closure id, 
+rewriteApply :: Int -> Int -> CExpression a -> CExpression a
+rewriteApply i parentId (ApplyClosure targ f arg) =
+    case f of
+        Val (ClosureV i') | i == i' -> 
+            -- trace ("single arg case " ++ showCExpression f Map.empty) $
+            CallExpr CTVoidPtr targ (CallExpr CTVoidPtr CTVoidPtr (Var CTVoidPtr i) (Val (EnvV parentId))) (stripBox arg)
+        _ -> 
+            -- trace ("multi arg case " ++ showCExpression f Map.empty) $
+            case rewriteApply i parentId f of
+                expr@(CallExpr tf _ _ _) -> CallExpr tf targ (unsafeCoerce expr) arg
+                f' -> ApplyClosure targ f' arg
+rewriteApply _ _ x = x
+
+-- i is the id of the closureAlloc were getting rid of
+    -- if we find the application of that closure we need to rewrite it to a callexpr
+rewriteClosureUseExpr :: Int -> Int -> CExpression b -> CExpression b
+rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) = rewriteApply i parentId (ApplyClosure targ f arg)
+rewriteClosureUseExpr i parentId (Ternary tp c t e) =
+    Ternary tp (rewriteClosureUseExpr i parentId c) (rewriteClosureUseExpr i parentId t) (rewriteClosureUseExpr i parentId e)
+rewriteClosureUseExpr i parentId (CallExpr tf tx f x) = CallExpr tf tx (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (CastExpr t x) = CastExpr t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Box t x) = Box t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Unbox t x) = Unbox t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr _ _ x = x
 
 -- rewrite the single use of closure i to a direct call using envVar
 rewriteClosureUse :: Int -> Int -> CStatement b -> CStatement b
@@ -48,32 +124,6 @@ rewriteClosureUse i parentId (BindExpr t x j y) = BindExpr t (rewriteClosureUseE
 rewriteClosureUse i parentId (If c t e) = If (rewriteClosureUseExpr i parentId c) (rewriteClosureUse i parentId t) (rewriteClosureUse i parentId e)
 rewriteClosureUse i parentId (While c x) = While (rewriteClosureUseExpr i parentId c) (rewriteClosureUse i parentId x)
 rewriteClosureUse _ _ x = x
-
--- closure id, 
-rewriteApply :: Int -> Int -> CExpression a -> CExpression a
-rewriteApply i parentId (ApplyClosure targ f arg) =
-    case f of
-        Val (ClosureV i') | i == i' -> CallExpr CTVoidPtr targ (Var CTVoidPtr i) (Val (EnvV parentId))
-        _ -> case rewriteApply i parentId f of
-                expr@(CallExpr tf _ _ _) -> CallExpr tf targ (unsafeCoerce expr) arg
-                f' -> ApplyClosure targ f' arg
--- rewriteApply i parentId (ApplyClosure targ f arg) =
---     case rewriteApply i parentId f of
---         expr@((CallExpr tf _ _ _ )) -> CallExpr tf targ (unsafeCoerce expr) arg
---         f' -> ApplyClosure targ f' arg
--- rewriteApply i parentId (Val (ClosureV i'))
---     | i == i' = CallExpr (Var CTVoidPtr i) (Val (EnvV parentId))
-rewriteApply _ _ x = x
-
--- i is the id of the closureAlloc were getting rid of
-    -- if we find the application of that closure we need to rewrite it to a callexpr
-rewriteClosureUseExpr :: Int -> Int -> CExpression b -> CExpression b
-rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) = rewriteApply i parentId (ApplyClosure targ f arg)
-rewriteClosureUseExpr i parentId (Ternary tp c t e) =
-    Ternary tp (rewriteClosureUseExpr i parentId c) (rewriteClosureUseExpr i parentId t) (rewriteClosureUseExpr i parentId e)
-rewriteClosureUseExpr i parentId (CallExpr tf tx f x) = CallExpr tf tx (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId x)
-rewriteClosureUseExpr i parentId (CastExpr t x) = CastExpr t (rewriteClosureUseExpr i parentId x)
-rewriteClosureUseExpr _ _ x = x
 
 -- top level pass, if we alloc a closure that is only ever used once afterward we can get rid of it
 removeClosureAllocs :: CStatement a -> (CStatement a, [Int])
@@ -119,7 +169,16 @@ removeClosureAllocs (BindExpr t x i y) =
 removeClosureAllocs x = (x, [])
 
 
+
+
+
 -- ****** INLINE FUNCTIONS
+
+
+
+
+-- INLINING
+
 countFunctionCallsExpr :: CExpression a -> Map.Map Int Int -> Map.Map Int Int
 countFunctionCallsExpr (CallExpr tf tx f x) m =
     let (func, args) = collectArgs (CallExpr tf tx f x)
@@ -141,6 +200,8 @@ countFunctionCallsExpr (IndexList x y) m = Map.unionWith (+) (countFunctionCalls
 countFunctionCallsExpr (ConsList _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (ApplyClosure _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (CastExpr _ y) m = countFunctionCallsExpr y m
+countFunctionCallsExpr (Box _ y) m = countFunctionCallsExpr y m
+countFunctionCallsExpr (Unbox _ y) m = countFunctionCallsExpr y m
 countFunctionCallsExpr _ m = m
 
 countFunctionCalls :: CStatement a -> Map.Map Int Int -> Map.Map Int Int
@@ -201,9 +262,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
                 let (pt, t') = goExpr t
                     (pe, e') = goExpr e
                     (pc, c') = goExpr c
-                in Seq pc $ If c'
-                    (Seq pt (Return t'))
-                    (Seq pe (Return e'))
+                in Seq pc $ If c' (Seq pt (Return t')) (Seq pe (Return e'))
             _ ->
                 let (pre, x') = goExpr x
                 in Seq pre (Return x')
@@ -268,6 +327,9 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
         let (pf, f') = goExpr f
             (px, x') = goExpr x
         in (Seq pf px, ApplyClosure tx f' x')
+    goExpr (Box t x) = let (p, x') = goExpr x 
+                        in (p, Box t x')
+    goExpr (Unbox t x) = let (p, x') = goExpr x in (p, Unbox t x')
     goExpr x = (Skip, x)
 
 -- Keep inlining until nothing changes
@@ -284,6 +346,7 @@ inlineUntilFixed defs body =
 
 
 -- ****** Dead Code Elimination
+
 removeDefFromList :: Int -> [CStatement a] -> [CStatement a]
 removeDefFromList _ [] = []
 removeDefFromList i (def@(DefFun _ ifun _ _) : rest)
@@ -392,17 +455,53 @@ replaceVarBindingStmt (DefVar t i x) m = DefVar t i (replaceVarBinding x m)
 replaceVarBindingStmt (UpdateVar tx i x) m = UpdateVar tx i (replaceVarBinding x m)
 replaceVarBindingStmt x _ = x
 
+-- Not used
+collapseBoxExpr :: CExpression a -> CExpression a
+collapseBoxExpr (Box t (Box _ x))     = Box t (collapseBoxExpr x)
+collapseBoxExpr (Unbox t (Unbox _ x)) = Unbox t (collapseBoxExpr x)
+collapseBoxExpr (Unbox _ (Box _ x))   = unsafeCoerce collapseBoxExpr x
+collapseBoxExpr (Box t x)             = Box t (collapseBoxExpr x)
+collapseBoxExpr (Unbox t x)           = Unbox t (collapseBoxExpr x)
+collapseBoxExpr (CallExpr tf tx f x) = CallExpr tf tx (collapseBoxExpr f) (collapseBoxExpr x)
+collapseBoxExpr (ApplyClosure t f x)  = ApplyClosure t (collapseBoxExpr f) (collapseBoxExpr x)
+collapseBoxExpr (Ternary t c x y)     = Ternary t (collapseBoxExpr c) (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (LIntOp op x y)       = LIntOp op (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (LCmpOp op x y)       = LCmpOp op (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (Not x)               = Not (collapseBoxExpr x)
+collapseBoxExpr (ConsList t x y)      = ConsList t (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (Prod tx ty x y)      = Prod tx ty (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (Fst t x)             = Fst t (collapseBoxExpr x)
+collapseBoxExpr (Snd t x)             = Snd t (collapseBoxExpr x)
+collapseBoxExpr (IsEmpty x)           = IsEmpty (collapseBoxExpr x)
+collapseBoxExpr (HeadList x)          = HeadList (collapseBoxExpr x)
+collapseBoxExpr (TailList x)          = TailList (collapseBoxExpr x)
+collapseBoxExpr (CastExpr t x)        = CastExpr t (collapseBoxExpr x)
+collapseBoxExpr (IndexList x y)       = IndexList (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr x                     = x
+
+-- Not used
+collapseBox :: CStatement a -> CStatement a
+collapseBox (Return x) = Return (collapseBoxExpr x)
+collapseBox (Seq x y) = Seq (collapseBox x) (collapseBox y)
+collapseBox (BindExpr t x i y) = BindExpr t (collapseBoxExpr x) i (collapseBox y)
+collapseBox (If c x y) = If (collapseBoxExpr c) (collapseBox x) (collapseBox y)
+collapseBox (While c x) = While (collapseBoxExpr c) (collapseBox x)
+collapseBox (DefFun t i ps x) = DefFun t i ps (collapseBox x)
+collapseBox (DefVar t i x) = DefVar t i (collapseBoxExpr x)
+collapseBox (UpdateVar t i x) = UpdateVar t i (collapseBoxExpr x)
+collapseBox x = x
 
 
+-- MAIN
 
-
-hello :: IO ()
-hello = do
-    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
-    let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
-    let (progName, progCode) = progsList !! 1
-    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    let progPath = "inlined/" ++ progName
+helloRun :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
+helloRun progName progCode canInline = do
+    -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    -- let progPath = 
+    --         if canInline then "inlined/" ++ progName
+    --         else "removedClosureAllocs/" ++ progName
+    let libName = "\n#include \"listLib.c\"\n"
+    let progPath = progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
@@ -418,10 +517,11 @@ hello = do
     print mergedMap
 
     putStrLn "\n--- Lifting Lambdas ---"
-    let (cbody0, closureEnv, liftenv, _, defs) = lambdaLift merged
+    let (cbody0, closureEnv, liftenv, _, defs0) = lambdaLift merged
     putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody0
-    let strFunTypes = getStrFunTypes defs Map.empty
     let cbody = addBoxing cbody0 -- boxing values
+    let defs = map addBoxing defs0
+    let strFunTypes = getStrFunTypes defs Map.empty
 
     putStrLn "\n--- Removing Closure Allocs ---"
     let (cbody', removedClosures) = removeClosureAllocs cbody
@@ -432,19 +532,17 @@ hello = do
                     ) mergedMap removedClosures
     let defs' = map (fst . removeClosureAllocs) defs
 
-    putStrLn "\n--- Inlining funs ---"
-    let callMap = countFunctionCalls cbody' Map.empty
-    let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
-    let callMap' = countFunctionCalls cbody'' Map.empty
-    let (cbody''', defs'') = removeDeadFuns removedFuns defs' cbody''
-    -- let removed = Map.keys $ Map.filter (== 0) $ Map.intersectionWith (\old new -> new) callMap callMap'
-    print callMap
-    print callMap'
-    print removedFuns
+    let (finalBody, finalDefs) = 
+            if canInline then
+                let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
+                    (cbody''', defs'') = removeDeadFuns removedFuns defs' cbody''
+                in (cbody''', defs'')
+            else (cbody', defs')
 
-    let finalDefs = defs'' -- defs'
-    let finalBody = cbody''' -- cbody
     let finalMergeMap = mergedMap'
+
+    putStrLn "\n--- Escape Analysis ---"
+    print (map (\d -> escapeAnalysis d (EscapeResult Set.empty Set.empty)) defs')
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -480,3 +578,12 @@ hello = do
     hPutStrLn handle content
     hClose handle
     putStrLn $ "Successfully wrote to " ++ fileName
+
+hello :: IO ()
+hello = do
+    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
+    let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
+
+    let canInline = True
+    mapM_ (\(name, prog) -> helloRun name prog canInline) progsInt
+    mapM_ (\(name, prog) -> helloRun name prog canInline) progsList

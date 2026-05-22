@@ -26,7 +26,7 @@ Node* v7(void* env7, void* v3_raw, void* v4_raw) {
 Node* v0(int (*v1)(int), Node* v2) {
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v1 = v1;
-  return ((isEmpty(v2)) ? (NULL) : ((Node*)v7(env7, box_int(*(int*)(head(v2))), (void*)(tail(v2)))));
+  return ((isEmpty(v2)) ? (NULL) : ((Node*)v7(env7, box_int(*(int*)((head(v2)))), (void*)(tail(v2)))));
 }
 
 int v11(int v5) {

@@ -15,7 +15,7 @@ int v0(Node* v1) {
   if (isEmpty(v1)) {
     return 0;
   } else {
-    int v2 = *(int*)(head(v1));
+    int v2 = *(int*)((head(v1)));
     Node* v3 = tail(v1);
     return (1 + v0(v3));
   }

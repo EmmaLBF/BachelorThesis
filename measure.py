@@ -169,15 +169,15 @@ def runTrials(path_half):
 # print("Basic MERGESORT ******")
 # runTrials("inlined/mergeSortCall")
 
-print("Testing ******")
-print("\n" + ("-" * 30))
-for prog in progs:
-    only_run(prog)
+# print("Testing ******")
+# print("\n" + ("-" * 30))
+# for prog in progs:
+#     only_run(prog)
 
 
-# print("Test All Basic ******")
-# for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
-#     print("\n" + ("-" * 30))
-#     print("\n" + folder)
-#     for prog in progs:
-#         only_run(folder + "/" + prog)
+print("Test All Basic ******")
+for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
+    print("\n" + ("-" * 30))
+    print("\n" + folder)
+    for prog in progs:
+        only_run(folder + "/" + prog)

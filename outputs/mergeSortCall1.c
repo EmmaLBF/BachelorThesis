@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "listLib.c"
 
 // function defitions
 Node* v29(void* env29, void* v12_raw, void* v13_raw);

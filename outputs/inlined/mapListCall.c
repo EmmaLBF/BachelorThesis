@@ -22,7 +22,7 @@ Node* v0(int (*v1)(int), Node* v2) {
   if (isEmpty(v2)) {
     return NULL;
   } else {
-    int v3 = *(int*)(head(v2));
+    int v3 = *(int*)((head(v2)));
     Node* v4 = tail(v2);
     return (Node*)cons(box_int(((Env_v7*)env7)->v1(v3)), v0(((Env_v7*)env7)->v1, v4));
   }
