@@ -40,6 +40,8 @@ data CType
     | CTBool
     | CTVoid
     | CTNode
+    | CTNodeInt
+    | CTNodeBool
     | CTPair
     | CTClosure
     | CTPtr CType
@@ -69,15 +71,15 @@ data CExpression a where
     Ternary :: CType -> CExpression Bool -> CExpression a -> CExpression a -> CExpression a
     -- Tuples
     Prod :: CType -> CType -> CExpression a -> CExpression b -> CExpression (a, b)
-    Fst  :: CType -> CExpression (a, b) -> CExpression a
-    Snd  :: CType -> CExpression (a, b) -> CExpression b
+    Fst :: CType -> CExpression (a, b) -> CExpression a
+    Snd :: CType -> CExpression (a, b) -> CExpression b
     -- Lists
-    EmptyList    :: Typeable a => CExpression [a]
-    ConsList   :: CType -> CExpression a -> CExpression [a] -> CExpression [a]
-    HeadList   :: Typeable a => CExpression [a] -> CExpression a
-    TailList   :: Typeable a => CExpression [a] -> CExpression [a]
-    IsEmpty  :: Typeable a => CExpression [a] -> CExpression Bool
-    IndexList  :: Typeable a => CExpression [a] -> CExpression Int -> CExpression a
+    EmptyList :: CType -> CExpression [a]
+    ConsList :: CType -> CExpression a -> CExpression [a] -> CExpression [a]
+    HeadList :: CType -> CExpression [a] -> CExpression a
+    TailList :: CType -> CExpression [a] -> CExpression [a]
+    IsEmpty :: CType -> CExpression [a] -> CExpression Bool
+    IndexList :: CType -> CExpression [a] -> CExpression Int -> CExpression a
     -- Lambda
     ApplyClosure :: CType -> CExpression a -> CExpression b -> CExpression c  -- apply(f, arg), type of arg passed
     GetEnvField :: CType -> Int -> Int -> CExpression a  -- ((Env_vN*)env)->vM, with type for cast
@@ -127,20 +129,20 @@ translateValueBack (FunV f) = CL.FunV (translateValueBack . f . translateValue)
 translateValueBack _ = error "Cannot translate back"
 
 translateExpr :: forall a. CL.CExpression a -> CExpression a
-translateExpr CL.EmptyList = EmptyList
+translateExpr CL.EmptyList = EmptyList (fromTypeRep (typeRep (Proxy :: Proxy a)))
 translateExpr (CL.Not e) = Not (translateExpr e)
 translateExpr (CL.Fst (p :: CL.CExpression (b, c))) = Fst (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr p)
 translateExpr (CL.Snd (p :: CL.CExpression (b, c))) = Snd (fromTypeRep (typeRep (Proxy :: Proxy c))) (translateExpr p)
 translateExpr (CL.Val v) = Val (translateValue v)
-translateExpr (CL.IsEmpty l) = IsEmpty (translateExpr l)
-translateExpr (CL.HeadList l) = HeadList (translateExpr l)
-translateExpr (CL.TailList l) = TailList (translateExpr l)
+translateExpr (CL.IsEmpty (l :: CL.CExpression [b])) = IsEmpty (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l)
+translateExpr (CL.HeadList (l :: CL.CExpression [b])) = HeadList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l)
+translateExpr (CL.TailList (l :: CL.CExpression [b])) = TailList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l)
 translateExpr (CL.Prod (f :: CL.CExpression b) ((g :: CL.CExpression c))) = Prod (fromTypeRep (typeRep (Proxy :: Proxy b))) (fromTypeRep (typeRep (Proxy :: Proxy c))) (translateExpr f) (translateExpr g)
 translateExpr (CL.Var i) = Var (fromTypeRep (typeRep (Proxy :: Proxy a))) i
 translateExpr (CL.ConsList (h :: CL.CExpression b) t) = ConsList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr h) (translateExpr t)
 translateExpr (CL.CallExpr (f :: CL.CExpression func) (x :: CL.CExpression arg)) = CallExpr (fromTypeRep (typeRep (Proxy :: Proxy func)))
     (fromTypeRep (typeRep (Proxy :: Proxy arg))) (translateExpr f) (translateExpr x)
-translateExpr (CL.IndexList l i) = IndexList (translateExpr l) (translateExpr i)
+translateExpr (CL.IndexList (l :: CL.CExpression [b]) i) = IndexList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l) (translateExpr i)
 translateExpr (CL.LIntOp op e1 e2) = LIntOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.LCmpOp op e1 e2) = LCmpOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.Ternary c t f) = Ternary (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr c) (translateExpr t) (translateExpr f)
@@ -174,20 +176,20 @@ addBoxing (UpdateVar t i x) = UpdateVar t i (addBoxingExpr x)
 addBoxing x = x
 
 addBoxingExpr :: CExpression a -> CExpression a
-addBoxingExpr (HeadList x) = Unbox CTInt (HeadList (addBoxingExpr x))
+addBoxingExpr (HeadList t x) = (HeadList t (addBoxingExpr x))
 addBoxingExpr (Fst t x) = Unbox t (Fst t (addBoxingExpr x))
 addBoxingExpr (Snd t x) = Unbox t (Snd t (addBoxingExpr x))
-addBoxingExpr (ConsList t x y) = ConsList t (Box t (addBoxingExpr x)) (addBoxingExpr y)
+addBoxingExpr (ConsList t x y) = ConsList t (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (ApplyClosure tx f x) = ApplyClosure tx (addBoxingExpr f) (Box tx (addBoxingExpr x))
 addBoxingExpr (LIntOp op x y) = LIntOp op (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (LCmpOp op x y) = LCmpOp op (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (Ternary tp c t e) = Ternary tp (addBoxingExpr c) (addBoxingExpr t) (addBoxingExpr e)
 addBoxingExpr (Not x) = Not (addBoxingExpr x)
-addBoxingExpr (IsEmpty x) = IsEmpty (addBoxingExpr x)
+addBoxingExpr (IsEmpty t x) = IsEmpty t (addBoxingExpr x)
 addBoxingExpr (CastExpr t x) = CastExpr t (addBoxingExpr x)
 addBoxingExpr (CallExpr tf tx f x) = CallExpr tf tx (addBoxingExpr f) (addBoxingExpr x)
-addBoxingExpr (TailList x) = TailList (addBoxingExpr x)
-addBoxingExpr (IndexList i x) = IndexList i (addBoxingExpr x)
+addBoxingExpr (TailList t x) = TailList t (addBoxingExpr x)
+addBoxingExpr (IndexList t i x) = IndexList t i (addBoxingExpr x)
 addBoxingExpr (Prod tx ty x y) = Prod tx ty (Box tx (addBoxingExpr x)) (Box ty (addBoxingExpr y))
 addBoxingExpr x = x
 
@@ -211,12 +213,12 @@ freeVarsExpr (Fst _ x) = freeVarsExpr x
 freeVarsExpr (Snd _ x) = freeVarsExpr x
 freeVarsExpr (Box _ x) = freeVarsExpr x
 freeVarsExpr (Unbox _ x) = freeVarsExpr x
-freeVarsExpr (IsEmpty l) = freeVarsExpr l
-freeVarsExpr (TailList l) = freeVarsExpr l
-freeVarsExpr (HeadList l) = freeVarsExpr l
-freeVarsExpr (IndexList l _) = freeVarsExpr l
+freeVarsExpr (IsEmpty _ l) = freeVarsExpr l
+freeVarsExpr (TailList _ l) = freeVarsExpr l
+freeVarsExpr (HeadList _ l) = freeVarsExpr l
+freeVarsExpr (IndexList _ l _) = freeVarsExpr l
 freeVarsExpr (Val _) = (Map.empty, Map.empty)
-freeVarsExpr EmptyList = (Map.empty, Map.empty)
+freeVarsExpr (EmptyList _) = (Map.empty, Map.empty)
 freeVarsExpr CastExpr {} =  (Map.empty, Map.empty)
 freeVarsExpr ApplyClosure {} =  (Map.empty, Map.empty)
 freeVarsExpr GetEnvField {} =  (Map.empty, Map.empty)
@@ -359,15 +361,15 @@ hoistClosureAllocs ifun env closureRet funs (Ternary tp c t e) =
 hoistClosureAllocs ifun env closureRet funs (Not x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
     in (a, Not x')
-hoistClosureAllocs ifun env closureRet funs (IsEmpty x) =
+hoistClosureAllocs ifun env closureRet funs (IsEmpty t x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, IsEmpty x')
-hoistClosureAllocs ifun env closureRet funs (HeadList x) =
+    in (a, IsEmpty t x')
+hoistClosureAllocs ifun env closureRet funs (HeadList t x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, HeadList x')
-hoistClosureAllocs ifun env closureRet funs (TailList x) =
+    in (a, HeadList t x')
+hoistClosureAllocs ifun env closureRet funs (TailList t x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, TailList x')
+    in (a, TailList t x')
 hoistClosureAllocs ifun env closureRet funs (Fst t x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
     in (a, Fst t x')
@@ -381,10 +383,10 @@ hoistClosureAllocs ifun env closureRet funs (Prod tf tg f g) =
 hoistClosureAllocs ifun env closureRet funs (CastExpr f g) =
     let (ga, g') = hoistClosureAllocs ifun env closureRet funs g
     in (ga, CastExpr f g')
-hoistClosureAllocs ifun env closureRet funs (IndexList f g) =
+hoistClosureAllocs ifun env closureRet funs (IndexList t f g) =
     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, IndexList f' g')
+    in (fa ++ ga, IndexList t f' g')
 hoistClosureAllocs ifun env closureRet funs (ConsList t f g) =
     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
@@ -442,10 +444,10 @@ rewriteExpr ifun env closureRet funs (CallExpr tf tx (f :: CExpression (arg -> a
 rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Fst t x) = Fst t (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Snd t x) = Snd t (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (IsEmpty x) = IsEmpty (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (HeadList x) = HeadList (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (TailList x) = TailList (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (IndexList l i) = IndexList (rewriteExpr ifun m closureRet funs l) i
+rewriteExpr ifun m closureRet funs  (IsEmpty t x) = IsEmpty t (rewriteExpr ifun m closureRet funs x)
+rewriteExpr ifun m closureRet funs  (HeadList t x) = HeadList t (rewriteExpr ifun m closureRet funs x)
+rewriteExpr ifun m closureRet funs  (TailList t x) = TailList t (rewriteExpr ifun m closureRet funs x)
+rewriteExpr ifun m closureRet funs  (IndexList t l i) = IndexList t (rewriteExpr ifun m closureRet funs l) i
 rewriteExpr ifun m closureRet funs  (Prod tx ty x y) = Prod tx ty (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
 rewriteExpr ifun m closureRet funs  (ConsList t l x) = ConsList t (rewriteExpr ifun m closureRet funs l) (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (LIntOp op x y) = LIntOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
@@ -649,6 +651,8 @@ fromTypeRep p =
         ("Int", []) -> CTInt
         ("Bool", []) -> CTBool
         ("()", []) -> CTVoid
+        ("[]", [a]) | show a == "Int" -> CTNodeInt
+                    | show a == "Bool" -> CTNodeBool
         ("[]", [_]) -> CTNode
         ("(,)", [_,_]) -> CTPair
         ("->", [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
@@ -660,6 +664,8 @@ printDecl name CTInt = "int " ++ name
 printDecl name CTBool = "bool " ++ name
 printDecl name CTVoid = "void* " ++ name
 printDecl name CTNode = "Node* " ++ name
+printDecl name CTNodeInt = "NodeInt* " ++ name
+printDecl name CTNodeBool = "NodeBool* " ++ name
 printDecl name CTPair = "Pair* " ++ name
 printDecl name CTClosure = "Closure* " ++ name
 printDecl name CTVoidPtr = "void* " ++ name
@@ -678,6 +684,8 @@ printType CTInt = "int"
 printType CTBool = "bool"
 printType CTVoid = "void"
 printType CTNode = "Node*"
+printType CTNodeInt = "NodeInt*"
+printType CTNodeBool = "NodeBool*"
 printType CTPair = "Pair*"
 printType CTClosure = "Closure*"
 printType CTVoidPtr = "void*"
@@ -732,8 +740,13 @@ showCValue (EnvV i) = "env" ++ show i
 showCArg :: CArg -> Map.Map Int Int -> String
 showCArg (CArg _ a) = showCExpression a
 
+showListLibFunType :: CType -> String
+showListLibFunType CTInt = "Int"
+showListLibFunType CTBool = "Bool"
+showListLibFunType _ = ""
+
 showCExpression :: CExpression a -> Map.Map Int Int -> String
-showCExpression EmptyList _ = "NULL"
+showCExpression (EmptyList _) _ = "NULL"
 showCExpression (Val v) _ = showCValue v
 showCExpression (Var _ i) _ = "v" ++ show i
 showCExpression (Not x) m = "!(" ++ showCExpression x m ++ ")"
@@ -744,11 +757,11 @@ showCExpression (Unbox t x) m = unbox t ("(" ++ showCExpression x m ++ ")")
 showCExpression (Prod _ _ l r) m = "mk_pair(" ++ showCExpression l m ++ ", " ++ showCExpression r m ++ ")"
 showCExpression (Fst _ p) m = "fst(" ++ showCExpression p m ++ ")"
 showCExpression (Snd _ p) m = "snd(" ++ showCExpression p m ++ ")"
-showCExpression (IsEmpty l) m = "isEmpty(" ++ showCExpression l m ++ ")"
-showCExpression (HeadList l) m = "(head(" ++ showCExpression l m ++ "))"
-showCExpression (TailList l) m = "tail(" ++ showCExpression l m ++ ")"
-showCExpression (ConsList _ x l) m = "cons(" ++ showCExpression x m ++ ", " ++ showCExpression l m ++ ")"
-showCExpression (IndexList l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
+showCExpression (IsEmpty t l) m = "isEmpty" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ ")"
+showCExpression (HeadList t l) m = "(head" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ "))"
+showCExpression (TailList t l) m = "tail" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ ")"
+showCExpression (ConsList t x l) m = "cons" ++ showListLibFunType t ++ "(" ++ showCExpression x m ++ ", " ++ showCExpression l m ++ ")"
+showCExpression (IndexList _ l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
 showCExpression (Ternary _ cond thn els) m = "((" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ "))"
 showCExpression (GetEnvField _ structId fieldId) _ = "((Env_v" ++ show structId ++ "*)env" ++ show structId ++ ")->v" ++ show fieldId
 showCExpression (CastExpr t x) m = case t of
@@ -999,7 +1012,7 @@ run progName progCode canMerge = do
             "\n// main\nint main(void) {" ++ mainBodyImpl ++
                     case show (typeRep mainBody) of
                         "Int" -> "\n  printInt("
-                        "[Int]" -> "\n  printList("
+                        "[Int]" -> "\n  printListInt("
                         _ -> error "cannot print"
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
 
@@ -1015,6 +1028,9 @@ main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
 
-    let canMerge = True
-    mapM_ (\(name, prog) -> run name prog canMerge) progsInt
-    mapM_ (\(name, prog) -> run name prog canMerge) progsList
+    -- let canMerge = True
+    mapM_ (\(name, prog) -> run name prog False) progsInt
+    mapM_ (\(name, prog) -> run name prog False) progsList
+
+    mapM_ (\(name, prog) -> run name prog True) progsInt
+    mapM_ (\(name, prog) -> run name prog True) progsList

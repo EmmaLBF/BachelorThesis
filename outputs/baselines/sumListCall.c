@@ -9,7 +9,7 @@
 // function defitions
 int v4(void* env4, void* v3_raw);
 Closure* v5(int v2);
-int v0(Node* v1);
+int v0(NodeInt* v1);
 
 // closure defitions
 typedef struct {
@@ -18,7 +18,7 @@ typedef struct {
 
 // function implementations
 int v4(void* env4, void* v3_raw) {
-  Node* v3 = (Node*)v3_raw;
+  NodeInt* v3 = (NodeInt*)v3_raw;
   return (((Env_v4*)env4)->v2 + v0(v3));
 }
 
@@ -31,13 +31,13 @@ Closure* v5(int v2) {
   return c4;
 }
 
-int v0(Node* v1) {
-  return ((isEmpty(v1)) ? (0) : ((int)(intptr_t)apply((Closure*)v5(*(int*)((head(v1)))), tail(v1))));
+int v0(NodeInt* v1) {
+  return ((isEmptyInt(v1)) ? (0) : ((int)(intptr_t)apply((Closure*)v5((headInt(v1))), tailInt(v1))));
 }
 
 // main
 int main(void) {
-  printInt(v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printInt(v0(consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

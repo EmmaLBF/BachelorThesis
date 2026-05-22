@@ -7,8 +7,8 @@
 #include "../listLib.c"
 
 // function defitions
-Node* v7(void* env7, void* v3_raw, void* v4_raw);
-Node* v0(int (*v1)(int), Node* v2);
+NodeInt* v7(void* env7, void* v3_raw, void* v4_raw);
+NodeInt* v0(int (*v1)(int), NodeInt* v2);
 int v11(int v5);
 
 // closure defitions
@@ -17,16 +17,16 @@ typedef struct {
 } Env_v7;
 
 // function implementations
-Node* v7(void* env7, void* v3_raw, void* v4_raw) {
+NodeInt* v7(void* env7, void* v3_raw, void* v4_raw) {
   int v3 = *(int*)v3_raw;
-  Node* v4 = (Node*)v4_raw;
-  return cons(box_int(((Env_v7*)env7)->v1(v3)), v0(((Env_v7*)env7)->v1, v4));
+  NodeInt* v4 = (NodeInt*)v4_raw;
+  return consInt(((Env_v7*)env7)->v1(v3), v0(((Env_v7*)env7)->v1, v4));
 }
 
-Node* v0(int (*v1)(int), Node* v2) {
+NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v1 = v1;
-  return ((isEmpty(v2)) ? (NULL) : ((Node*)v7(env7, box_int(*(int*)((head(v2)))), (void*)(tail(v2)))));
+  return ((isEmptyInt(v2)) ? (NULL) : ((NodeInt*)v7(env7, box_int((headInt(v2))), (void*)(tailInt(v2)))));
 }
 
 int v11(int v5) {
@@ -35,7 +35,7 @@ int v11(int v5) {
 
 // main
 int main(void) {
-  printList(v0(v11, cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printListInt(v0(v11, consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

@@ -7,7 +7,7 @@
 #include "listLib.c"
 
 // function defitions
-Node* v0(int (*v1)(int), Node* v2);
+NodeInt* v0(int (*v1)(int), NodeInt* v2);
 int v11(int v5);
 
 // closure defitions
@@ -16,13 +16,13 @@ typedef struct {
 } Env_v7;
 
 // function implementations
-Node* v0(int (*v1)(int), Node* v2) {
-  if (isEmpty(v2)) {
+NodeInt* v0(int (*v1)(int), NodeInt* v2) {
+  if (isEmptyInt(v2)) {
     return NULL;
   } else {
-    int v3 = *(int*)((head(v2)));
-    Node* v4 = tail(v2);
-    return (Node*)cons(box_int(v1(v3)), v0(v1, v4));
+    int v3 = (headInt(v2));
+    NodeInt* v4 = tailInt(v2);
+    return (NodeInt*)consInt(v1(v3), v0(v1, v4));
   }
 }
 
@@ -32,7 +32,7 @@ int v11(int v5) {
 
 // main
 int main(void) {
-  printList(v0(v11, cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printListInt(v0(v11, consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

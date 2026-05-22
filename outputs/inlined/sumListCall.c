@@ -7,23 +7,23 @@
 #include "../listLib.c"
 
 // function defitions
-int v0(Node* v1);
+int v0(NodeInt* v1);
 
 // closure defitions
 // function implementations
-int v0(Node* v1) {
-  if (isEmpty(v1)) {
+int v0(NodeInt* v1) {
+  if (isEmptyInt(v1)) {
     return 0;
   } else {
-    int v2 = *(int*)((head(v1)));
-    Node* v3 = tail(v1);
+    int v2 = (headInt(v1));
+    NodeInt* v3 = tailInt(v1);
     return (v2 + v0(v3));
   }
 }
 
 // main
 int main(void) {
-  printInt(v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printInt(v0(consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

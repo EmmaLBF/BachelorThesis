@@ -40,9 +40,9 @@ getReturnVars (Val (EnvV i)) r = r { escapedEnvs = Set.insert i (escapedEnvs r) 
 getReturnVars (Not x) m = getReturnVars x m
 getReturnVars (Fst _ x) m = getReturnVars x m
 getReturnVars (Snd _ x) m = getReturnVars x m
-getReturnVars (IsEmpty x) m = getReturnVars x m
-getReturnVars (HeadList x) m = getReturnVars x m
-getReturnVars (TailList x) m = getReturnVars x m
+getReturnVars (IsEmpty _ x) m = getReturnVars x m
+getReturnVars (HeadList _ x) m = getReturnVars x m
+getReturnVars (TailList _ x) m = getReturnVars x m
 getReturnVars (CastExpr _ x) m = getReturnVars x m
 getReturnVars (Box _ x) m = getReturnVars x m
 getReturnVars (Unbox _ x) m = getReturnVars x m
@@ -84,9 +84,9 @@ removeLocalEnvsExpr (GetEnvField t envId varId) r =
 removeLocalEnvsExpr (Not x) r = Not (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Fst t x) r = Fst t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Snd t x) r = Snd t (removeLocalEnvsExpr x r)
-removeLocalEnvsExpr (IsEmpty x) r = IsEmpty (removeLocalEnvsExpr x r)
-removeLocalEnvsExpr (HeadList x) r = HeadList (removeLocalEnvsExpr x r)
-removeLocalEnvsExpr (TailList x) r = TailList (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (IsEmpty t x) r = IsEmpty t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (HeadList t x) r = HeadList t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (TailList t x) r = TailList t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Box t x) r = Box t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Unbox t x) r = Unbox t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (CastExpr t x) r = CastExpr t (removeLocalEnvsExpr x r)
@@ -97,7 +97,7 @@ removeLocalEnvsExpr (CallExpr tf tx f x) r = CallExpr tf tx (removeLocalEnvsExpr
 removeLocalEnvsExpr (ApplyClosure t f x) r = ApplyClosure t (removeLocalEnvsExpr f r) (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (ConsList t x y) r = ConsList t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
 removeLocalEnvsExpr (Prod tx ty x y) r = Prod tx ty (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
-removeLocalEnvsExpr (IndexList x y) r = IndexList (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (IndexList t x y) r = IndexList t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
 removeLocalEnvsExpr x _ = x
 
 removeLocalEnvs :: CStatement a -> EscapeResult -> CStatement a
@@ -253,10 +253,10 @@ countFunctionCallsExpr (Ternary _ x y z) m = Map.unionWith (+) (Map.unionWith (+
 countFunctionCallsExpr (Prod _ _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (Fst _ x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (Snd _ x) m = countFunctionCallsExpr x m
-countFunctionCallsExpr (IsEmpty x) m = countFunctionCallsExpr x m
-countFunctionCallsExpr (HeadList x) m = countFunctionCallsExpr x m
-countFunctionCallsExpr (TailList x) m = countFunctionCallsExpr x m
-countFunctionCallsExpr (IndexList x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
+countFunctionCallsExpr (IsEmpty _ x) m = countFunctionCallsExpr x m
+countFunctionCallsExpr (HeadList _ x) m = countFunctionCallsExpr x m
+countFunctionCallsExpr (TailList _ x) m = countFunctionCallsExpr x m
+countFunctionCallsExpr (IndexList _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (ConsList _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (ApplyClosure _ x y) m = Map.unionWith (+) (countFunctionCallsExpr x m) (countFunctionCallsExpr y m)
 countFunctionCallsExpr (CastExpr _ y) m = countFunctionCallsExpr y m
@@ -367,9 +367,9 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
             (pe, e') = goExpr e
         in (Seq pc (Seq pt pe), Ternary tp c' t' e')
     goExpr (Not x) = let (p, x') = goExpr x in (p, Not x')
-    goExpr (IsEmpty x) = let (p, x') = goExpr x in (p, IsEmpty x')
-    goExpr (HeadList x) = let (p, x') = goExpr x in (p, HeadList x')
-    goExpr (TailList x) = let (p, x') = goExpr x in (p, TailList x')
+    goExpr (IsEmpty t x) = let (p, x') = goExpr x in (p, IsEmpty t x')
+    goExpr (HeadList t x) = let (p, x') = goExpr x in (p, HeadList t x')
+    goExpr (TailList t x) = let (p, x') = goExpr x in (p, TailList t x')
     goExpr (ConsList t x y) =
         let (px, x') = goExpr x
             (py, y') = goExpr y
@@ -486,10 +486,10 @@ replaceVarBinding (CallExpr tf tx x y) m = CallExpr tf tx (replaceVarBinding x m
 replaceVarBinding (Prod tx ty x y) m = Prod tx ty (replaceVarBinding x m) (replaceVarBinding y m)
 replaceVarBinding (Fst t x) m = Fst t (replaceVarBinding x m)
 replaceVarBinding (Snd t x) m = Snd t (replaceVarBinding x m)
-replaceVarBinding (HeadList x) m = HeadList (replaceVarBinding x m)
-replaceVarBinding (TailList x) m = TailList (replaceVarBinding x m)
-replaceVarBinding (IsEmpty x) m = IsEmpty (replaceVarBinding x m)
-replaceVarBinding (IndexList i x) m = IndexList i (replaceVarBinding x m)
+replaceVarBinding (HeadList t x) m = HeadList t (replaceVarBinding x m)
+replaceVarBinding (TailList t x) m = TailList t (replaceVarBinding x m)
+replaceVarBinding (IsEmpty t x) m = IsEmpty t (replaceVarBinding x m)
+replaceVarBinding (IndexList t i x) m = IndexList t i (replaceVarBinding x m)
 replaceVarBinding (ConsList t x y) m = ConsList t (replaceVarBinding x m) (replaceVarBinding y m)
 replaceVarBinding expr _ = expr
 
@@ -532,11 +532,11 @@ collapseBoxExpr (ConsList t x y)      = ConsList t (collapseBoxExpr x) (collapse
 collapseBoxExpr (Prod tx ty x y)      = Prod tx ty (collapseBoxExpr x) (collapseBoxExpr y)
 collapseBoxExpr (Fst t x)             = Fst t (collapseBoxExpr x)
 collapseBoxExpr (Snd t x)             = Snd t (collapseBoxExpr x)
-collapseBoxExpr (IsEmpty x)           = IsEmpty (collapseBoxExpr x)
-collapseBoxExpr (HeadList x)          = HeadList (collapseBoxExpr x)
-collapseBoxExpr (TailList x)          = TailList (collapseBoxExpr x)
+collapseBoxExpr (IsEmpty t x)          = IsEmpty t (collapseBoxExpr x)
+collapseBoxExpr (HeadList t x)          = HeadList t (collapseBoxExpr x)
+collapseBoxExpr (TailList t x)          = TailList t (collapseBoxExpr x)
 collapseBoxExpr (CastExpr t x)        = CastExpr t (collapseBoxExpr x)
-collapseBoxExpr (IndexList x y)       = IndexList (collapseBoxExpr x) (collapseBoxExpr y)
+collapseBoxExpr (IndexList t x y)     = IndexList t (collapseBoxExpr x) (collapseBoxExpr y)
 collapseBoxExpr x                     = x
 
 -- Not used
@@ -569,12 +569,12 @@ getDefs _ = []
 
 helloRun :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
 helloRun progName progCode canInline = do
-    -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    -- let progPath = 
-    --         if canInline then "inlined/" ++ progName
-    --         else "removedClosureAllocs/" ++ progName
-    let libName = "\n#include \"listLib.c\"\n"
-    let progPath = progName
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progPath = 
+            if canInline then "inlined/" ++ progName
+            else "removedClosureAllocs/" ++ progName
+    -- let libName = "\n#include \"listLib.c\"\n"
+    -- let progPath = progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
@@ -605,21 +605,21 @@ helloRun progName progCode canInline = do
                     ) mergedMap removedClosures
     let defs' = map (fst . removeClosureAllocs) defs
 
-    let (finalBody', finalDefs) =
+    putStrLn "\n--- Inlining ---"
+    let (inlinedBody, inlinedDefs) =
             if canInline then
                 let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
                     (cbody''', _) = removeDeadFuns removedFuns defs' cbody''
                 in (cbody''', getDefs cbody''')
             else (cbody', getDefs cbody')
-
-    let finalMergeMap = mergedMap'
-    -- let finalBody = finalBody'
+    let inlinedMap = mergedMap'
 
     putStrLn "\n--- Escape Analysis ---"
-    printEscapeAnalysis finalDefs
-    let escapeRes = map (\d -> escapeAnalysis d (EscapeResult Set.empty Set.empty Set.empty)) finalDefs
-    let finalBody = removeLocalEnvs finalBody' (foldr mergeEscape (EscapeResult Set.empty Set.empty Set.empty) escapeRes)
+    printEscapeAnalysis inlinedDefs
+    let escapeRes = map (\d -> escapeAnalysis d (EscapeResult Set.empty Set.empty Set.empty)) inlinedDefs
+    let escapeBody = removeLocalEnvs inlinedBody (foldr mergeEscape (EscapeResult Set.empty Set.empty Set.empty) escapeRes)
 
+    let (finalBody, finalDefs, finalMergeMap) = (escapeBody, inlinedDefs, inlinedMap)
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -645,7 +645,7 @@ helloRun progName progCode canInline = do
             "\n// main\nint main(void) {" ++ mainBodyImpl ++
                     case show (typeRep mainBody) of
                         "Int" -> "\n  printInt("
-                        "[Int]" -> "\n  printList("
+                        "[Int]" -> "\n  printListInt("
                         _ -> error "cannot print"
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
 
@@ -661,6 +661,9 @@ hello = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
 
-    let canInline = True
-    mapM_ (\(name, prog) -> helloRun name prog canInline) progsInt
-    mapM_ (\(name, prog) -> helloRun name prog canInline) progsList
+    -- let canInline = True
+    mapM_ (\(name, prog) -> helloRun name prog False) progsInt
+    mapM_ (\(name, prog) -> helloRun name prog False) progsList
+
+    mapM_ (\(name, prog) -> helloRun name prog True) progsInt
+    mapM_ (\(name, prog) -> helloRun name prog True) progsList

@@ -5,29 +5,50 @@ typedef struct Node {
     void* head;
     struct Node* tail;
 } Node;
-
 Node* cons(void* head, Node* tail) {
     Node* node = malloc(sizeof(Node));
     node->head = head;
     node->tail = tail;
     return node;
 }
+int isEmpty(Node* xs) { return xs == NULL; }
+void* head(Node* xs) { return xs->head; }
+Node* tail(Node* xs) { return xs->tail; }
 
-int isEmpty(Node* xs) {
-    return xs == NULL;
+// Int list
+typedef struct NodeInt {
+    int head;
+    struct NodeInt* tail;
+} NodeInt;
+NodeInt* consInt(int head, NodeInt* tail) {
+    NodeInt* node = malloc(sizeof(NodeInt));
+    node->head = head;
+    node->tail = tail;
+    return node;
 }
+int isEmptyInt(NodeInt* xs) { return xs == NULL; }
+int headInt(NodeInt* xs) { return xs->head; }
+NodeInt* tailInt(NodeInt* xs) { return xs->tail; }
 
-void* head(Node* xs) {
-    return xs->head;
+// Bool list
+typedef struct NodeBool {
+    bool head;
+    struct NodeBool* tail;
+} NodeBool;
+NodeBool* consBool(int head, NodeBool* tail) {
+    NodeBool* node = malloc(sizeof(NodeBool));
+    node->head = head;
+    node->tail = tail;
+    return node;
 }
+bool isEmptyBool(NodeBool* xs) { return xs == NULL; }
+bool headBool(NodeBool* xs) { return xs->head; }
+NodeBool* tailBool(NodeBool* xs) { return xs->tail; }
 
-Node* tail(Node* xs) {
-    return xs->tail;
-}
+// Closures
 
 typedef struct Closure {
     void* env;
-    // void* (*fn)(void*, void*);
     void* (*fn)();
 } Closure;
 
@@ -35,15 +56,14 @@ void* apply(Closure* c, void* arg) {
     return c->fn(c->env, arg);
 }
 
-void printList(Node *list) {
-  if (list == NULL) return;
-  printf("%d ", *(int*)list->head);
-  printList(list->tail);
+void printListInt(NodeInt *list) {
+    while (list != NULL) {
+        printf("%d ", list->head);
+        list = list->tail;
+    }
 }
 
-void printInt(int i) {
-  printf("%d\n", i);
-}
+void printInt(int i) { printf("%d\n", i); }
 
 // box / unbox
 
