@@ -17,14 +17,12 @@ typedef struct {
 
 // function implementations
 Node* v0(int (*v1)(int), Node* v2) {
-  Env_v7* env7 = malloc(sizeof(Env_v7));
-  env7->v1 = v1;
   if (isEmpty(v2)) {
     return NULL;
   } else {
     int v3 = *(int*)((head(v2)));
     Node* v4 = tail(v2);
-    return (Node*)cons(box_int(((Env_v7*)env7)->v1(v3)), v0(((Env_v7*)env7)->v1, v4));
+    return (Node*)cons(box_int(v1(v3)), v0(v1, v4));
   }
 }
 

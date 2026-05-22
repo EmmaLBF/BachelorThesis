@@ -24,12 +24,14 @@ stripBox x         = x
 data EscapeResult = EscapeResult
     { escapedVars :: Set.Set Int   -- var ids that flow into heap
     , escapedEnvs :: Set.Set Int   -- env ids that outlive the frame
+    , allocedEnvs :: Set.Set Int
     } deriving (Show)
 
 mergeEscape :: EscapeResult -> EscapeResult -> EscapeResult
 mergeEscape a b = EscapeResult
     (Set.union (escapedVars a) (escapedVars b))
     (Set.union (escapedEnvs a) (escapedEnvs b))
+    (Set.union (allocedEnvs a) (allocedEnvs b))
 
 -- (vars, envs)
 getReturnVars :: CExpression a -> EscapeResult -> EscapeResult
@@ -60,8 +62,66 @@ escapeAnalysis (Return x) r = getReturnVars x r
 escapeAnalysis (BindExpr _ _ _ y) r = escapeAnalysis y r  -- x doesn't escape by being bound
 escapeAnalysis (If _ t e) r = mergeEscape (escapeAnalysis t r) (escapeAnalysis e r)
 escapeAnalysis (While _ x) r = escapeAnalysis x r
+escapeAnalysis (AllocEnv i _ _ _) r = r { allocedEnvs = Set.insert i (allocedEnvs r) }
 escapeAnalysis _ r = r
--- escapeAnalysis _ = error "not valid"
+
+-- allocedEnvs :: CStatement a -> Set.Set Int
+-- allocedEnvs (DefFun _ _ _ body) = allocedEnvs body
+-- allocedEnvs (Seq x y) = Set.union (allocedEnvs y) (allocedEnvs x)
+-- allocedEnvs (BindExpr _ _ _ y) = allocedEnvs y
+-- allocedEnvs (If _ x y) = Set.union (allocedEnvs y) (allocedEnvs x)
+-- allocedEnvs (While _ x) = allocedEnvs x
+-- allocedEnvs (AllocEnv i _ _ _) = Set.insert i Set.empty
+-- allocedEnvs _ = Set.empty
+
+removeLocalEnvsExpr :: CExpression a -> EscapeResult -> CExpression a
+removeLocalEnvsExpr (GetEnvField t envId varId) r =
+    if Set.member envId (escapedEnvs r) 
+    then GetEnvField t envId varId
+    else if Set.member envId (allocedEnvs r) then -- can only remove closure if it was actually alloced in this function, ontherwise it was passed as a param
+            Var t varId
+        else GetEnvField t envId varId
+removeLocalEnvsExpr (Not x) r = Not (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Fst t x) r = Fst t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Snd t x) r = Snd t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (IsEmpty x) r = IsEmpty (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (HeadList x) r = HeadList (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (TailList x) r = TailList (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Box t x) r = Box t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Unbox t x) r = Unbox t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (CastExpr t x) r = CastExpr t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (LIntOp op x y) r = LIntOp op (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (LCmpOp op x y) r = LCmpOp op (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (Ternary t c x y) r = Ternary t (removeLocalEnvsExpr c r) (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (CallExpr tf tx f x) r = CallExpr tf tx (removeLocalEnvsExpr f r) (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (ApplyClosure t f x) r = ApplyClosure t (removeLocalEnvsExpr f r) (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (ConsList t x y) r = ConsList t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (Prod tx ty x y) r = Prod tx ty (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (IndexList x y) r = IndexList (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr x _ = x
+
+removeLocalEnvs :: CStatement a -> EscapeResult -> CStatement a
+removeLocalEnvs (AllocEnv envId parentId directPs parentPs) r = 
+    if Set.member envId (escapedEnvs r) then
+        if Set.member parentId (escapedEnvs r) then
+            AllocEnv envId parentId directPs parentPs
+        else -- if parent got removed erge parentsPs into directPs
+            AllocEnv envId parentId (directPs ++ parentPs) []
+    else Skip
+removeLocalEnvs (DefFun t i p body) r = DefFun t i p (removeLocalEnvs body r)
+removeLocalEnvs (Seq x y) r = Seq (removeLocalEnvs x r) (removeLocalEnvs y r)
+removeLocalEnvs (BindExpr t x i y) r = BindExpr t (removeLocalEnvsExpr x r) i (removeLocalEnvs y r)
+removeLocalEnvs (If c x y) r = If (removeLocalEnvsExpr c r) (removeLocalEnvs x r) (removeLocalEnvs y r)
+removeLocalEnvs (While c x) r = While (removeLocalEnvsExpr c r) (removeLocalEnvs x r)
+removeLocalEnvs (DefVar t i x) r = DefVar t i (removeLocalEnvsExpr x r)
+removeLocalEnvs (UpdateVar t i x) r = UpdateVar t i (removeLocalEnvsExpr x r)
+removeLocalEnvs (Return x) r = Return (removeLocalEnvsExpr x r)
+removeLocalEnvs x _ = x
+
+-- escapePass :: CStatement a -> EscapeResult -> CStatement a
+-- escapePass prog r =
+--     let prog' = removeLocalEnvs prog r
+
 
 
 
@@ -92,10 +152,10 @@ countClosureUsesExpr _ _ = 0
 rewriteApply :: Int -> Int -> CExpression a -> CExpression a
 rewriteApply i parentId (ApplyClosure targ f arg) =
     case f of
-        Val (ClosureV i') | i == i' -> 
+        Val (ClosureV i') | i == i' ->
             -- trace ("single arg case " ++ showCExpression f Map.empty) $
             CallExpr CTVoidPtr targ (CallExpr CTVoidPtr CTVoidPtr (Var CTVoidPtr i) (Val (EnvV parentId))) (stripBox arg)
-        _ -> 
+        _ ->
             -- trace ("multi arg case " ++ showCExpression f Map.empty) $
             case rewriteApply i parentId f of
                 expr@(CallExpr tf _ _ _) -> CallExpr tf targ (unsafeCoerce expr) arg
@@ -327,7 +387,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
         let (pf, f') = goExpr f
             (px, x') = goExpr x
         in (Seq pf px, ApplyClosure tx f' x')
-    goExpr (Box t x) = let (p, x') = goExpr x 
+    goExpr (Box t x) = let (p, x') = goExpr x
                         in (p, Box t x')
     goExpr (Unbox t x) = let (p, x') = goExpr x in (p, Unbox t x')
     goExpr x = (Skip, x)
@@ -492,6 +552,19 @@ collapseBox (UpdateVar t i x) = UpdateVar t i (collapseBoxExpr x)
 collapseBox x = x
 
 
+printEscapeAnalysis :: [CStatement a] -> IO ()
+printEscapeAnalysis = mapM_ printOne
+  where
+    printOne def@(DefFun _ i _ _) = do
+        let result = escapeAnalysis def (EscapeResult Set.empty Set.empty Set.empty)
+        putStrLn $ "v" ++ show i ++ ": " ++ show result
+    printOne _ = return ()
+
+getDefs :: CStatement a -> [CStatement a]
+getDefs stmt@DefFun{} = [stmt]
+getDefs (Seq x y) = getDefs x ++ getDefs y
+getDefs _ = []
+
 -- MAIN
 
 helloRun :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
@@ -532,17 +605,21 @@ helloRun progName progCode canInline = do
                     ) mergedMap removedClosures
     let defs' = map (fst . removeClosureAllocs) defs
 
-    let (finalBody, finalDefs) = 
+    let (finalBody', finalDefs) =
             if canInline then
                 let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
-                    (cbody''', defs'') = removeDeadFuns removedFuns defs' cbody''
-                in (cbody''', defs'')
-            else (cbody', defs')
+                    (cbody''', _) = removeDeadFuns removedFuns defs' cbody''
+                in (cbody''', getDefs cbody''')
+            else (cbody', getDefs cbody')
 
     let finalMergeMap = mergedMap'
+    -- let finalBody = finalBody'
 
     putStrLn "\n--- Escape Analysis ---"
-    print (map (\d -> escapeAnalysis d (EscapeResult Set.empty Set.empty)) defs')
+    printEscapeAnalysis finalDefs
+    let escapeRes = map (\d -> escapeAnalysis d (EscapeResult Set.empty Set.empty Set.empty)) finalDefs
+    let finalBody = removeLocalEnvs finalBody' (foldr mergeEscape (EscapeResult Set.empty Set.empty Set.empty) escapeRes)
+
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
