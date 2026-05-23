@@ -1,6 +1,7 @@
 // imports
 #include <stdio.h>
 #include <stdlib.h>
+#include "../outputs/listLib.c"
 
 int* merge(int* list, int start, int end) {
     int mid = start + (end - start) / 2;
@@ -40,8 +41,10 @@ int* mergeSort(int* list, int start, int end) {
 }
 
 int main() {
-    int list[] = {5, 6, 1, 9, 0, 2, 3, 1, 5};
-    int len = 9;
+   int* list = LIST1000_ARRAY();
+    size_t total_size = sizeof(list);
+    size_t element_size = sizeof(list[0]);
+    size_t len = total_size / element_size;
     int* sorted = mergeSort(list, 0, len - 1);
     for (size_t i = 0; i < len; i++) printf("%d ", sorted[i]);
     return 0;

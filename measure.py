@@ -66,10 +66,10 @@ def get_stats(path_out, outputs):
             outputs["InstructionCount"] = line.split(':')[1].strip().replace(',', '')
             break
 
-def compile_and_run_c(c_file, trial, index_to_remove, new_line):
+def compile_and_run_c(folder, c_file, trial, index_to_remove, new_line):
     try:
-        path     = "outputs/" + c_file + ".c"
-        path_out = "outputs/" + c_file
+        path     = folder + c_file + ".c"
+        path_out = folder + c_file
         
         print("\n" + ("-" * 30))
         print(f"{BOLD}{RED}Running: {c_file} | {trial} {RESET}")
@@ -132,8 +132,8 @@ def only_run(c_file):
 progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall"]
 trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
-def runTrials(path_half):
-    path_out = "outputs/" + path_half
+def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond):
+    path_out = folder + path_half
     path = path_out + ".c"
 
     # Get Code Stats (only want this once)
@@ -152,7 +152,7 @@ def runTrials(path_half):
 
     all_outputs = {}
     for trial in trials:
-        res = compile_and_run_c(path_half, trial, 4, "  printList(v0(LIST" + str(trial) + "()));\n")
+        res = compile_and_run_c(folder, path_half, trial, distanceFromBottom, newLineFirst + str(trial) + newLineSecond)
         all_outputs[trial] = res
     
     cols = list(next(iter(all_outputs.values())).keys())
@@ -162,12 +162,14 @@ def runTrials(path_half):
         print(str(n) + " " + " ".join(str(row[c]).strip() for c in cols))
 
 
-
 # print("LamMerged MERGESORT ******")
-# runTrials("mergedLams/mergeSortCall")
+# runTrials("mergedLams/mergeSortCall", "outputs/", 4, "  printList(v0(LIST", "()));\n")
 
-# print("Basic MERGESORT ******")
-# runTrials("inlined/mergeSortCall")
+# print("Inlined MERGESORT ******")
+# runTrials("inlined/mergeSortCall", "outputs/", 4, "  printList(v0(LIST", "()));\n")
+
+print("Pure C MERGESORT ******")
+runTrials("mergeSort", "OtherCode/", 8, "   int* list = LIST", "_ARRAY();\n")
 
 # print("Testing ******")
 # print("\n" + ("-" * 30))
@@ -175,9 +177,9 @@ def runTrials(path_half):
 #     only_run(prog)
 
 
-print("Test All Basic ******")
-for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
-    print("\n" + ("-" * 30))
-    print("\n" + folder)
-    for prog in progs:
-        only_run(folder + "/" + prog)
+# print("Test All Basic ******")
+# for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
+#     print("\n" + ("-" * 30))
+#     print("\n" + folder)
+#     for prog in progs:
+#         only_run(folder + "/" + prog)
