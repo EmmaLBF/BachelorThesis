@@ -10,6 +10,10 @@
 int v0(NodeInt* v1);
 
 // closure defitions
+typedef struct {
+    NodeInt* v1;
+} Env_v0;
+
 // function implementations
 int v0(NodeInt* v1) {
   if (isEmptyInt(v1)) {

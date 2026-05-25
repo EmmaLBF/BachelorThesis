@@ -13,7 +13,12 @@ int v11(int v5);
 // closure defitions
 typedef struct {
     int (*v1)(int);
-} Env_v7;
+    NodeInt* v2;
+} Env_v0;
+
+typedef struct {
+    int v5;
+} Env_v11;
 
 // function implementations
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {

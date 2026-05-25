@@ -10,6 +10,10 @@
 int v0(Pair* v1);
 
 // closure defitions
+typedef struct {
+    Pair* v1;
+} Env_v0;
+
 // function implementations
 int v0(Pair* v1) {
   if ((*(int*)(snd(v1)) == 0)) {

@@ -912,11 +912,16 @@ showListStmt = concatMap (showCStmt 0 Map.empty Map.empty Map.empty)
 
 -- MAIN
 
-generateClosureStructs :: [(Int, CParams)] -> CStatement a
+-- generateClosureStructs :: [(Int, CParams)] -> CStatement a
+-- generateClosureStructs [] = Skip
+-- generateClosureStructs [(_, [])] = Skip
+-- generateClosureStructs [(ifun, p)] = DefClosureStruct ifun p
+-- generateClosureStructs (i:is) = Seq (generateClosureStructs [i]) (generateClosureStructs is)
+
+generateClosureStructs :: [CStatement a] -> CStatement a
 generateClosureStructs [] = Skip
-generateClosureStructs [(_, [])] = Skip
-generateClosureStructs [(ifun, p)] = DefClosureStruct ifun p
-generateClosureStructs (i:is) = Seq (generateClosureStructs [i]) (generateClosureStructs is)
+generateClosureStructs (DefFun _ ifun params _ : rest) = Seq (DefClosureStruct ifun params) (generateClosureStructs rest)
+generateClosureStructs _ = error "not valid def fun"
 
 findFirstReturn :: CStatement a -> CExpression a
 findFirstReturn (Return x)        = x
@@ -994,7 +999,7 @@ run progName progCode canMerge = do
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
                     libName
-    let closureStructs = generateClosureStructs (Map.toList liftenv)
+    let closureStructs = generateClosureStructs defs
     let funDefs = showFunDefs defs
     let (funPart, mainBody) = splitTopLevel cbody
     let retExpr = findFirstReturn mainBody
