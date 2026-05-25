@@ -33,6 +33,9 @@ data EscapeResult = EscapeResult
     , allocedEnvs :: Set.Set Int
     } deriving (Show)
 
+emptyEscapeResult :: EscapeResult
+emptyEscapeResult = EscapeResult Set.empty Map.empty Map.empty  Set.empty Set.empty
+
 mergeEscape :: EscapeResult -> EscapeResult -> EscapeResult
 mergeEscape a b = EscapeResult
     (Set.union (escapedVars a) (escapedVars b))
@@ -149,7 +152,7 @@ removeLocalEnvs x _ = x
 removeSingleVarsExpr :: CExpression a -> EscapeResult -> CExpression a
 removeSingleVarsExpr (Var t i) r =
     case Map.lookup i (varUses r) of
-        Just n | n <= 1 -> 
+        Just n | n <= 1 ->
             case Map.lookup i (varDefs r) of
                 Just (CArg _ x) -> removeSingleVarsExpr (unsafeCoerce x) r
                 _ -> Var t i
@@ -178,17 +181,17 @@ removeSingleVars (DefFun t i p body) _ =
     let r' = escapeAnalysis body (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty)
     in DefFun t i p (removeSingleVars body r')
 removeSingleVars (Seq x y) r = Seq (removeSingleVars x r) (removeSingleVars y r)
-removeSingleVars (BindExpr t x i y) r = 
+removeSingleVars (BindExpr t x i y) r =
     case Map.lookup i (varUses r) of
         Just n | n <= 1 -> removeSingleVars y r
         _ -> BindExpr t (removeSingleVarsExpr x r) i (removeSingleVars y r)
 removeSingleVars (If c x y) r = If (removeSingleVarsExpr c r) (removeSingleVars x r) (removeSingleVars y r)
 removeSingleVars (While c x) r = While (removeSingleVarsExpr c r) (removeSingleVars x r)
-removeSingleVars (DefVar t i x) r = 
+removeSingleVars (DefVar t i x) r =
     case Map.lookup i (varUses r) of
         Just n | n <= 1 -> Skip
         _ -> DefVar t i (removeSingleVarsExpr x r)
-removeSingleVars (UpdateVar t i x) r = 
+removeSingleVars (UpdateVar t i x) r =
     case Map.lookup i (varUses r) of
         Just n | n <= 1 -> Skip
         _ -> UpdateVar t i (removeSingleVarsExpr x r)
@@ -200,7 +203,7 @@ countUsedEnvs (AllocEnv _ i _ _) m = Set.insert i m
 countUsedEnvs (Seq x y) m = countUsedEnvs y (countUsedEnvs x m)
 countUsedEnvs (If c x y) m = countUsedEnvs y (countUsedEnvs x (countUsedEnvsExpr c m))
 countUsedEnvs (While c x) m = countUsedEnvs x (countUsedEnvsExpr c m)
-countUsedEnvs (DefFun _ _ params body) m = 
+countUsedEnvs (DefFun _ _ params body) m =
     let m' = foldr (\p acc -> case p of
                 CParamEnv i -> Set.insert i acc
                 _ -> acc) m params
@@ -540,7 +543,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
 inlineUntilFixed :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
 inlineUntilFixed defs body =
     let (body', removed) = inlinePass defs body
-    in 
+    in
         -- trace ("until fixed " ++ show (countFunctionCalls body' Map.empty)) $
         if null removed
        then (body', [])
@@ -570,6 +573,106 @@ removeDeadFuns m d (Seq x y) =
         (y', d'') = removeDeadFuns m d' y
     in (Seq x' y', d'')
 removeDeadFuns _ d x = (x, d)
+
+
+
+-- REMOVE CASTS
+removeCast :: CExpression a -> CExpression b -> CExpression a
+removeCast fallback x = case x of
+    Val cv           -> unsafeCoerce (Val cv)
+    Not ce           -> unsafeCoerce (Not ce)
+    Var ct n         -> unsafeCoerce (Var ct n)
+    LIntOp op a b    -> unsafeCoerce (LIntOp op a b)
+    LCmpOp op a b    -> unsafeCoerce (LCmpOp op a b)
+    expr@Prod{}      -> unsafeCoerce expr
+    expr@HeadList{}  -> unsafeCoerce expr
+    expr@TailList{}  -> unsafeCoerce expr
+    expr@EmptyList{} -> unsafeCoerce expr
+    expr@ConsList{}  -> unsafeCoerce expr
+    expr@IsEmpty{}   -> unsafeCoerce expr
+    expr@IndexList{} -> unsafeCoerce expr
+    expr@CallExpr{}  -> unsafeCoerce expr
+    _                -> fallback -- the only ones that need cast are fst and snd because they return void*
+
+removeCastsExpr :: CExpression a -> CExpression a
+removeCastsExpr (CastExpr t x) = removeCast (CastExpr t x) (removeCastsExpr x)
+removeCastsExpr (Unbox t x)    = removeCast (Unbox t x)    (removeCastsExpr x)
+removeCastsExpr (Box t x)      = Box t (removeCastsExpr x)
+removeCastsExpr (Not x)        = Not (removeCastsExpr x)
+removeCastsExpr (LIntOp op x y)    = LIntOp op (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (LCmpOp op x y)    = LCmpOp op (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Ternary t c x y)  = Ternary t (removeCastsExpr c) (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (CallExpr tf tx f x) = CallExpr tf tx (removeCastsExpr f) (removeCastsExpr x)
+removeCastsExpr (ApplyClosure t f x) = ApplyClosure t (removeCastsExpr f) (removeCastsExpr x)
+removeCastsExpr (ConsList t x y)   = ConsList t (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Prod tx ty x y)   = Prod tx ty (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Fst t x)          = Fst t (removeCastsExpr x)
+removeCastsExpr (Snd t x)          = Snd t (removeCastsExpr x)
+removeCastsExpr (IsEmpty t x)      = IsEmpty t (removeCastsExpr x)
+removeCastsExpr (HeadList t x)     = HeadList t (removeCastsExpr x)
+removeCastsExpr (TailList t x)     = TailList t (removeCastsExpr x)
+removeCastsExpr (IndexList t x y)  = IndexList t (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr x                  = x
+
+removeCasts :: CStatement a -> CStatement a
+removeCasts (Return x)          = Return (removeCastsExpr x)
+removeCasts (Seq x y)           = Seq (removeCasts x) (removeCasts y)
+removeCasts (BindExpr t x i y)  = BindExpr t (removeCastsExpr x) i (removeCasts y)
+removeCasts (If c x y)          = If (removeCastsExpr c) (removeCasts x) (removeCasts y)
+removeCasts (While c x)         = While (removeCastsExpr c) (removeCasts x)
+removeCasts (DefFun t i ps x)   = DefFun t i ps (removeCasts x)
+removeCasts (DefVar t i x)      = DefVar t i (removeCastsExpr x)
+removeCasts (UpdateVar t i x)   = UpdateVar t i (removeCastsExpr x)
+removeCasts x                   = x
+
+
+-- REMOVE USELESS LOGIC (i.e. making a list out of the head and tail of another list)
+
+-- compare cexpression just by string
+eqCExpr :: CExpression a -> CExpression b -> Bool
+eqCExpr x y = showCExpression x Map.empty == showCExpression y Map.empty
+
+removeUselessExpr :: CExpression a -> CExpression a
+removeUselessExpr (ConsList t x y) =
+    let x' = stripWrap x
+        y' = stripWrap y
+    in case (x', y') of
+        (HeadList _ l1, TailList _ l2) | eqCExpr l1 l2 -> unsafeCoerce l1
+        _ -> ConsList t (removeUselessExpr x) (removeUselessExpr y)
+    where
+        stripWrap (Unbox _ r) = unsafeCoerce r
+        stripWrap (CastExpr _ r) = unsafeCoerce r
+        stripWrap (Box _ r) = unsafeCoerce r
+        stripWrap r = r
+removeUselessExpr (LIntOp op x y) = LIntOp op (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (LCmpOp op x y) = LCmpOp op (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (Ternary t c x y) = Ternary t (removeUselessExpr c) (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (CallExpr tf tx f x) = CallExpr tf tx (removeUselessExpr f) (removeUselessExpr x)
+removeUselessExpr (ApplyClosure t f x) = ApplyClosure t (removeUselessExpr f) (removeUselessExpr x)
+removeUselessExpr (Prod tx ty x y) = Prod tx ty (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (Fst t x) = Fst t (removeUselessExpr x)
+removeUselessExpr (Snd t x) = Snd t (removeUselessExpr x)
+removeUselessExpr (IsEmpty t x) = IsEmpty t (removeUselessExpr x)
+removeUselessExpr (HeadList t x) = HeadList t (removeUselessExpr x)
+removeUselessExpr (TailList t x) = TailList t (removeUselessExpr x)
+removeUselessExpr (IndexList t x y) = IndexList t (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (Not x) = Not (removeUselessExpr x)
+removeUselessExpr (Box t x) = Box t (removeUselessExpr x)
+removeUselessExpr (Unbox t x) = Unbox t (removeUselessExpr x)
+removeUselessExpr (CastExpr t x) = CastExpr t (removeUselessExpr x)
+removeUselessExpr x = x
+
+removeUseless :: CStatement a -> CStatement a
+removeUseless (Return x) = Return (removeUselessExpr x)
+removeUseless (Seq x y) = Seq (removeUseless x) (removeUseless y)
+removeUseless (BindExpr t x i y) = BindExpr t (removeUselessExpr x) i (removeUseless y)
+removeUseless (If c x y) = If (removeUselessExpr c) (removeUseless x) (removeUseless y)
+removeUseless (While c x) = While (removeUselessExpr c) (removeUseless x)
+removeUseless (DefFun t i ps x) = DefFun t i ps (removeUseless x)
+removeUseless (DefVar t i x) = DefVar t i (removeUselessExpr x)
+removeUseless (UpdateVar t i x) = UpdateVar t i (removeUselessExpr x)
+removeUseless x = x
+
 
 
 -- Function unrolling
@@ -737,23 +840,25 @@ keepOptimising body defs mergedMap = do
     let defs' = map (fst . removeClosureAllocs) defs
     let changedClosures = not (null removedClosures)
 
-    let (inlinedBody, changedFuns) = 
+    let (inlinedBody, changedFuns) =
         -- trace ("inlined " ++ show (countFunctionCalls cbody' Map.empty)) $
             let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
                 (cbody''', _) = removeDeadFuns removedFuns defs' cbody''
             in (cbody''', not (null removedFuns))
 
     let (varReplacedBody, changedAlias) = eliminateAliases inlinedBody
-    let varReplacedDefs = getDefs varReplacedBody
 
-    let escapeRes = map (\d -> escapeAnalysis d (EscapeResult Set.empty Map.empty Map.empty  Set.empty Set.empty)) varReplacedDefs
-    let escapeBody = removeLocalEnvs varReplacedBody (foldr mergeEscape (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty) escapeRes)
-    let escapeBody' = removeSingleVars escapeBody (foldr mergeEscape (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty) escapeRes)
+    let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs varReplacedBody)
+    let escapeBody = removeLocalEnvs varReplacedBody (foldr mergeEscape emptyEscapeResult escapeRes)
+    let escapeBody' = removeSingleVars escapeBody (foldr mergeEscape emptyEscapeResult escapeRes)
+
+    let removedUselessBody = removeUseless escapeBody'
+    let newDefs = getDefs removedUselessBody
 
     let changed = changedClosures || changedAlias || changedFuns
     if not changed
-        then (escapeBody', varReplacedDefs, mergedMap')
-        else keepOptimising escapeBody' varReplacedDefs mergedMap'
+        then (removedUselessBody, newDefs, mergedMap')
+        else keepOptimising removedUselessBody newDefs mergedMap'
 
 helloRun :: Typeable a => String -> AL.Lang a -> IO ()
 helloRun progName progCode = do
@@ -783,7 +888,8 @@ helloRun progName progCode = do
     let cbody = addBoxing cbody0 -- boxing values
     let defs = map addBoxing defs0
     let strFunTypes = getStrFunTypes defs Map.empty
-    let (finalBody, finalDefs, finalMergeMap) = keepOptimising cbody defs mergedMap
+    let (finalBody', finalDefs, finalMergeMap) = keepOptimising cbody defs mergedMap
+    let finalBody = removeCasts finalBody'
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -792,7 +898,7 @@ helloRun progName progCode = do
                     "\n#include <stdint.h>" ++
                     libName
 
-    printEscapeAnalysis finalDefs
+    -- printEscapeAnalysis finalDefs
 
     let usedEnvs = countUsedEnvs finalBody Set.empty
     let closureDefs = filter (\d -> case d of

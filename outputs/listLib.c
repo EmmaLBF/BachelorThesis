@@ -46,10 +46,6 @@ typedef struct Closure {
     void* (*fn)();
 } Closure;
 
-void* apply(Closure* c, void* arg) {
-    return c->fn(c->env, arg);
-}
-
 // printing
 
 void printListInt(NodeInt *list) {

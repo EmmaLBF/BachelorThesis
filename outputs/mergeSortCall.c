@@ -38,9 +38,9 @@ Pair* v17(Pair* v18) {
     v55 = mk_pair(NULL, v20);
   } else {
     Pair* v23 = v17(mk_pair(box_int((v19 - 1)), (v20)->tail));
-    v55 = ((((v20) == NULL)) ? (mk_pair(NULL, NULL)) : ((Pair*)(Pair*)mk_pair(consInt((v20)->head, (NodeInt*)((v23)->fst)), (NodeInt*)((v23)->snd))));
+    v55 = ((((v20) == NULL)) ? (mk_pair(NULL, NULL)) : (mk_pair(consInt((v20)->head, (NodeInt*)((v23)->fst)), (NodeInt*)((v23)->snd))));
   }
-  return (Pair*)(Pair*)v55;
+  return v55;
 }
 
 int v24(NodeInt* v25) {
@@ -59,9 +59,9 @@ NodeInt* v0(NodeInt* v1) {
     if (((v3) == NULL)) {
       return consInt((v1)->head, NULL);
     } else {
-      NodeInt* v14 = consInt((v1)->head, consInt((v3)->head, (v3)->tail));
-      Pair* v6 = (Pair*)(Pair*)v17(mk_pair(box_int((v24(v14) / 2)), v14));
-      return (NodeInt*)v7(v0((NodeInt*)((v6)->fst)), v0((NodeInt*)((v6)->snd)));
+      NodeInt* v14 = consInt((v1)->head, v3);
+      Pair* v6 = v17(mk_pair(box_int((v24(v14) / 2)), v14));
+      return v7(v0((NodeInt*)((v6)->fst)), v0((NodeInt*)((v6)->snd)));
     }
   }
 }
