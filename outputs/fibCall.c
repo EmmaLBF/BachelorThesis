@@ -10,10 +10,6 @@
 int v0(int v1);
 
 // closure defitions
-typedef struct {
-    int v1;
-} Env_v0;
-
 // function implementations
 int v0(int v1) {
   if ((v1 < 2)) {

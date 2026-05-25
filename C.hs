@@ -740,6 +740,9 @@ showCValue (EnvV i) = "env" ++ show i
 showCArg :: CArg -> Map.Map Int Int -> String
 showCArg (CArg _ a) = showCExpression a
 
+instance Show CArg where
+    show (CArg t x) = showCArg (CArg t x) Map.empty
+
 showListLibFunType :: CType -> String
 showListLibFunType CTInt = "Int"
 showListLibFunType CTBool = "Bool"

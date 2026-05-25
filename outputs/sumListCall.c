@@ -10,18 +10,12 @@
 int v0(NodeInt* v1);
 
 // closure defitions
-typedef struct {
-    NodeInt* v1;
-} Env_v0;
-
 // function implementations
 int v0(NodeInt* v1) {
   if (isEmptyInt(v1)) {
     return 0;
   } else {
-    int v2 = (headInt(v1));
-    NodeInt* v3 = tailInt(v1);
-    return (v2 + v0(v3));
+    return ((headInt(v1)) + v0(tailInt(v1)));
   }
 }
 

@@ -11,23 +11,12 @@ NodeInt* v0(int (*v1)(int), NodeInt* v2);
 int v11(int v5);
 
 // closure defitions
-typedef struct {
-    int (*v1)(int);
-    NodeInt* v2;
-} Env_v0;
-
-typedef struct {
-    int v5;
-} Env_v11;
-
 // function implementations
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   if (isEmptyInt(v2)) {
     return NULL;
   } else {
-    int v3 = (headInt(v2));
-    NodeInt* v4 = tailInt(v2);
-    return (NodeInt*)consInt(v1(v3), v0(v1, v4));
+    return (NodeInt*)consInt(v1((headInt(v2))), v0(v1, tailInt(v2)));
   }
 }
 
