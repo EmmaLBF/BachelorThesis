@@ -13,8 +13,19 @@ int v11(int v5);
 
 // closure defitions
 typedef struct {
+    int v3;
+    NodeInt* v4;
     int (*v1)(int);
 } Env_v7;
+
+typedef struct {
+    int (*v1)(int);
+    NodeInt* v2;
+} Env_v0;
+
+typedef struct {
+    int v5;
+} Env_v11;
 
 // function implementations
 NodeInt* v7(void* env7, void* v3_raw, void* v4_raw) {
@@ -29,7 +40,7 @@ NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   Closure* c7 = malloc(sizeof(Closure));
   c7->env = env7;
   c7->fn = (void* (*)(void*, void*))v7;
-  return ((isEmptyInt(v2)) ? (NULL) : ((NodeInt*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((headInt(v2))), tailInt(v2))));
+  return ((((v2) == NULL)) ? (NULL) : ((NodeInt*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head), (v2)->tail)));
 }
 
 int v11(int v5) {

@@ -15,22 +15,33 @@ int v11(int v5);
 
 // closure defitions
 typedef struct {
+    NodeInt* v4;
     int (*v1)(int);
     int v3;
 } Env_v6;
 
 typedef struct {
+    int v3;
     int (*v1)(int);
 } Env_v7;
 
 typedef struct {
+    NodeInt* v2;
     int (*v1)(int);
 } Env_v10;
+
+typedef struct {
+    int (*v1)(int);
+} Env_v0;
+
+typedef struct {
+    int v5;
+} Env_v11;
 
 // function implementations
 NodeInt* v6(void* env6, void* v4_raw) {
   NodeInt* v4 = (NodeInt*)v4_raw;
-  return consInt(((Env_v6*)env6)->v1(((Env_v6*)env6)->v3), (NodeInt*)apply((Closure*)v0(((Env_v6*)env6)->v1), v4));
+  return consInt(((Env_v6*)env6)->v1(((Env_v6*)env6)->v3), (NodeInt*)((Closure*)v0(((Env_v6*)env6)->v1))->fn(((Closure*)v0(((Env_v6*)env6)->v1))->env, v4));
 }
 
 Closure* v7(void* env7, void* v3_raw) {
@@ -51,7 +62,7 @@ NodeInt* v10(void* env10, void* v2_raw) {
   Closure* c7 = malloc(sizeof(Closure));
   c7->env = env7;
   c7->fn = (void* (*)(void*, void*))v7;
-  return ((isEmptyInt(v2)) ? (NULL) : ((NodeInt*)apply((Closure*)apply((Closure*)c7, box_int((headInt(v2)))), tailInt(v2))));
+  return ((((v2) == NULL)) ? (NULL) : ((NodeInt*)((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->fn(((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->env, (v2)->tail)));
 }
 
 Closure* v0(int (*v1)(int)) {
@@ -69,7 +80,7 @@ int v11(int v5) {
 
 // main
 int main(void) {
-  printListInt((NodeInt*)apply((Closure*)v0(v11), consInt(1, consInt(2, consInt(3, NULL)))));
+  printListInt((NodeInt*)((Closure*)v0(v11))->fn(((Closure*)v0(v11))->env, consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

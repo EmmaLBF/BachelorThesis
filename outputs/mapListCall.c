@@ -13,10 +13,10 @@ int v11(int v5);
 // closure defitions
 // function implementations
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {
-  if (isEmptyInt(v2)) {
+  if (((v2) == NULL)) {
     return NULL;
   } else {
-    return (NodeInt*)consInt(v1((headInt(v2))), v0(v1, tailInt(v2)));
+    return (NodeInt*)consInt(v1((v2)->head), v0(v1, (v2)->tail));
   }
 }
 

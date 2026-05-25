@@ -10,12 +10,16 @@
 int v0(Pair* v1);
 
 // closure defitions
+typedef struct {
+    Pair* v1;
+} Env_v0;
+
 // function implementations
 int v0(Pair* v1) {
-  if ((*(int*)(snd(v1)) == 0)) {
-    return *(int*)(fst(v1));
+  if ((*(int*)((v1)->snd) == 0)) {
+    return *(int*)((v1)->fst);
   } else {
-    return v0(mk_pair(box_int(*(int*)(snd(v1))), box_int((*(int*)(fst(v1)) % *(int*)(snd(v1))))));
+    return v0(mk_pair(box_int(*(int*)((v1)->snd)), box_int((*(int*)((v1)->fst) % *(int*)((v1)->snd)))));
   }
 }
 

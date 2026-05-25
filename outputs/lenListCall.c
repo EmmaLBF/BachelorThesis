@@ -12,10 +12,10 @@ int v0(NodeInt* v1);
 // closure defitions
 // function implementations
 int v0(NodeInt* v1) {
-  if (isEmptyInt(v1)) {
+  if (((v1) == NULL)) {
     return 0;
   } else {
-    return (1 + v0(tailInt(v1)));
+    return (1 + v0((v1)->tail));
   }
 }
 

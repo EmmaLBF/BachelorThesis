@@ -4,6 +4,7 @@
 -- {-# HLINT ignore "Avoid lambda" #-}
 -- {-# HLINT ignore "Replace case with fromMaybe" #-}
 {-# LANGUAGE LambdaCase #-}
+{-# HLINT ignore "Replace case with fromMaybe" #-}
 
 module C where
 
@@ -176,7 +177,7 @@ addBoxing (UpdateVar t i x) = UpdateVar t i (addBoxingExpr x)
 addBoxing x = x
 
 addBoxingExpr :: CExpression a -> CExpression a
-addBoxingExpr (HeadList t x) = (HeadList t (addBoxingExpr x))
+addBoxingExpr (HeadList t x) = HeadList t (addBoxingExpr x)
 addBoxingExpr (Fst t x) = Unbox t (Fst t (addBoxingExpr x))
 addBoxingExpr (Snd t x) = Unbox t (Snd t (addBoxingExpr x))
 addBoxingExpr (ConsList t x y) = ConsList t (addBoxingExpr x) (addBoxingExpr y)
@@ -758,11 +759,11 @@ showCExpression (LCmpOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.show
 showCExpression (Box t x) m = box t (showCExpression x m)
 showCExpression (Unbox t x) m = unbox t ("(" ++ showCExpression x m ++ ")")
 showCExpression (Prod _ _ l r) m = "mk_pair(" ++ showCExpression l m ++ ", " ++ showCExpression r m ++ ")"
-showCExpression (Fst _ p) m = "fst(" ++ showCExpression p m ++ ")"
-showCExpression (Snd _ p) m = "snd(" ++ showCExpression p m ++ ")"
-showCExpression (IsEmpty t l) m = "isEmpty" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ ")"
-showCExpression (HeadList t l) m = "(head" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ "))"
-showCExpression (TailList t l) m = "tail" ++ showListLibFunType t ++ "(" ++ showCExpression l m ++ ")"
+showCExpression (Fst _ p) m = "(" ++ showCExpression p m ++ ")->fst"
+showCExpression (Snd _ p) m = "(" ++ showCExpression p m ++ ")->snd"
+showCExpression (IsEmpty _ l) m = "((" ++ showCExpression l m ++ ") == NULL)"
+showCExpression (HeadList _ l) m = "(" ++ showCExpression l m ++ ")->head"
+showCExpression (TailList _ l) m = "(" ++ showCExpression l m ++ ")->tail"
 showCExpression (ConsList t x l) m = "cons" ++ showListLibFunType t ++ "(" ++ showCExpression x m ++ ", " ++ showCExpression l m ++ ")"
 showCExpression (IndexList _ l i) m = showCExpression l m ++ "[" ++ showCExpression i m ++ "]"
 showCExpression (Ternary _ cond thn els) m = "((" ++ showCExpression cond m ++ ") ? (" ++ showCExpression thn m ++ ") : (" ++ showCExpression els m ++ "))"
@@ -773,21 +774,16 @@ showCExpression (CastExpr t x) m = case t of
     _ -> "(" ++ printType t ++ ")" ++ showCExpression x m
 showCExpression (ApplyClosure targ f arg) m =
     let (func, args) = collectArgsApply (ApplyClosure targ f arg)
-        varId = case func of
-            Var _ i -> i
-            Val (ClosureV i) -> i
-            _ -> -1
-    in  if varId > 0 then
-            case Map.lookup varId m of
-                Just n ->
-                    let (merged, rest) = splitAt n args
-                        applyCall expr argList =
-                            let allArgs = intercalate ", " (("((Closure*)" ++ expr ++ ")->env") :  map (`showCArg` m) argList)
-                            in  "((Closure*)" ++ expr ++ ")->fn" ++ "(" ++ allArgs ++ ")"
-                        baseCall = applyCall (showCExpression func m) merged
-                    in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
-                Nothing -> "apply((Closure*)" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
-        else "apply((Closure*)" ++ showCExpression f m ++ ", " ++ showCExpression arg m ++ ")"
+        applyCall expr argList =
+            "((Closure*)" ++ expr ++ ")->fn(" ++
+            intercalate ", " (("((Closure*)" ++ expr ++ ")->env") : map (`showCArg` m) argList) ++ ")"
+        n = case func of
+            Var _ i -> Map.findWithDefault 1 i m
+            Val (ClosureV i) -> Map.findWithDefault 1 i m
+            _ -> 1
+        (merged, rest) = splitAt n args
+        baseCall = applyCall (showCExpression func m) merged
+    in foldl (\acc arg' -> applyCall acc [arg']) baseCall rest
 -- merges together nested calls if I merged together the params earlier
 showCExpression (CallExpr tf tx f arg) m =
     let (func, args) = collectArgs (CallExpr tf tx f arg)
@@ -915,16 +911,15 @@ showListStmt = concatMap (showCStmt 0 Map.empty Map.empty Map.empty)
 
 -- MAIN
 
--- generateClosureStructs :: [(Int, CParams)] -> CStatement a
--- generateClosureStructs [] = Skip
--- generateClosureStructs [(_, [])] = Skip
--- generateClosureStructs [(ifun, p)] = DefClosureStruct ifun p
--- generateClosureStructs (i:is) = Seq (generateClosureStructs [i]) (generateClosureStructs is)
-
-generateClosureStructs :: [CStatement a] -> CStatement a
-generateClosureStructs [] = Skip
-generateClosureStructs (DefFun _ ifun params _ : rest) = Seq (DefClosureStruct ifun params) (generateClosureStructs rest)
-generateClosureStructs _ = error "not valid def fun"
+generateClosureStructs :: [CStatement a] -> LiftEnv -> CStatement a
+generateClosureStructs [] _ = Skip
+generateClosureStructs (DefFun _ ifun params _ : rest) liftenv =
+    let envParams = case Map.lookup ifun liftenv of
+                        Just ps -> ps
+                        Nothing -> []
+        allParams = params ++ envParams
+    in Seq (DefClosureStruct ifun allParams) (generateClosureStructs rest liftenv)
+generateClosureStructs _ _ = error "not valid def fun"
 
 findFirstReturn :: CStatement a -> CExpression a
 findFirstReturn (Return x)        = x
@@ -1002,7 +997,8 @@ run progName progCode canMerge = do
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
                     libName
-    let closureStructs = generateClosureStructs defs
+    
+    let closureStructs = generateClosureStructs defs liftenv
     let funDefs = showFunDefs defs
     let (funPart, mainBody) = splitTopLevel cbody
     let retExpr = findFirstReturn mainBody

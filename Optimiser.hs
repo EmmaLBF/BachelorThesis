@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use guards" #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Optimiser where
 import C
@@ -777,7 +778,7 @@ helloRun progName progCode = do
     print mergedMap
 
     putStrLn "\n--- Lifting Lambdas ---"
-    let (cbody0, closureEnv, _, _, defs0) = lambdaLift merged
+    let (cbody0, closureEnv, liftenv, _, defs0) = lambdaLift merged
     putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody0
     let cbody = addBoxing cbody0 -- boxing values
     let defs = map addBoxing defs0
@@ -798,7 +799,7 @@ helloRun progName progCode = do
             DefFun _ i _ _ -> Set.member i usedEnvs
             _ -> False) finalDefs
 
-    let closureStructs = generateClosureStructs closureDefs
+    let closureStructs = generateClosureStructs closureDefs liftenv
     let funDefs = showFunDefs finalDefs
     let (funPart, mainBody) = splitTopLevel finalBody
     let retExpr = findFirstReturn mainBody

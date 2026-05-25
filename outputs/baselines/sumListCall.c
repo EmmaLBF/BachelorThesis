@@ -13,8 +13,17 @@ int v0(NodeInt* v1);
 
 // closure defitions
 typedef struct {
+    NodeInt* v3;
     int v2;
 } Env_v4;
+
+typedef struct {
+    int v2;
+} Env_v5;
+
+typedef struct {
+    NodeInt* v1;
+} Env_v0;
 
 // function implementations
 int v4(void* env4, void* v3_raw) {
@@ -32,7 +41,7 @@ Closure* v5(int v2) {
 }
 
 int v0(NodeInt* v1) {
-  return ((isEmptyInt(v1)) ? (0) : ((int)(intptr_t)apply((Closure*)v5((headInt(v1))), tailInt(v1))));
+  return ((((v1) == NULL)) ? (0) : ((int)(intptr_t)((Closure*)v5((v1)->head))->fn(((Closure*)v5((v1)->head))->env, (v1)->tail)));
 }
 
 // main
