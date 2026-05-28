@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "../listLib.c"
 
+// pair type defitions
 // function defitions
 NodeInt* v7(void* env7, void* v3_raw, void* v4_raw);
 NodeInt* v0(int (*v1)(int), NodeInt* v2);
