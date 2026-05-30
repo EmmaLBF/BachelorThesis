@@ -169,10 +169,10 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
 # runTrials("mergeSortCall", "outputs/mergedLams/", 4, "  printListInt(v0(LIST", "()));\n")
 
 print("OPtimised MERGESORT ******")
-runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST", "()));\n")
+runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST(", ", 42)));\n")
 
 # print("Pure C MERGESORT ******")
-# runTrials("mergeSort", "OtherCode/", 8, "   int* list = LIST", "_ARRAY();\n")
+# runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
 
 
 

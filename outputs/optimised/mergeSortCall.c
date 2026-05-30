@@ -89,7 +89,7 @@ NodeInt* v0(NodeInt* v1) {
 
 // main
 int main(void) {
-  printListInt(v0(LIST1000()));
+  printListInt(v0(LIST(1000, 42)));
   return 0;
 }
 
