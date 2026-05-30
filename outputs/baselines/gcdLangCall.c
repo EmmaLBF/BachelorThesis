@@ -6,26 +6,39 @@
 #include <stdint.h>
 #include "../listLib.c"
 
+// pair type defitions
+typedef struct Pair_Int_Int {
+  int fst;
+  int snd;
+} Pair_Int_Int;
+
+Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
+  Pair_Int_Int* p = malloc(sizeof(Pair_Int_Int));
+  p->fst = fst;
+  p->snd = snd;
+  return p;
+};
+
 // function defitions
-int v0(Pair* v1);
+int v0(Pair_Int_Int* v1);
 
 // closure defitions
 typedef struct {
-    Pair* v1;
+    Pair_Int_Int* v1;
 } Env_v0;
 
 // function implementations
-int v0(Pair* v1) {
-  if ((*(int*)((v1)->snd) == 0)) {
-    return *(int*)((v1)->fst);
+int v0(Pair_Int_Int* v1) {
+  if (((v1)->snd == 0)) {
+    return (v1)->fst;
   } else {
-    return v0(mk_pair(box_int(*(int*)((v1)->snd)), box_int((*(int*)((v1)->fst) % *(int*)((v1)->snd)))));
+    return v0(makePair_Int_Int((v1)->snd, ((v1)->fst % (v1)->snd)));
   }
 }
 
 // main
 int main(void) {
-  printInt(v0(mk_pair(box_int(30), box_int(10))));
+  printInt(v0(makePair_Int_Int(30, 10)));
   return 0;
 }
 

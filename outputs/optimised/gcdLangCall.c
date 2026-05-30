@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "listLib.c"
+#include "../listLib.c"
 
 // pair type defitions
 typedef struct Pair_Int_Int {

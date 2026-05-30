@@ -6,6 +6,31 @@
 #include <stdint.h>
 #include "../listLib.c"
 
+// pair type defitions
+typedef struct Pair_Int_NodeInt {
+  int fst;
+  NodeInt* snd;
+} Pair_Int_NodeInt;
+
+Pair_Int_NodeInt* makePair_Int_NodeInt(int fst, NodeInt* snd) {
+  Pair_Int_NodeInt* p = malloc(sizeof(Pair_Int_NodeInt));
+  p->fst = fst;
+  p->snd = snd;
+  return p;
+};
+
+typedef struct Pair_NodeInt_NodeInt {
+  NodeInt* fst;
+  NodeInt* snd;
+} Pair_NodeInt_NodeInt;
+
+Pair_NodeInt_NodeInt* makePair_NodeInt_NodeInt(NodeInt* fst, NodeInt* snd) {
+  Pair_NodeInt_NodeInt* p = malloc(sizeof(Pair_NodeInt_NodeInt));
+  p->fst = fst;
+  p->snd = snd;
+  return p;
+};
+
 // function defitions
 NodeInt* v28(void* env28, void* v13_raw);
 Closure* v29(void* env29, void* v12_raw);
@@ -13,19 +38,19 @@ NodeInt* v32(void* env32, void* v11_raw);
 Closure* v33(void* env33, void* v10_raw);
 NodeInt* v36(void* env36, void* v9_raw);
 Closure* v7(NodeInt* v8);
-NodeInt* v45(Pair* v6);
-Pair* v46(void* env46, void* v23_raw);
-Pair* v51(void* env51, void* v22_raw);
+NodeInt* v45(Pair_NodeInt_NodeInt* v6);
+Pair_NodeInt_NodeInt* v46(void* env46, void* v23_raw);
+Pair_NodeInt_NodeInt* v51(void* env51, void* v22_raw);
 Closure* v52(void* env52, void* v21_raw);
-Pair* v55(void* env55, void* v20_raw);
-Pair* v58(void* env58, void* v19_raw);
-Pair* v17(Pair* v18);
-Pair* v63(void* env63, void* v16_raw);
-Pair* v66(void* env66, void* v15_raw);
+Pair_NodeInt_NodeInt* v55(void* env55, void* v20_raw);
+Pair_NodeInt_NodeInt* v58(void* env58, void* v19_raw);
+Pair_NodeInt_NodeInt* v17(Pair_Int_NodeInt* v18);
+Pair_NodeInt_NodeInt* v63(void* env63, void* v16_raw);
+Pair_NodeInt_NodeInt* v66(void* env66, void* v15_raw);
 int v67(NodeInt* v27);
 int (*v68(int v26))(NodeInt*);
 int v24(NodeInt* v25);
-Pair* v75(NodeInt* v14);
+Pair_NodeInt_NodeInt* v75(NodeInt* v14);
 NodeInt* v80(void* env80, void* v5_raw);
 Closure* v81(void* env81, void* v4_raw);
 NodeInt* v84(void* env84, void* v3_raw);
@@ -73,11 +98,11 @@ typedef struct {
 } Env_v7;
 
 typedef struct {
-    Pair* v6;
+    Pair_NodeInt_NodeInt* v6;
 } Env_v45;
 
 typedef struct {
-    Pair* v23;
+    Pair_NodeInt_NodeInt* v23;
     int v21;
 } Env_v46;
 
@@ -99,11 +124,11 @@ typedef struct {
 
 typedef struct {
     int v19;
-    Pair* v18;
+    Pair_Int_NodeInt* v18;
 } Env_v58;
 
 typedef struct {
-    Pair* v18;
+    Pair_Int_NodeInt* v18;
 } Env_v17;
 
 typedef struct {
@@ -225,23 +250,23 @@ Closure* v7(NodeInt* v8) {
   return c36;
 }
 
-NodeInt* v45(Pair* v6) {
-  return (NodeInt*)((Closure*)v7(v0((NodeInt*)((v6)->fst))))->fn(((Closure*)v7(v0((NodeInt*)((v6)->fst))))->env, v0((NodeInt*)((v6)->snd)));
+NodeInt* v45(Pair_NodeInt_NodeInt* v6) {
+  return (NodeInt*)((Closure*)v7(v0((v6)->fst)))->fn(((Closure*)v7(v0((v6)->fst)))->env, v0((v6)->snd));
 }
 
-Pair* v46(void* env46, void* v23_raw) {
-  Pair* v23 = (Pair*)v23_raw;
-  return mk_pair(consInt(((Env_v46*)env46)->v21, (NodeInt*)((v23)->fst)), (NodeInt*)((v23)->snd));
+Pair_NodeInt_NodeInt* v46(void* env46, void* v23_raw) {
+  Pair_NodeInt_NodeInt* v23 = (Pair_NodeInt_NodeInt*)v23_raw;
+  return makePair_NodeInt_NodeInt(consInt(((Env_v46*)env46)->v21, (v23)->fst), (v23)->snd);
 }
 
-Pair* v51(void* env51, void* v22_raw) {
+Pair_NodeInt_NodeInt* v51(void* env51, void* v22_raw) {
   NodeInt* v22 = (NodeInt*)v22_raw;
   Env_v46* env46 = malloc(sizeof(Env_v46));
   env46->v21 = ((Env_v51*)env51)->v21;
   Closure* c46 = malloc(sizeof(Closure));
   c46->env = env46;
   c46->fn = (void* (*)(void*, void*))v46;
-  return (Pair*)((Closure*)c46)->fn(((Closure*)c46)->env, v17(mk_pair(box_int((((Env_v51*)env51)->v19 - 1)), v22)));
+  return (Pair_NodeInt_NodeInt*)((Closure*)c46)->fn(((Closure*)c46)->env, v17(makePair_Int_NodeInt((((Env_v51*)env51)->v19 - 1), v22)));
 }
 
 Closure* v52(void* env52, void* v21_raw) {
@@ -255,52 +280,52 @@ Closure* v52(void* env52, void* v21_raw) {
   return c51;
 }
 
-Pair* v55(void* env55, void* v20_raw) {
+Pair_NodeInt_NodeInt* v55(void* env55, void* v20_raw) {
   NodeInt* v20 = (NodeInt*)v20_raw;
   if ((((Env_v55*)env55)->v19 == 0)) {
-    return mk_pair(NULL, v20);
+    return makePair_NodeInt_NodeInt(NULL, v20);
   } else {
     Env_v52* env52 = malloc(sizeof(Env_v52));
     env52->v19 = ((Env_v55*)env55)->v19;
     Closure* c52 = malloc(sizeof(Closure));
     c52->env = env52;
     c52->fn = (void* (*)(void*, void*))v52;
-    return ((((v20) == NULL)) ? (mk_pair(NULL, NULL)) : ((Pair*)((Closure*)((Closure*)c52)->fn(((Closure*)c52)->env, box_int((v20)->head)))->fn(((Closure*)((Closure*)c52)->fn(((Closure*)c52)->env, box_int((v20)->head)))->env, (v20)->tail)));
+    return ((((v20) == NULL)) ? (makePair_NodeInt_NodeInt(NULL, NULL)) : ((Pair_NodeInt_NodeInt*)((Closure*)((Closure*)c52)->fn(((Closure*)c52)->env, box_int((v20)->head)))->fn(((Closure*)((Closure*)c52)->fn(((Closure*)c52)->env, box_int((v20)->head)))->env, (v20)->tail)));
   }
 }
 
-Pair* v58(void* env58, void* v19_raw) {
+Pair_NodeInt_NodeInt* v58(void* env58, void* v19_raw) {
   int v19 = *(int*)v19_raw;
   Env_v55* env55 = malloc(sizeof(Env_v55));
   env55->v19 = v19;
   Closure* c55 = malloc(sizeof(Closure));
   c55->env = env55;
   c55->fn = (void* (*)(void*, void*))v55;
-  return (Pair*)((Closure*)c55)->fn(((Closure*)c55)->env, (NodeInt*)((((Env_v58*)env58)->v18)->snd));
+  return (Pair_NodeInt_NodeInt*)((Closure*)c55)->fn(((Closure*)c55)->env, (((Env_v58*)env58)->v18)->snd);
 }
 
-Pair* v17(Pair* v18) {
+Pair_NodeInt_NodeInt* v17(Pair_Int_NodeInt* v18) {
   Env_v58* env58 = malloc(sizeof(Env_v58));
   env58->v18 = v18;
   Closure* c58 = malloc(sizeof(Closure));
   c58->env = env58;
   c58->fn = (void* (*)(void*, void*))v58;
-  return (Pair*)((Closure*)c58)->fn(((Closure*)c58)->env, box_int(*(int*)((v18)->fst)));
+  return (Pair_NodeInt_NodeInt*)((Closure*)c58)->fn(((Closure*)c58)->env, box_int((v18)->fst));
 }
 
-Pair* v63(void* env63, void* v16_raw) {
+Pair_NodeInt_NodeInt* v63(void* env63, void* v16_raw) {
   int v16 = *(int*)v16_raw;
-  return v17(mk_pair(box_int(v16), ((Env_v63*)env63)->v14));
+  return v17(makePair_Int_NodeInt(v16, ((Env_v63*)env63)->v14));
 }
 
-Pair* v66(void* env66, void* v15_raw) {
+Pair_NodeInt_NodeInt* v66(void* env66, void* v15_raw) {
   int v15 = *(int*)v15_raw;
   Env_v63* env63 = malloc(sizeof(Env_v63));
   env63->v14 = ((Env_v66*)env66)->v14;
   Closure* c63 = malloc(sizeof(Closure));
   c63->env = env63;
   c63->fn = (void* (*)(void*, void*))v63;
-  return (Pair*)((Closure*)c63)->fn(((Closure*)c63)->env, box_int((v15 / 2)));
+  return (Pair_NodeInt_NodeInt*)((Closure*)c63)->fn(((Closure*)c63)->env, box_int((v15 / 2)));
 }
 
 int v67(NodeInt* v27) {
@@ -315,13 +340,13 @@ int v24(NodeInt* v25) {
   return ((((v25) == NULL)) ? (0) : (v68((v25)->head)((v25)->tail)));
 }
 
-Pair* v75(NodeInt* v14) {
+Pair_NodeInt_NodeInt* v75(NodeInt* v14) {
   Env_v66* env66 = malloc(sizeof(Env_v66));
   env66->v14 = v14;
   Closure* c66 = malloc(sizeof(Closure));
   c66->env = env66;
   c66->fn = (void* (*)(void*, void*))v66;
-  return (Pair*)((Closure*)c66)->fn(((Closure*)c66)->env, box_int(v24(v14)));
+  return (Pair_NodeInt_NodeInt*)((Closure*)c66)->fn(((Closure*)c66)->env, box_int(v24(v14)));
 }
 
 NodeInt* v80(void* env80, void* v5_raw) {
@@ -365,7 +390,7 @@ NodeInt* v0(NodeInt* v1) {
 
 // main
 int main(void) {
-  printListInt(v0(consInt(4, consInt(6, consInt(3, NULL)))));
+  printListInt(v0(LIST1000()));
   return 0;
 }
 

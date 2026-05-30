@@ -76,6 +76,10 @@ Pair* mk_pair(void* fst, void* snd) {
     return p;
 }
 
+// Pair mk_pair(void* fst, void* snd) {
+//     return (Pair){ .fst = fst, .snd = snd };
+// }
+
 // def lists
 NodeInt* LIST3() {
     return consInt(4, consInt(6, consInt(3, NULL)));

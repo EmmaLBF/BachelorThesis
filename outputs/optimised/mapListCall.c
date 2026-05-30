@@ -6,23 +6,18 @@
 #include <stdint.h>
 #include "../listLib.c"
 
+// pair type defitions
 // function defitions
 NodeInt* v0(int (*v1)(int), NodeInt* v2);
 int v11(int v5);
 
 // closure defitions
-typedef struct {
-    int (*v1)(int);
-} Env_v7;
-
 // function implementations
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {
-  if (isEmptyInt(v2)) {
+  if (((v2) == NULL)) {
     return NULL;
   } else {
-    int v3 = (headInt(v2));
-    NodeInt* v4 = tailInt(v2);
-    return (NodeInt*)consInt(v1(v3), v0(v1, v4));
+    return consInt(v1((v2)->head), v0(v1, (v2)->tail));
   }
 }
 

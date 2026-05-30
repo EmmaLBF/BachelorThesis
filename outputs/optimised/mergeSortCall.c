@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "listLib.c"
+#include "../listLib.c"
 
 // pair type defitions
 typedef struct Pair_Int_NodeInt {
@@ -43,13 +43,11 @@ NodeInt* v7(NodeInt* v8, NodeInt* v9) {
   if (((v8) == NULL)) {
     return v9;
   } else {
-    int v10 = (v8)->head;
-    int v12 = (v9)->head;
     NodeInt* v29 = NULL;
-    if ((v10 < v12)) {
-      v29 = consInt(v10, v7((v8)->tail, v9));
+    if (((v8)->head < (v9)->head)) {
+      v29 = consInt((v8)->head, v7((v8)->tail, v9));
     } else {
-      v29 = consInt(v12, v7((v9)->tail, v8));
+      v29 = consInt((v9)->head, v7((v9)->tail, v8));
     }
     return ((((v9) == NULL)) ? (v8) : (v29));
   }
@@ -80,12 +78,10 @@ NodeInt* v0(NodeInt* v1) {
   if (((v1) == NULL)) {
     return NULL;
   } else {
-    NodeInt* v3 = (v1)->tail;
-    if (((v3) == NULL)) {
+    if ((((v1)->tail) == NULL)) {
       return consInt((v1)->head, NULL);
     } else {
-      NodeInt* v14 = consInt((v1)->head, v3);
-      Pair_NodeInt_NodeInt* v6 = v17(makePair_Int_NodeInt((v24(v14) / 2), v14));
+      Pair_NodeInt_NodeInt* v6 = v17(makePair_Int_NodeInt((v24(v1) / 2), v1));
       return v7(v0((v6)->fst), v0((v6)->snd));
     }
   }

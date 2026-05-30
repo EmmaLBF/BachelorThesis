@@ -18,6 +18,7 @@ import Data.Typeable
 import System.IO
 import Unsafe.Coerce (unsafeCoerce)
 import Data.List (intercalate)
+import Text.Read (Lexeme(String))
 
 stripBox :: CExpression a -> CExpression a
 stripBox (Box _ x) = unsafeCoerce x
@@ -34,7 +35,7 @@ data EscapeResult = EscapeResult
     } deriving (Show)
 
 emptyEscapeResult :: EscapeResult
-emptyEscapeResult = EscapeResult Set.empty Map.empty Map.empty  Set.empty Set.empty
+emptyEscapeResult = EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty
 
 mergeEscape :: EscapeResult -> EscapeResult -> EscapeResult
 mergeEscape a b = EscapeResult
@@ -96,20 +97,19 @@ escapeAnalysis (BindExpr _ x i y) r = escapeAnalysis y (countVarUses x (r { varU
 escapeAnalysis (If c t e) r =
     let r' = countVarUses c r
     in mergeEscape (escapeAnalysis t r') (escapeAnalysis e r')
-escapeAnalysis (UpdateVar _ i x) r = countVarUses x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg CTVoidPtr x) (varDefs r)})
-escapeAnalysis (DefVar _ i x) r = countVarUses x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg CTVoidPtr x) (varDefs r) })
+escapeAnalysis (UpdateVar _ i x) r = countVarUses x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg (CTPtr CTVoid) x) (varDefs r)})
+escapeAnalysis (DefVar _ i x) r = countVarUses x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg (CTPtr CTVoid) x) (varDefs r) })
 escapeAnalysis (While c x) r = escapeAnalysis x (countVarUses c r)
 escapeAnalysis (AllocEnv i _ _ _) r = r { allocedEnvs = Set.insert i (allocedEnvs r) }
 escapeAnalysis _ r = r
 
 removeLocalEnvsExpr :: CExpression a -> EscapeResult -> CExpression a
-removeLocalEnvsExpr (GetEnvField t envId varId) r =
-    if Set.member envId (escapedEnvs r)
-    then GetEnvField t envId varId
-    else if Set.member envId (allocedEnvs r) then -- can only remove closure if it was actually alloced in this function, ontherwise it was passed as a param
-            -- trace ("MEMBER: " ++ show envId ++ " | " ++  show r) $
-            Var t varId
-        else GetEnvField t envId varId
+removeLocalEnvsExpr (GetEnvField t envId varId) r
+  | Set.member envId (escapedEnvs r) = GetEnvField t envId varId
+  | Set.member envId (allocedEnvs r) = -- can only remove closure if it was actually alloced in this function, ontherwise it was passed as a param
+   -- trace ("MEMBER: " ++ show envId ++ " | " ++  show r) $
+   Var t varId
+  | otherwise = GetEnvField t envId varId
 removeLocalEnvsExpr (Not x) r = Not (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Fst t x) r = Fst t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (Snd t x) r = Snd t (removeLocalEnvsExpr x r)
@@ -138,7 +138,7 @@ removeLocalEnvs (AllocEnv envId parentId directPs parentPs) r =
             AllocEnv envId parentId (directPs ++ parentPs) []
     else Skip
 removeLocalEnvs (DefFun t i p body) _ =
-    let r' = escapeAnalysis body (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty)
+    let r' = escapeAnalysis body emptyEscapeResult
     in DefFun t i p (removeLocalEnvs body r')
 removeLocalEnvs (Seq x y) r = Seq (removeLocalEnvs x r) (removeLocalEnvs y r)
 removeLocalEnvs (BindExpr t x i y) r = BindExpr t (removeLocalEnvsExpr x r) i (removeLocalEnvs y r)
@@ -178,7 +178,7 @@ removeSingleVarsExpr x _ = x
 
 removeSingleVars :: CStatement a -> EscapeResult -> CStatement a
 removeSingleVars (DefFun t i p body) _ =
-    let r' = escapeAnalysis body (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty)
+    let r' = escapeAnalysis body emptyEscapeResult
     in DefFun t i p (removeSingleVars body r')
 removeSingleVars (Seq x y) r = Seq (removeSingleVars x r) (removeSingleVars y r)
 removeSingleVars (BindExpr t x i y) r =
@@ -267,7 +267,7 @@ rewriteApply i parentId (ApplyClosure targ f arg) =
     case f of
         Val (ClosureV i') | i == i' ->
             -- trace ("single arg case " ++ showCExpression f Map.empty) $
-            CallExpr CTVoidPtr targ (CallExpr CTVoidPtr CTVoidPtr (Var CTVoidPtr i) (Val (EnvV parentId))) (stripBox arg)
+            CallExpr (CTPtr CTVoid) targ (CallExpr (CTPtr CTVoid) (CTPtr CTVoid) (Var (CTPtr CTVoid) i) (Val (EnvV parentId))) (stripBox arg)
         _ ->
             -- trace ("multi arg case " ++ showCExpression f Map.empty) $
             case rewriteApply i parentId f of
@@ -496,7 +496,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
                                 case arg of
                                     (Val (EnvV ip'))
                                         | ip' == ip -> acc
-                                        | otherwise -> Seq (DefVar CTVoidPtr ip arg) acc
+                                        | otherwise -> Seq (DefVar (CTPtr CTVoid) ip arg) acc
                                     _ -> error "mismatch arg and param"
                         ) Skip (zip params funArgs)
                     pre = Seq bindings fbodyNoRet
@@ -579,40 +579,29 @@ removeDeadFuns _ d x = (x, d)
 -- REMOVE CASTS
 removeCast :: CExpression a -> CExpression b -> CExpression a
 removeCast fallback x = case x of
-    Val cv           -> unsafeCoerce (Val cv)
-    Not ce           -> unsafeCoerce (Not ce)
-    Var ct n         -> unsafeCoerce (Var ct n)
-    LIntOp op a b    -> unsafeCoerce (LIntOp op a b)
-    LCmpOp op a b    -> unsafeCoerce (LCmpOp op a b)
-    expr@Prod{}      -> unsafeCoerce expr
-    expr@HeadList{}  -> unsafeCoerce expr
-    expr@TailList{}  -> unsafeCoerce expr
-    expr@EmptyList{} -> unsafeCoerce expr
-    expr@ConsList{}  -> unsafeCoerce expr
-    expr@IsEmpty{}   -> unsafeCoerce expr
-    expr@IndexList{} -> unsafeCoerce expr
-    expr@CallExpr{}  -> unsafeCoerce expr
-    _                -> fallback -- the only ones that need cast are fst and snd because they return void*
+    Fst{} -> fallback
+    Snd{} -> fallback
+    expr -> unsafeCoerce expr -- the only ones that need cast are fst and snd because they return void*
 
 removeCastsExpr :: CExpression a -> CExpression a
 removeCastsExpr (CastExpr t x) = removeCast (CastExpr t x) (removeCastsExpr x)
-removeCastsExpr (Unbox t x)    = removeCast (Unbox t x)    (removeCastsExpr x)
-removeCastsExpr (Box t x)      = Box t (removeCastsExpr x)
-removeCastsExpr (Not x)        = Not (removeCastsExpr x)
-removeCastsExpr (LIntOp op x y)    = LIntOp op (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (LCmpOp op x y)    = LCmpOp op (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (Ternary t c x y)  = Ternary t (removeCastsExpr c) (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Unbox t x) = removeCast (Unbox t x) (removeCastsExpr x)
+removeCastsExpr (Box t x) = Box t (removeCastsExpr x)
+removeCastsExpr (Not x) = Not (removeCastsExpr x)
+removeCastsExpr (LIntOp op x y) = LIntOp op (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (LCmpOp op x y) = LCmpOp op (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Ternary t c x y) = Ternary t (removeCastsExpr c) (removeCastsExpr x) (removeCastsExpr y)
 removeCastsExpr (CallExpr tf tx f x) = CallExpr tf tx (removeCastsExpr f) (removeCastsExpr x)
 removeCastsExpr (ApplyClosure t f x) = ApplyClosure t (removeCastsExpr f) (removeCastsExpr x)
-removeCastsExpr (ConsList t x y)   = ConsList t (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (Prod tx ty x y)   = Prod tx ty (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (Fst t x)          = Fst t (removeCastsExpr x)
-removeCastsExpr (Snd t x)          = Snd t (removeCastsExpr x)
-removeCastsExpr (IsEmpty t x)      = IsEmpty t (removeCastsExpr x)
-removeCastsExpr (HeadList t x)     = HeadList t (removeCastsExpr x)
-removeCastsExpr (TailList t x)     = TailList t (removeCastsExpr x)
-removeCastsExpr (IndexList t x y)  = IndexList t (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr x                  = x
+removeCastsExpr (ConsList t x y) = ConsList t (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Prod tx ty x y) = Prod tx ty (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Fst t x) = Fst t (removeCastsExpr x)
+removeCastsExpr (Snd t x) = Snd t (removeCastsExpr x)
+removeCastsExpr (IsEmpty t x) = IsEmpty t (removeCastsExpr x)
+removeCastsExpr (HeadList t x) = HeadList t (removeCastsExpr x)
+removeCastsExpr (TailList t x) = TailList t (removeCastsExpr x)
+removeCastsExpr (IndexList t x y) = IndexList t (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr x = x
 
 removeCasts :: CStatement a -> CStatement a
 removeCasts (Return x)          = Return (removeCastsExpr x)
@@ -717,11 +706,14 @@ printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " 
 
 -- Common Subexpression elimination
 
+-- replaces all var defs of form v2 = v3 or v2 = env5
 collectAliases :: CStatement a -> Map.Map Int CArg -> Map.Map Int CArg
 collectAliases (DefVar t i x) m =
     case x of
         Var t2 j -> Map.insert i (CArg t (Var t2 j)) m
         Val (EnvV j) -> Map.insert i (CArg t (Val (EnvV j))) m
+        HeadList t2 (Var t3 j) -> Map.insert i (CArg t (HeadList t2 (Var t3 j))) m
+        TailList t2 (Var t3 j) -> Map.insert i (CArg t (TailList t2 (Var t3 j))) m
         _ -> m
 collectAliases (Seq x y) m = collectAliases y (collectAliases x m)
 collectAliases (If _ x y) m = Map.union (collectAliases x m) (collectAliases y m)
@@ -731,15 +723,26 @@ collectAliases (DefFun _ _ _ body) m = collectAliases body m
 collectAliases _ m = m
 
 applyAliases :: CStatement a -> Map.Map Int CArg -> CStatement a
-applyAliases (DefVar t i x) m =
-    case Map.lookup i m of
-        Just _ -> Skip
-        Nothing -> DefVar t i (replaceVarAssignment x m)
+-- applyAliases (DefVar t i x) m =
+--     case Map.lookup i m of
+--         Just _ -> Skip
+--         Nothing -> DefVar t i (replaceVarAssignment x m)
+applyAliases (DefVar t i x) m = DefVar t i (replaceVarAssignment x m)    
+-- applyAliases (BindExpr t x i y) m = 
+--     case Map.lookup i m of
+--         Just _ -> applyAliases y m
+--         Nothing -> BindExpr t (replaceVarAssignment x m) i (applyAliases y m)
 applyAliases (BindExpr t x i y) m = BindExpr t (replaceVarAssignment x m) i (applyAliases y m)
+applyAliases (DefFun tret ifun param body) m = 
+    -- trace ("applyAliases DefFun " ++ show ifun ++ " null=" ++ show (Map.null m)) $
+    DefFun tret ifun param (applyAliases body m)
 applyAliases (Seq x y) m = Seq (applyAliases x m) (applyAliases y m)
-applyAliases (If cond x y) m = If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
+applyAliases (If cond x y) m = 
+    -- trace ("applyAliases If null=" ++ show (Map.null m)) $
+    If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
+-- applyAliases (If cond x y) m = If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
 applyAliases (While cond x) m = While (replaceVarAssignment cond m) (applyAliases x m)
-applyAliases (DefFun tret ifun param body) m = DefFun tret ifun param (applyAliases body m)
+-- applyAliases (DefFun tret ifun param body) m = DefFun tret ifun param (applyAliases body m)
 applyAliases (Return x) m = Return (replaceVarAssignment x m)
 applyAliases (UpdateVar tx i x) m = UpdateVar tx i (replaceVarAssignment x m)
 applyAliases x _ = x
@@ -748,19 +751,29 @@ applyAliases x _ = x
 eliminateAliases :: CStatement a -> (CStatement a, Bool)
 eliminateAliases stmt =
     let m = collectAliases stmt Map.empty
-    in trace (printIntArgMap m) $
+        m' = Map.mapWithKey
+               (\i (CArg t e) -> CArg t (replaceVarAssignment e (Map.delete i m)))
+               m
+    in 
+        trace ("=== eliminateAliases called, map size=" ++ show (Map.size m)) $
+        trace (printIntArgMap m')
+        trace (showCStmt 0 Map.empty Map.empty Map.empty stmt)
         (applyAliases stmt m, not (null m))
 
 replaceVarAssignment :: CExpression a -> Map.Map Int CArg -> CExpression a
 replaceVarAssignment (Var t i) m =
     case Map.lookup i m of
-        Just (CArg _ n) -> unsafeCoerce n
-        Nothing -> Var t i
+        Just (CArg _ n) -> 
+            trace ("!!!!replacing var " ++ show i ++ " with " ++ showCExpression n Map.empty) $
+            replaceVarAssignment (unsafeCoerce n) m
+        Nothing -> 
+            -- trace ("!!!!not replacing var " ++ show i) $
+            Var t i
 replaceVarAssignment (GetEnvField t structId fieldId) m =
     -- trace ("!!!!replacing getenv " ++ show structId) $
     case Map.lookup structId m of
-        Just (CArg _ (Var _ newId)) -> GetEnvField t newId fieldId
-        Just (CArg _ (Val (EnvV newId))) -> GetEnvField t newId fieldId
+        Just (CArg _ (Var _ newId)) -> replaceVarAssignment (GetEnvField t newId fieldId) m
+        Just (CArg _ (Val (EnvV newId))) -> replaceVarAssignment (GetEnvField t newId fieldId) m
         _ -> GetEnvField t structId fieldId
 replaceVarAssignment (Not x) m = Not (replaceVarAssignment x m)
 replaceVarAssignment (LIntOp op x y) m = LIntOp op (replaceVarAssignment x m) (replaceVarAssignment y m)
@@ -774,7 +787,9 @@ replaceVarAssignment (HeadList t x) m = HeadList t (replaceVarAssignment x m)
 replaceVarAssignment (TailList t x) m = TailList t (replaceVarAssignment x m)
 replaceVarAssignment (IsEmpty t x) m = IsEmpty t (replaceVarAssignment x m)
 replaceVarAssignment (IndexList t i x) m = IndexList t i (replaceVarAssignment x m)
-replaceVarAssignment (ConsList t x y) m = ConsList t (replaceVarAssignment x m) (replaceVarAssignment y m)
+replaceVarAssignment (ConsList t x y) m = 
+    -- trace ("!!!!replacing cons " ++ show (null m) ++ " | " ++ showCExpression x Map.empty ++ " | " ++ showCExpression y Map.empty) $
+    ConsList t (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (Box t x) m = Box t (replaceVarAssignment x m)
 replaceVarAssignment (Unbox t x) m = Unbox t (replaceVarAssignment x m)
 replaceVarAssignment (ApplyClosure t x y) m = ApplyClosure t (replaceVarAssignment x m) (replaceVarAssignment y m)
@@ -822,7 +837,7 @@ printEscapeAnalysis :: [CStatement a] -> IO ()
 printEscapeAnalysis = mapM_ printOne
   where
     printOne def@(DefFun _ i _ _) = do
-        let result = escapeAnalysis def (EscapeResult Set.empty Map.empty Map.empty Set.empty Set.empty)
+        let result = escapeAnalysis def emptyEscapeResult
         putStrLn $ "v" ++ show i ++ ": " ++ show result
     printOne _ = return ()
 
@@ -830,6 +845,11 @@ getDefs :: CStatement a -> [CStatement a]
 getDefs stmt@DefFun{} = [stmt]
 getDefs (Seq x y) = getDefs x ++ getDefs y
 getDefs _ = []
+
+
+
+
+
 
 -- MAIN
 
@@ -841,16 +861,21 @@ keepOptimising body defs mergedMap = do
     let changedClosures = not (null removedClosures)
 
     let (inlinedBody, changedFuns) =
-        -- trace ("inlined " ++ show (countFunctionCalls cbody' Map.empty)) $
             let (cbody'', removedFuns) = inlineUntilFixed defs' cbody'
                 (cbody''', _) = removeDeadFuns removedFuns defs' cbody''
             in (cbody''', not (null removedFuns))
 
-    let (varReplacedBody, changedAlias) = eliminateAliases inlinedBody
-
-    let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs varReplacedBody)
-    let escapeBody = removeLocalEnvs varReplacedBody (foldr mergeEscape emptyEscapeResult escapeRes)
+    let (elminatedBody, changedAlias) = eliminateAliases inlinedBody
+    let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs elminatedBody)
+    let escapeBody = removeLocalEnvs elminatedBody (foldr mergeEscape emptyEscapeResult escapeRes)
     let escapeBody' = removeSingleVars escapeBody (foldr mergeEscape emptyEscapeResult escapeRes)
+    
+    -- let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs inlinedBody)
+    -- let envRemovedBody = removeLocalEnvs inlinedBody (foldr mergeEscape emptyEscapeResult escapeRes)
+    -- let (elminatedBody, changedAlias) = eliminateAliases envRemovedBody
+    -- -- then removeSingleVars on elminatedBody
+    -- let escapeRes2 = map (`escapeAnalysis` emptyEscapeResult) (getDefs elminatedBody)
+    -- let escapeBody' = removeSingleVars elminatedBody (foldr mergeEscape emptyEscapeResult escapeRes2)
 
     let removedUselessBody = removeUseless escapeBody'
     let newDefs = getDefs removedUselessBody
@@ -862,12 +887,10 @@ keepOptimising body defs mergedMap = do
 
 helloRun :: Typeable a => String -> AL.Lang a -> IO ()
 helloRun progName progCode = do
-    -- let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    -- let progPath = 
-    --         if canInline then "inlined/" ++ progName
-    --         else "removedClosureAllocs/" ++ progName
-    let libName = "\n#include \"listLib.c\"\n"
-    let progPath = progName
+    let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
+    let progPath = "optimised/" ++ progName
+    -- let libName = "\n#include \"listLib.c\"\n"
+    -- let progPath = progName
 
     let (nl, c') = NL.translate 0 progCode
         (clBase, _) = runState (CL.translate nl) c'
@@ -875,21 +898,24 @@ helloRun progName progCode = do
         clOptRepl = CL.replaceVarBindingStmt clOpt newBinds
         c = translate clOptRepl
 
-    putStrLn "--- Translating to CLang ---"
-    putStrLn $ CL.showCStmt 0 clBase
+    -- putStrLn "--- Translating to CLang ---"
+    -- putStrLn $ CL.showCStmt 0 clBase
 
     putStrLn "\n--- Merging Lambdas ---"
     let (merged, mergedMap) = mergeLambdas c c Map.empty
-    print mergedMap
+    -- print mergedMap
 
     putStrLn "\n--- Lifting Lambdas ---"
     let (cbody0, closureEnv, liftenv, _, defs0) = lambdaLift merged
-    putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody0
+    -- putStrLn $ showCStmt 0 Map.empty Map.empty Map.empty cbody0
     let cbody = addBoxing cbody0 -- boxing values
     let defs = map addBoxing defs0
     let strFunTypes = getStrFunTypes defs Map.empty
     let (finalBody', finalDefs, finalMergeMap) = keepOptimising cbody defs mergedMap
     let finalBody = removeCasts finalBody'
+
+    let pairTypes = collectPairTypes finalBody Set.empty
+    print pairTypes
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++
@@ -916,6 +942,7 @@ helloRun progName progCode = do
 
     let content =
             "\n// imports" ++ imports ++
+            "\n// pair type defitions" ++ concat (map genPairDeclaration (Set.toList pairTypes)) ++
             "\n// function defitions" ++ funDefs ++
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty Map.empty strFunTypes closureStructs ++
             "\n// function implementations" ++ funImpl ++

@@ -71,8 +71,8 @@ def compile_and_run_c(folder, c_file, trial, index_to_remove, new_line):
         path     = folder + c_file + ".c"
         path_out = folder + c_file
         
-        print("\n" + ("-" * 30))
-        print(f"{BOLD}{RED}Running: {c_file} | {trial} {RESET}")
+        # print("\n" + ("-" * 30))
+        # print(f"{BOLD}{RED}Running: {c_file} | {trial} {RESET}")
 
         # replace call with last line
         if (index_to_remove > 0):
@@ -162,14 +162,20 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
         print(str(n) + " " + " ".join(str(row[c]).strip() for c in cols))
 
 
-# print("LamMerged MERGESORT ******")
-# runTrials("mergedLams/mergeSortCall", "outputs/", 4, "  printList(v0(LIST", "()));\n")
+# print("Basic MERGESORT ******")
+# runTrials("mergeSortCall", "outputs/baselines/", 4, "  printListInt(v0(LIST", "()));\n")
 
-# print("Inlined MERGESORT ******")
-# runTrials("inlined/mergeSortCall", "outputs/", 4, "  printList(v0(LIST", "()));\n")
+# print("MergeLams MERGESORT ******")
+# runTrials("mergeSortCall", "outputs/mergedLams/", 4, "  printListInt(v0(LIST", "()));\n")
 
-print("Pure C MERGESORT ******")
-runTrials("mergeSort", "OtherCode/", 8, "   int* list = LIST", "_ARRAY();\n")
+print("OPtimised MERGESORT ******")
+runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST", "()));\n")
+
+# print("Pure C MERGESORT ******")
+# runTrials("mergeSort", "OtherCode/", 8, "   int* list = LIST", "_ARRAY();\n")
+
+
+
 
 # print("Testing ******")
 # print("\n" + ("-" * 30))

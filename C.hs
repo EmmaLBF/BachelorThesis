@@ -43,12 +43,12 @@ data CType
     | CTNode
     | CTNodeInt
     | CTNodeBool
-    | CTPair
+    | CTPair CType CType
     | CTClosure
     | CTPtr CType
     | CTFun CType CType
     | CTVoidPtr
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 data CArg where
   CArg :: CType -> CExpression a -> CArg
@@ -178,8 +178,8 @@ addBoxing x = x
 
 addBoxingExpr :: CExpression a -> CExpression a
 addBoxingExpr (HeadList t x) = HeadList t (addBoxingExpr x)
-addBoxingExpr (Fst t x) = Unbox t (Fst t (addBoxingExpr x))
-addBoxingExpr (Snd t x) = Unbox t (Snd t (addBoxingExpr x))
+addBoxingExpr (Fst t x) = Fst t (addBoxingExpr x)
+addBoxingExpr (Snd t x) = Snd t (addBoxingExpr x)
 addBoxingExpr (ConsList t x y) = ConsList t (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (ApplyClosure tx f x) = ApplyClosure tx (addBoxingExpr f) (Box tx (addBoxingExpr x))
 addBoxingExpr (LIntOp op x y) = LIntOp op (addBoxingExpr x) (addBoxingExpr y)
@@ -191,7 +191,7 @@ addBoxingExpr (CastExpr t x) = CastExpr t (addBoxingExpr x)
 addBoxingExpr (CallExpr tf tx f x) = CallExpr tf tx (addBoxingExpr f) (addBoxingExpr x)
 addBoxingExpr (TailList t x) = TailList t (addBoxingExpr x)
 addBoxingExpr (IndexList t i x) = IndexList t i (addBoxingExpr x)
-addBoxingExpr (Prod tx ty x y) = Prod tx ty (Box tx (addBoxingExpr x)) (Box ty (addBoxingExpr y))
+addBoxingExpr (Prod tx ty x y) = Prod tx ty (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr x = x
 
 -- LAMBDA LIFTING
@@ -639,6 +639,52 @@ mergeLambdas prog (While x y) m =
     in (While x y', m')
 mergeLambdas _ stmt m = (stmt, m)
 
+-- MAKE PAIR DEFS
+collectPairTypes :: CStatement a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
+collectPairTypes (DefFun _ _ _ body) s = collectPairTypes body s
+collectPairTypes (Seq x y) s = collectPairTypes x (collectPairTypes y s)
+collectPairTypes (If c x y) s = collectPairTypes x (collectPairTypes y (collectPairTypesExpr c s))
+collectPairTypes (While c x) s = collectPairTypes x (collectPairTypesExpr c s)
+collectPairTypes (Return x) s = collectPairTypesExpr x s
+collectPairTypes (DefVar _ _ x) s = collectPairTypesExpr x s
+collectPairTypes (UpdateVar _ _ x) s = collectPairTypesExpr x s
+collectPairTypes (BindExpr _ c _ x) s = collectPairTypes x (collectPairTypesExpr c s)
+collectPairTypes _ s = s
+
+collectPairTypesExpr :: CExpression a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
+collectPairTypesExpr (Prod tx ty x y) s = Set.insert (tx, ty) (collectPairTypesExpr x (collectPairTypesExpr y s))
+collectPairTypesExpr (Not x) s = collectPairTypesExpr x s
+collectPairTypesExpr (HeadList _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (TailList _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (IsEmpty _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (IndexList _ _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (Fst _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (Box _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (Unbox _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (CastExpr _ x) s = collectPairTypesExpr x s
+collectPairTypesExpr (ConsList _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (LIntOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (LCmpOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (CallExpr _ _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (Ternary _ x y z) s = collectPairTypesExpr x (collectPairTypesExpr y (collectPairTypesExpr z s))
+collectPairTypesExpr _ s = s
+
+genPairDeclaration :: (CType, CType) -> String
+genPairDeclaration (a, b) =
+        let strA = printType a
+            strB = printType b
+            strAB = printPairType a ++ "_" ++ printPairType b
+            pairType = "Pair_" ++ strAB
+        in
+           "\ntypedef struct " ++ pairType ++ " {"
+        ++ "\n  " ++ strA ++ " fst;"
+        ++ "\n  " ++ strB ++ " snd;"
+        ++ "\n} " ++ pairType ++ ";"
+        ++ "\n\n" ++ pairType ++ "* make" ++ pairType ++ "(" ++ strA ++ " fst, " ++ strB ++ " snd) {"
+        ++ "\n  " ++ pairType ++ "* p = malloc(sizeof(" ++ pairType ++ "));"
+        ++ "\n  p->fst = fst;\n  p->snd = snd;\n  return p;"
+        ++ "\n};\n"
+        
 
 
 -- SHOW
@@ -655,9 +701,23 @@ fromTypeRep p =
         ("[]", [a]) | show a == "Int" -> CTNodeInt
                     | show a == "Bool" -> CTNodeBool
         ("[]", [_]) -> CTNode
-        ("(,)", [_,_]) -> CTPair
+        ("(,)", [l,r]) -> CTPair (fromTypeRep l) (fromTypeRep r)
         ("->", [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
         _  -> CTVoidPtr
+
+printPairType :: CType -> String
+printPairType x = case x of
+    CTInt -> "Int"
+    CTBool -> "Bool"
+    CTVoid -> "Void"
+    CTNode -> "Node"
+    CTNodeInt -> "NodeInt"
+    CTNodeBool -> "NodeBool"
+    CTPair _ _ -> "Pair"
+    CTClosure -> "CLosure"
+    CTPtr ct -> printPairType ct ++ "Ptr"
+    CTFun ct ct' -> "Fun" ++ printPairType ct ++ printPairType ct'
+    CTVoidPtr -> "VoidPtr"
 
 -- print type for var decl, give string "v" + id
 printDecl :: String -> CType -> String
@@ -667,7 +727,7 @@ printDecl name CTVoid = "void* " ++ name
 printDecl name CTNode = "Node* " ++ name
 printDecl name CTNodeInt = "NodeInt* " ++ name
 printDecl name CTNodeBool = "NodeBool* " ++ name
-printDecl name CTPair = "Pair* " ++ name
+printDecl name (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr ++ "* " ++ name
 printDecl name CTClosure = "Closure* " ++ name
 printDecl name CTVoidPtr = "void* " ++ name
 printDecl name (CTPtr t) = printDecl ("*" ++ name) t
@@ -687,7 +747,7 @@ printType CTVoid = "void"
 printType CTNode = "Node*"
 printType CTNodeInt = "NodeInt*"
 printType CTNodeBool = "NodeBool*"
-printType CTPair = "Pair*"
+printType (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr ++ "*"
 printType CTClosure = "Closure*"
 printType CTVoidPtr = "void*"
 printType (CTPtr t) = printType t ++ "*"
@@ -758,7 +818,7 @@ showCExpression (LIntOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.show
 showCExpression (LCmpOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showCmpOp op ++ " " ++ showCExpression y m ++ ")"
 showCExpression (Box t x) m = box t (showCExpression x m)
 showCExpression (Unbox t x) m = unbox t ("(" ++ showCExpression x m ++ ")")
-showCExpression (Prod _ _ l r) m = "mk_pair(" ++ showCExpression l m ++ ", " ++ showCExpression r m ++ ")"
+showCExpression (Prod tl tr l r) m = "makePair_" ++ printPairType tl ++ "_" ++ printPairType tr ++ "(" ++ showCExpression l m ++ ", " ++ showCExpression r m ++ ")"
 showCExpression (Fst _ p) m = "(" ++ showCExpression p m ++ ")->fst"
 showCExpression (Snd _ p) m = "(" ++ showCExpression p m ++ ")->snd"
 showCExpression (IsEmpty _ l) m = "((" ++ showCExpression l m ++ ") == NULL)"
@@ -967,7 +1027,7 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 run :: Typeable a => String -> AL.Lang a -> Bool -> IO ()
 run progName progCode canMerge = do
     let libName = "\n#include \"" ++ "../"  ++ "listLib.c\"\n"
-    let progPath = 
+    let progPath =
             if canMerge then "mergedLams/" ++ progName
             else "baselines/" ++ progName
     -- let libName = "\n#include \"listLib.c\"\n"
@@ -982,12 +1042,12 @@ run progName progCode canMerge = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 clBase
 
-    let ((cbody', closureEnv, liftenv, _, defs), mergedMap) = 
+    let ((cbody', closureEnv, liftenv, _, defs), mergedMap) =
             if canMerge then
                 let (merged, mergedLams) = mergeLambdas c c Map.empty
                 in (lambdaLift merged, mergedLams)
             else (lambdaLift c, Map.empty)
-    
+
     let cbody = addBoxing cbody'
     let strFunTypes = getStrFunTypes defs Map.empty
 
@@ -997,7 +1057,7 @@ run progName progCode canMerge = do
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
                     libName
-    
+
     let closureStructs = generateClosureStructs defs liftenv
     let funDefs = showFunDefs defs
     let (funPart, mainBody) = splitTopLevel cbody
@@ -1007,9 +1067,11 @@ run progName progCode canMerge = do
     let retImpl = showCExpression retExpr mergedMap
     let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
     let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
+    let pairTypes = collectPairTypes cbody Set.empty
 
     let content =
             "\n// imports" ++ imports ++
+            "\n// pair type defitions" ++ concatMap genPairDeclaration (Set.toList pairTypes) ++
             "\n// function defitions" ++ funDefs ++
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty Map.empty strFunTypes closureStructs ++
             "\n// function implementations" ++ funImpl ++
