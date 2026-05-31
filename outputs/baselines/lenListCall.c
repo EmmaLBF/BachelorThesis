@@ -35,7 +35,11 @@ int (*v5(int v2))(NodeInt*) {
 }
 
 int v0(NodeInt* v1) {
-  return ((((v1) == NULL)) ? (0) : (v5((v1)->head)((v1)->tail)));
+  if (((v1) == NULL)) {
+    return 0;
+  } else {
+    return v5((v1)->head)((v1)->tail);
+  }
 }
 
 // main

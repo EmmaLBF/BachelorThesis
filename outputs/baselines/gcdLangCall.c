@@ -20,15 +20,15 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 };
 
 // function defitions
-int v0(Pair_Int_Int* v1);
+int v0(Pair_Int_Int *v1);
 
 // closure defitions
 typedef struct {
-    Pair_Int_Int* v1;
+    Pair_Int_Int *v1;
 } Env_v0;
 
 // function implementations
-int v0(Pair_Int_Int* v1) {
+int v0(Pair_Int_Int *v1) {
   if (((v1)->snd == 0)) {
     return (v1)->fst;
   } else {

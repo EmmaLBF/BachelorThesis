@@ -58,12 +58,16 @@ Closure* v7(void* env7, void* v3_raw) {
 
 NodeInt* v10(void* env10, void* v2_raw) {
   NodeInt* v2 = (NodeInt*)v2_raw;
-  Env_v7* env7 = malloc(sizeof(Env_v7));
-  env7->v1 = ((Env_v10*)env10)->v1;
-  Closure* c7 = malloc(sizeof(Closure));
-  c7->env = env7;
-  c7->fn = (void* (*)(void*, void*))v7;
-  return ((((v2) == NULL)) ? (NULL) : ((NodeInt*)((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->fn(((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->env, (v2)->tail)));
+  if (((v2) == NULL)) {
+    return NULL;
+  } else {
+    Env_v7* env7 = malloc(sizeof(Env_v7));
+    env7->v1 = ((Env_v10*)env10)->v1;
+    Closure* c7 = malloc(sizeof(Closure));
+    c7->env = env7;
+    c7->fn = (void* (*)(void*, void*))v7;
+    return (NodeInt*)((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->fn(((Closure*)((Closure*)c7)->fn(((Closure*)c7)->env, box_int((v2)->head)))->env, (v2)->tail);
+  }
 }
 
 Closure* v0(int (*v1)(int)) {

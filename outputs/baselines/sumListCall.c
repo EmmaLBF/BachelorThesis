@@ -42,7 +42,11 @@ Closure* v5(int v2) {
 }
 
 int v0(NodeInt* v1) {
-  return ((((v1) == NULL)) ? (0) : ((int)(intptr_t)((Closure*)v5((v1)->head))->fn(((Closure*)v5((v1)->head))->env, (v1)->tail)));
+  if (((v1) == NULL)) {
+    return 0;
+  } else {
+    return (int)(intptr_t)((Closure*)v5((v1)->head))->fn(((Closure*)v5((v1)->head))->env, (v1)->tail);
+  }
 }
 
 // main
