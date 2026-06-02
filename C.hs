@@ -803,7 +803,8 @@ showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
 showCValue (BoolV b) = show b
 showCValue UnitV = "NULL"
-showCValue (PairV x y) = "{ .fst = " ++ showCValue x ++ ", .snd = " ++ showCValue y ++ "}"
+showCValue (PairV x y) = 
+    "{ .fst = " ++ showCValue x ++ ", .snd = " ++ showCValue y ++ "}"
 showCValue (FunV _) = "NULL"
 showCValue (ListV l) =
   case l of

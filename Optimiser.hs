@@ -428,11 +428,14 @@ replaceReturn i t (If c x y) = If c (replaceReturn i t x) (replaceReturn i t y)
 replaceReturn _ _ x = x
 
 -- get a default value to init the new var before the if statement
-defaultVal :: CType -> CExpression a
-defaultVal CTInt  = unsafeCoerce (Val (IntV 0))
-defaultVal CTBool = unsafeCoerce (Val (BoolV False))
-defaultVal (CTPair l r) = unsafeCoerce (Val (PairV (unsafeCoerce defaultVal l) (unsafeCoerce defaultVal r)))
-defaultVal _      = unsafeCoerce (Val UnitV)
+
+defaultVal :: CType -> CValue a
+defaultVal CTInt  = unsafeCoerce (IntV 0)
+defaultVal CTBool = unsafeCoerce (BoolV False)
+defaultVal (CTPair l r) = 
+    let l' = defaultVal l
+    in unsafeCoerce (PairV (unsafeCoerce l') (unsafeCoerce defaultVal r))
+defaultVal _ = unsafeCoerce UnitV
 
 -- Inline all calls to function i throughout body
 inlineOne :: Int -> [CStatement a] -> CStatement a -> (CStatement a, Bool)
@@ -441,7 +444,7 @@ inlineOne i defs body =
         Just (DefFun tret ifun params fbody) ->
             if endsInIf fbody then (
                 let retExpr = Var tret ifun
-                    bodyNoRet = Seq (DefVar tret ifun (defaultVal tret)) (replaceReturn ifun tret fbody)
+                    bodyNoRet = Seq (DefVar tret ifun (Val (defaultVal tret))) (replaceReturn ifun tret fbody)
                     body' = inlineCallsTo i params bodyNoRet retExpr body
                 in (body', True))
             else (
@@ -997,7 +1000,7 @@ demotePairs (DefFun tret ifun params body) m funs = DefFun (stripPairPtr ifun tr
 demotePairs (DefVar t i (Prod tp x y)) m funs = DefVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
 demotePairs (DefVar t i (Val UnitV)) m _ = 
     let t' = stripPairPtr i t m
-    in DefVar t' i (defaultVal t')
+    in DefVar t' i (Val (defaultVal t'))
 demotePairs (DefVar t i x) m funs = DefVar (stripPairPtr i t m) i (demotePairsExpr x m funs)
 demotePairs (UpdateVar t i (Prod tp x y)) m funs = UpdateVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
 demotePairs (UpdateVar t i x) m funs = UpdateVar (stripPairPtr i t m) i (demotePairsExpr x m funs)

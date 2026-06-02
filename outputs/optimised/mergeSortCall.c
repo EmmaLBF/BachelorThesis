@@ -60,7 +60,7 @@ NodeInt* v7(NodeInt* v8, NodeInt* v9) {
 }
 
 Pair_NodeInt_NodeInt v17(Pair_Int_NodeInt v18) {
-  Pair_NodeInt_NodeInt v55 = { .fst = 1571756269956629638, .snd = 1571756269956629638};
+  Pair_NodeInt_NodeInt v55 = { .fst = NULL, .snd = NULL};
   if (((v18).fst == 0)) {
     v55 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = (v18).snd };
   } else {
