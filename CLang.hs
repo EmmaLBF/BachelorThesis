@@ -138,7 +138,7 @@ translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (
   lId <- fresh -- bind id for list
   let listVar  = Var lId :: CExpression [a1]
       callExpr = CallExpr (CallExpr (Var cId) (HeadList listVar)) (TailList listVar)
-      caseBody = Return (Ternary (IsEmpty listVar) nilExpr callExpr)
+      caseBody =  If (IsEmpty listVar) (Return nilExpr) (Return callExpr)
   return $ Seq (unsafeCoerce (bindResult cId consStmt))
          $ Seq (unsafeCoerce (bindResult lId lStmt))
          $ unsafeCoerce caseBody

@@ -18,7 +18,7 @@ import Data.Typeable
 import System.IO
 import Unsafe.Coerce (unsafeCoerce)
 import Data.List (intercalate)
-import Text.Read (Lexeme(String))
+import Data.Maybe
 
 stripBox :: CExpression a -> CExpression a
 stripBox (Box _ x) = unsafeCoerce x
@@ -48,8 +48,8 @@ mergeEscape a b = EscapeResult
 countVarUses :: CExpression a -> EscapeResult -> EscapeResult
 countVarUses (Var _ i) r = r { varUses = Map.insertWith (+) i 1 (varUses r) }
 countVarUses (Not x) m = countVarUses x m
-countVarUses (Fst _ x) m = countVarUses x m
-countVarUses (Snd _ x) m = countVarUses x m
+countVarUses (Fst _ _ x) m = countVarUses x m
+countVarUses (Snd _ _ x) m = countVarUses x m
 countVarUses (IsEmpty _ x) m = countVarUses x m
 countVarUses (HeadList _ x) m = countVarUses x m
 countVarUses (TailList _ x) m = countVarUses x m
@@ -58,7 +58,7 @@ countVarUses (Box _ x) m = countVarUses x m
 countVarUses (Unbox _ x) m = countVarUses x m
 countVarUses (Ternary _ _ t e) m = countVarUses t (countVarUses e m)
 countVarUses (ConsList _ x y) m = countVarUses x (countVarUses y m)
-countVarUses (Prod _ _ x y) m = countVarUses x (countVarUses y m)
+countVarUses (Prod _ x y) m = countVarUses x (countVarUses y m)
 countVarUses (LIntOp _ x y) m = countVarUses x (countVarUses y m)
 countVarUses (LCmpOp _ x y) m = countVarUses x (countVarUses y m)
 countVarUses (CallExpr _ _ f x) m = countVarUses f (countVarUses x m)
@@ -71,8 +71,8 @@ getReturnVars :: CExpression a -> EscapeResult -> EscapeResult
 getReturnVars (Var _ i) r = r { escapedVars = Set.insert i (escapedVars r), varUses = Map.insertWith (+) i 1 (varUses r) }
 getReturnVars (Val (EnvV i)) r = r { escapedEnvs = Set.insert i (escapedEnvs r) }
 getReturnVars (Not x) m = getReturnVars x m
-getReturnVars (Fst _ x) m = getReturnVars x m
-getReturnVars (Snd _ x) m = getReturnVars x m
+getReturnVars (Fst _ _ x) m = getReturnVars x m
+getReturnVars (Snd _ _ x) m = getReturnVars x m
 getReturnVars (IsEmpty _ x) m = getReturnVars x m
 getReturnVars (HeadList _ x) m = getReturnVars x m
 getReturnVars (TailList _ x) m = getReturnVars x m
@@ -81,7 +81,7 @@ getReturnVars (Box _ x) m = getReturnVars x m
 getReturnVars (Unbox _ x) m = getReturnVars x m
 getReturnVars (Ternary _ _ t e) m = getReturnVars t (getReturnVars e m)
 getReturnVars (ConsList _ x y) m = getReturnVars x (getReturnVars y m)
-getReturnVars (Prod _ _ x y) m = getReturnVars x (getReturnVars y m)
+getReturnVars (Prod _ x y) m = getReturnVars x (getReturnVars y m)
 getReturnVars (LIntOp _ x y) m = getReturnVars x (getReturnVars y m)
 getReturnVars (LCmpOp _ x y) m = getReturnVars x (getReturnVars y m)
 getReturnVars (CallExpr _ _ f x) m = getReturnVars f (getReturnVars x m)
@@ -111,8 +111,8 @@ removeLocalEnvsExpr (GetEnvField t envId varId) r
    Var t varId
   | otherwise = GetEnvField t envId varId
 removeLocalEnvsExpr (Not x) r = Not (removeLocalEnvsExpr x r)
-removeLocalEnvsExpr (Fst t x) r = Fst t (removeLocalEnvsExpr x r)
-removeLocalEnvsExpr (Snd t x) r = Snd t (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Fst tp tr x) r = Fst tp tr (removeLocalEnvsExpr x r)
+removeLocalEnvsExpr (Snd tp tr x) r = Snd tp tr (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (IsEmpty t x) r = IsEmpty t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (HeadList t x) r = HeadList t (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (TailList t x) r = TailList t (removeLocalEnvsExpr x r)
@@ -125,7 +125,7 @@ removeLocalEnvsExpr (Ternary t c x y) r = Ternary t (removeLocalEnvsExpr c r) (r
 removeLocalEnvsExpr (CallExpr tf tx f x) r = CallExpr tf tx (removeLocalEnvsExpr f r) (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (ApplyClosure t f x) r = ApplyClosure t (removeLocalEnvsExpr f r) (removeLocalEnvsExpr x r)
 removeLocalEnvsExpr (ConsList t x y) r = ConsList t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
-removeLocalEnvsExpr (Prod tx ty x y) r = Prod tx ty (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
+removeLocalEnvsExpr (Prod t x y) r = Prod t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
 removeLocalEnvsExpr (IndexList t x y) r = IndexList t (removeLocalEnvsExpr x r) (removeLocalEnvsExpr y r)
 removeLocalEnvsExpr x _ = x
 
@@ -158,8 +158,8 @@ removeSingleVarsExpr (Var t i) r =
                 _ -> Var t i
         _ -> Var t i
 removeSingleVarsExpr (Not x) r = Not (removeSingleVarsExpr x r)
-removeSingleVarsExpr (Fst t x) r = Fst t (removeSingleVarsExpr x r)
-removeSingleVarsExpr (Snd t x) r = Snd t (removeSingleVarsExpr x r)
+removeSingleVarsExpr (Fst tp tr x) r = Fst tp tr (removeSingleVarsExpr x r)
+removeSingleVarsExpr (Snd tp tr x) r = Snd tp tr (removeSingleVarsExpr x r)
 removeSingleVarsExpr (IsEmpty t x) r = IsEmpty t (removeSingleVarsExpr x r)
 removeSingleVarsExpr (HeadList t x) r = HeadList t (removeSingleVarsExpr x r)
 removeSingleVarsExpr (TailList t x) r = TailList t (removeSingleVarsExpr x r)
@@ -172,7 +172,7 @@ removeSingleVarsExpr (Ternary t c x y) r = Ternary t (removeSingleVarsExpr c r) 
 removeSingleVarsExpr (CallExpr tf tx f x) r = CallExpr tf tx (removeSingleVarsExpr f r) (removeSingleVarsExpr x r)
 removeSingleVarsExpr (ApplyClosure t f x) r = ApplyClosure t (removeSingleVarsExpr f r) (removeSingleVarsExpr x r)
 removeSingleVarsExpr (ConsList t x y) r = ConsList t (removeSingleVarsExpr x r) (removeSingleVarsExpr y r)
-removeSingleVarsExpr (Prod tx ty x y) r = Prod tx ty (removeSingleVarsExpr x r) (removeSingleVarsExpr y r)
+removeSingleVarsExpr (Prod t x y) r = Prod t (removeSingleVarsExpr x r) (removeSingleVarsExpr y r)
 removeSingleVarsExpr (IndexList t x y) r = IndexList t (removeSingleVarsExpr x r) (removeSingleVarsExpr y r)
 removeSingleVarsExpr x _ = x
 
@@ -223,9 +223,9 @@ countUsedEnvsExpr (Ternary _ c t e) m = countUsedEnvsExpr e (countUsedEnvsExpr t
 countUsedEnvsExpr (LIntOp _ x y) m = countUsedEnvsExpr y (countUsedEnvsExpr x m)
 countUsedEnvsExpr (LCmpOp _ x y) m = countUsedEnvsExpr y (countUsedEnvsExpr x m)
 countUsedEnvsExpr (ConsList _ x y) m = countUsedEnvsExpr y (countUsedEnvsExpr x m)
-countUsedEnvsExpr (Prod _ _ x y) m = countUsedEnvsExpr y (countUsedEnvsExpr x m)
-countUsedEnvsExpr (Fst _ x) m = countUsedEnvsExpr x m
-countUsedEnvsExpr (Snd _ x) m = countUsedEnvsExpr x m
+countUsedEnvsExpr (Prod _ x y) m = countUsedEnvsExpr y (countUsedEnvsExpr x m)
+countUsedEnvsExpr (Fst _ _ x) m = countUsedEnvsExpr x m
+countUsedEnvsExpr (Snd _ _ x) m = countUsedEnvsExpr x m
 countUsedEnvsExpr (Not x) m = countUsedEnvsExpr x m
 countUsedEnvsExpr (IsEmpty _ x) m = countUsedEnvsExpr x m
 countUsedEnvsExpr (HeadList _ x) m = countUsedEnvsExpr x m
@@ -363,9 +363,9 @@ countFunctionCallsExpr (Not x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (LIntOp _ x y) m = countFunctionCallsExpr y (countFunctionCallsExpr x m)
 countFunctionCallsExpr (LCmpOp _ x y) m = countFunctionCallsExpr y (countFunctionCallsExpr x m)
 countFunctionCallsExpr (Ternary _ x y z) m = countFunctionCallsExpr z (countFunctionCallsExpr y (countFunctionCallsExpr x m))
-countFunctionCallsExpr (Prod _ _ x y) m = countFunctionCallsExpr y (countFunctionCallsExpr x m)
-countFunctionCallsExpr (Fst _ x) m = countFunctionCallsExpr x m
-countFunctionCallsExpr (Snd _ x) m = countFunctionCallsExpr x m
+countFunctionCallsExpr (Prod _ x y) m = countFunctionCallsExpr y (countFunctionCallsExpr x m)
+countFunctionCallsExpr (Fst _ _ x) m = countFunctionCallsExpr x m
+countFunctionCallsExpr (Snd _ _ x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (IsEmpty _ x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (HeadList _ x) m = countFunctionCallsExpr x m
 countFunctionCallsExpr (TailList _ x) m = countFunctionCallsExpr x m
@@ -431,6 +431,7 @@ replaceReturn _ _ x = x
 defaultVal :: CType -> CExpression a
 defaultVal CTInt  = unsafeCoerce (Val (IntV 0))
 defaultVal CTBool = unsafeCoerce (Val (BoolV False))
+defaultVal (CTPair l r) = unsafeCoerce (Val (PairV (unsafeCoerce defaultVal l) (unsafeCoerce defaultVal r)))
 defaultVal _      = unsafeCoerce (Val UnitV)
 
 -- Inline all calls to function i throughout body
@@ -527,8 +528,8 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
     goExpr (LCmpOp op x y) =    let (px, x') = goExpr x
                                     (py, y') = goExpr y
                             in (Seq px py, LCmpOp op x' y')
-    goExpr (Fst t x) = let (p, x') = goExpr x in (p, Fst t x')
-    goExpr (Snd t x) = let (p, x') = goExpr x in (p, Snd t x')
+    goExpr (Fst tp tr x) = let (p, x') = goExpr x in (p, Fst tp tr x')
+    goExpr (Snd tp tr x) = let (p, x') = goExpr x in (p, Snd tp tr x')
     goExpr (CastExpr t x)= let (p, x') = goExpr x in (p, CastExpr t x')
     goExpr (ApplyClosure tx f x) =
         let (pf, f') = goExpr f
@@ -594,9 +595,9 @@ removeCastsExpr (Ternary t c x y) = Ternary t (removeCastsExpr c) (removeCastsEx
 removeCastsExpr (CallExpr tf tx f x) = CallExpr tf tx (removeCastsExpr f) (removeCastsExpr x)
 removeCastsExpr (ApplyClosure t f x) = ApplyClosure t (removeCastsExpr f) (removeCastsExpr x)
 removeCastsExpr (ConsList t x y) = ConsList t (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (Prod tx ty x y) = Prod tx ty (removeCastsExpr x) (removeCastsExpr y)
-removeCastsExpr (Fst t x) = Fst t (removeCastsExpr x)
-removeCastsExpr (Snd t x) = Snd t (removeCastsExpr x)
+removeCastsExpr (Prod t x y) = Prod t (removeCastsExpr x) (removeCastsExpr y)
+removeCastsExpr (Fst tp tr x) = Fst tp tr (removeCastsExpr x)
+removeCastsExpr (Snd tp tr x) = Snd tp tr (removeCastsExpr x)
 removeCastsExpr (IsEmpty t x) = IsEmpty t (removeCastsExpr x)
 removeCastsExpr (HeadList t x) = HeadList t (removeCastsExpr x)
 removeCastsExpr (TailList t x) = TailList t (removeCastsExpr x)
@@ -638,9 +639,9 @@ removeUselessExpr (LCmpOp op x y) = LCmpOp op (removeUselessExpr x) (removeUsele
 removeUselessExpr (Ternary t c x y) = Ternary t (removeUselessExpr c) (removeUselessExpr x) (removeUselessExpr y)
 removeUselessExpr (CallExpr tf tx f x) = CallExpr tf tx (removeUselessExpr f) (removeUselessExpr x)
 removeUselessExpr (ApplyClosure t f x) = ApplyClosure t (removeUselessExpr f) (removeUselessExpr x)
-removeUselessExpr (Prod tx ty x y) = Prod tx ty (removeUselessExpr x) (removeUselessExpr y)
-removeUselessExpr (Fst t x) = Fst t (removeUselessExpr x)
-removeUselessExpr (Snd t x) = Snd t (removeUselessExpr x)
+removeUselessExpr (Prod t x y) = Prod t (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr (Fst tp tr x) = Fst tp tr (removeUselessExpr x)
+removeUselessExpr (Snd tp tr x) = Snd tp tr (removeUselessExpr x)
 removeUselessExpr (IsEmpty t x) = IsEmpty t (removeUselessExpr x)
 removeUselessExpr (HeadList t x) = HeadList t (removeUselessExpr x)
 removeUselessExpr (TailList t x) = TailList t (removeUselessExpr x)
@@ -714,6 +715,8 @@ collectAliases (DefVar t i x) m =
         Val (EnvV j) -> Map.insert i (CArg t (Val (EnvV j))) m
         HeadList t2 (Var t3 j) -> Map.insert i (CArg t (HeadList t2 (Var t3 j))) m
         TailList t2 (Var t3 j) -> Map.insert i (CArg t (TailList t2 (Var t3 j))) m
+        expr@Fst{} -> Map.insert i (CArg t expr) m
+        expr@Snd{} -> Map.insert i (CArg t expr) m
         _ -> m
 collectAliases (Seq x y) m = collectAliases y (collectAliases x m)
 collectAliases (If _ x y) m = Map.union (collectAliases x m) (collectAliases y m)
@@ -723,26 +726,12 @@ collectAliases (DefFun _ _ _ body) m = collectAliases body m
 collectAliases _ m = m
 
 applyAliases :: CStatement a -> Map.Map Int CArg -> CStatement a
--- applyAliases (DefVar t i x) m =
---     case Map.lookup i m of
---         Just _ -> Skip
---         Nothing -> DefVar t i (replaceVarAssignment x m)
-applyAliases (DefVar t i x) m = DefVar t i (replaceVarAssignment x m)    
--- applyAliases (BindExpr t x i y) m = 
---     case Map.lookup i m of
---         Just _ -> applyAliases y m
---         Nothing -> BindExpr t (replaceVarAssignment x m) i (applyAliases y m)
+applyAliases (DefVar t i x) m = DefVar t i (replaceVarAssignment x m)
 applyAliases (BindExpr t x i y) m = BindExpr t (replaceVarAssignment x m) i (applyAliases y m)
-applyAliases (DefFun tret ifun param body) m = 
-    -- trace ("applyAliases DefFun " ++ show ifun ++ " null=" ++ show (Map.null m)) $
-    DefFun tret ifun param (applyAliases body m)
+applyAliases (DefFun tret ifun param body) m = DefFun tret ifun param (applyAliases body m)
 applyAliases (Seq x y) m = Seq (applyAliases x m) (applyAliases y m)
-applyAliases (If cond x y) m = 
-    -- trace ("applyAliases If null=" ++ show (Map.null m)) $
-    If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
--- applyAliases (If cond x y) m = If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
+applyAliases (If cond x y) m = If (replaceVarAssignment cond m) (applyAliases x m) (applyAliases y m)
 applyAliases (While cond x) m = While (replaceVarAssignment cond m) (applyAliases x m)
--- applyAliases (DefFun tret ifun param body) m = DefFun tret ifun param (applyAliases body m)
 applyAliases (Return x) m = Return (replaceVarAssignment x m)
 applyAliases (UpdateVar tx i x) m = UpdateVar tx i (replaceVarAssignment x m)
 applyAliases x _ = x
@@ -751,26 +740,14 @@ applyAliases x _ = x
 eliminateAliases :: CStatement a -> (CStatement a, Bool)
 eliminateAliases stmt =
     let m = collectAliases stmt Map.empty
-        m' = Map.mapWithKey
-               (\i (CArg t e) -> CArg t (replaceVarAssignment e (Map.delete i m)))
-               m
-    in 
-        trace ("=== eliminateAliases called, map size=" ++ show (Map.size m)) $
-        trace (printIntArgMap m')
-        trace (showCStmt 0 Map.empty Map.empty Map.empty stmt)
-        (applyAliases stmt m, not (null m))
+    in (applyAliases stmt m, not (null m))
 
 replaceVarAssignment :: CExpression a -> Map.Map Int CArg -> CExpression a
 replaceVarAssignment (Var t i) m =
     case Map.lookup i m of
-        Just (CArg _ n) -> 
-            trace ("!!!!replacing var " ++ show i ++ " with " ++ showCExpression n Map.empty) $
-            replaceVarAssignment (unsafeCoerce n) m
-        Nothing -> 
-            -- trace ("!!!!not replacing var " ++ show i) $
-            Var t i
+        Just (CArg _ n) -> replaceVarAssignment (unsafeCoerce n) m
+        Nothing -> Var t i
 replaceVarAssignment (GetEnvField t structId fieldId) m =
-    -- trace ("!!!!replacing getenv " ++ show structId) $
     case Map.lookup structId m of
         Just (CArg _ (Var _ newId)) -> replaceVarAssignment (GetEnvField t newId fieldId) m
         Just (CArg _ (Val (EnvV newId))) -> replaceVarAssignment (GetEnvField t newId fieldId) m
@@ -780,14 +757,14 @@ replaceVarAssignment (LIntOp op x y) m = LIntOp op (replaceVarAssignment x m) (r
 replaceVarAssignment (LCmpOp op x y) m = LCmpOp op (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (Ternary tp x y z) m = Ternary tp (replaceVarAssignment x m) (replaceVarAssignment y m) (replaceVarAssignment z m)
 replaceVarAssignment (CallExpr tf tx x y) m = CallExpr tf tx (replaceVarAssignment x m) (replaceVarAssignment y m)
-replaceVarAssignment (Prod tx ty x y) m = Prod tx ty (replaceVarAssignment x m) (replaceVarAssignment y m)
-replaceVarAssignment (Fst t x) m = Fst t (replaceVarAssignment x m)
-replaceVarAssignment (Snd t x) m = Snd t (replaceVarAssignment x m)
+replaceVarAssignment (Prod t x y) m = Prod t (replaceVarAssignment x m) (replaceVarAssignment y m)
+replaceVarAssignment (Fst tp tr x) m = Fst tp tr (replaceVarAssignment x m)
+replaceVarAssignment (Snd tp tr x) m = Snd tp tr (replaceVarAssignment x m)
 replaceVarAssignment (HeadList t x) m = HeadList t (replaceVarAssignment x m)
 replaceVarAssignment (TailList t x) m = TailList t (replaceVarAssignment x m)
 replaceVarAssignment (IsEmpty t x) m = IsEmpty t (replaceVarAssignment x m)
 replaceVarAssignment (IndexList t i x) m = IndexList t i (replaceVarAssignment x m)
-replaceVarAssignment (ConsList t x y) m = 
+replaceVarAssignment (ConsList t x y) m =
     -- trace ("!!!!replacing cons " ++ show (null m) ++ " | " ++ showCExpression x Map.empty ++ " | " ++ showCExpression y Map.empty) $
     ConsList t (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (Box t x) m = Box t (replaceVarAssignment x m)
@@ -795,42 +772,6 @@ replaceVarAssignment (Unbox t x) m = Unbox t (replaceVarAssignment x m)
 replaceVarAssignment (ApplyClosure t x y) m = ApplyClosure t (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (CastExpr t x) m = CastExpr t (replaceVarAssignment x m)
 replaceVarAssignment expr _ = expr
-
--- Not used
-collapseBoxExpr :: CExpression a -> CExpression a
-collapseBoxExpr (Box t (Box _ x))     = Box t (collapseBoxExpr x)
-collapseBoxExpr (Unbox t (Unbox _ x)) = Unbox t (collapseBoxExpr x)
-collapseBoxExpr (Unbox _ (Box _ x))   = unsafeCoerce collapseBoxExpr x
-collapseBoxExpr (Box t x)             = Box t (collapseBoxExpr x)
-collapseBoxExpr (Unbox t x)           = Unbox t (collapseBoxExpr x)
-collapseBoxExpr (CallExpr tf tx f x) = CallExpr tf tx (collapseBoxExpr f) (collapseBoxExpr x)
-collapseBoxExpr (ApplyClosure t f x)  = ApplyClosure t (collapseBoxExpr f) (collapseBoxExpr x)
-collapseBoxExpr (Ternary t c x y)     = Ternary t (collapseBoxExpr c) (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr (LIntOp op x y)       = LIntOp op (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr (LCmpOp op x y)       = LCmpOp op (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr (Not x)               = Not (collapseBoxExpr x)
-collapseBoxExpr (ConsList t x y)      = ConsList t (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr (Prod tx ty x y)      = Prod tx ty (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr (Fst t x)             = Fst t (collapseBoxExpr x)
-collapseBoxExpr (Snd t x)             = Snd t (collapseBoxExpr x)
-collapseBoxExpr (IsEmpty t x)          = IsEmpty t (collapseBoxExpr x)
-collapseBoxExpr (HeadList t x)          = HeadList t (collapseBoxExpr x)
-collapseBoxExpr (TailList t x)          = TailList t (collapseBoxExpr x)
-collapseBoxExpr (CastExpr t x)        = CastExpr t (collapseBoxExpr x)
-collapseBoxExpr (IndexList t x y)     = IndexList t (collapseBoxExpr x) (collapseBoxExpr y)
-collapseBoxExpr x                     = x
-
--- Not used
-collapseBox :: CStatement a -> CStatement a
-collapseBox (Return x) = Return (collapseBoxExpr x)
-collapseBox (Seq x y) = Seq (collapseBox x) (collapseBox y)
-collapseBox (BindExpr t x i y) = BindExpr t (collapseBoxExpr x) i (collapseBox y)
-collapseBox (If c x y) = If (collapseBoxExpr c) (collapseBox x) (collapseBox y)
-collapseBox (While c x) = While (collapseBoxExpr c) (collapseBox x)
-collapseBox (DefFun t i ps x) = DefFun t i ps (collapseBox x)
-collapseBox (DefVar t i x) = DefVar t i (collapseBoxExpr x)
-collapseBox (UpdateVar t i x) = UpdateVar t i (collapseBoxExpr x)
-collapseBox x = x
 
 
 printEscapeAnalysis :: [CStatement a] -> IO ()
@@ -848,7 +789,264 @@ getDefs _ = []
 
 
 
+-- STACK ALLOCATE PAIRS
 
+canBeByValueFun :: Int -> CStatement a -> Map.Map Int Bool -> Bool
+canBeByValueFun ifun body varsByValue =
+    let isAlwaysStored = returnIsAlwaysStored ifun body
+        varsThatHoldReturn = getVarsThatHoldReturn ifun body
+    in isAlwaysStored && all (\i -> case Map.lookup i varsByValue of
+                                        Just True -> True
+                                        _ -> False) varsThatHoldReturn
+
+getValueFunsSet :: [Int] -> CStatement a -> Map.Map Int Bool -> Map.Map Int Bool
+getValueFunsSet [] _ _ = Map.empty
+getValueFunsSet (i:rest) body varsByValue =
+    if canBeByValueFun i body varsByValue
+    then
+        let funDef = getFunDef i (getDefs body)
+            analysis = escapeAnalysis funDef emptyEscapeResult
+            m' = Map.insert i True (getValueFunsSet rest body varsByValue)
+        in foldr (`Map.insert` True) m' (escapedVars analysis)
+    else getValueFunsSet rest body varsByValue
+
+getFunDef :: Int -> [CStatement a] -> CStatement a
+getFunDef _ [] = error "not a function"
+getFunDef i (DefFun tret ifun params body : rest)
+    | ifun == i = DefFun tret ifun params body
+    | otherwise = getFunDef i rest
+getFunDef _ _ = error "not a function"
+
+-- A pair is safe to put of stack iff every use of it is only with fst or snd
+canBeByValue :: CStatement a -> Map.Map Int Bool
+canBeByValue stmt =
+    let pairLocals = collectPairLocals stmt   -- vars whose DefVar type is pair
+        usage = scanUses stmt
+        varsbyValue = Map.mapWithKey (\i _ -> Map.findWithDefault BadUse i usage == OnlyFstSnd) pairLocals
+        funs = getFunsWithParams stmt
+        funsByValue = getValueFunsSet (Map.keys funs) stmt varsbyValue
+    in Map.unionWith (||) varsbyValue funsByValue
+
+data UseKind = OnlyFstSnd | BadUse deriving Eq
+
+-- if a pair is used not as fst/snd anywhere it is 'bad'
+mergeUse :: UseKind -> UseKind -> UseKind
+mergeUse OnlyFstSnd OnlyFstSnd = OnlyFstSnd
+mergeUse _ _ = BadUse
+
+-- check pair usage
+scanExpr :: CExpression a -> Map.Map Int UseKind
+scanExpr (Fst _ _ (Var _ i)) = Map.singleton i OnlyFstSnd
+scanExpr (Snd _ _ (Var _ i)) = Map.singleton i OnlyFstSnd
+scanExpr (Var _ i) = Map.singleton i BadUse  -- bare use is bad
+scanExpr (Fst _ _ e) = scanExpr e
+scanExpr (Snd _ _ e) = scanExpr e
+scanExpr (Not x) = scanExpr x
+scanExpr (LIntOp _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
+scanExpr (LCmpOp _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
+scanExpr (Ternary _ c x y) = Map.unionWith mergeUse (scanExpr c) (Map.unionWith mergeUse (scanExpr x) (scanExpr y))
+scanExpr (ConsList _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
+scanExpr (Prod _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
+scanExpr (HeadList _ e) = scanExpr e
+scanExpr (TailList _ e) = scanExpr e
+scanExpr (IsEmpty _ e) = scanExpr e
+scanExpr (CallExpr _ _ f a) = Map.unionWith mergeUse (scanExpr f) (scanExpr a)
+scanExpr (ApplyClosure _ f a) = Map.unionWith mergeUse (scanExpr f) (scanExpr a)
+scanExpr (CastExpr _ e) = scanExpr e
+scanExpr (Box _ e) = scanExpr e
+scanExpr (Unbox _ e) = scanExpr e
+scanExpr _ = Map.empty
+
+scanUses :: CStatement a -> Map.Map Int UseKind
+scanUses (DefVar _ _ e) = scanExpr e
+scanUses (BindExpr _ e _ k) = Map.unionWith mergeUse (scanExpr e) (scanUses k)
+scanUses (UpdateVar _ _ e) = scanExpr e
+scanUses (Return e) = scanExpr e
+scanUses (Seq x y) = Map.unionWith mergeUse (scanUses x) (scanUses y)
+scanUses (If c x y) = Map.unionWith mergeUse (scanExpr c) (Map.unionWith mergeUse (scanUses x) (scanUses y))
+scanUses (While c x) = Map.unionWith mergeUse (scanExpr c) (scanUses x)
+scanUses (DefFun _ _ _ b) = scanUses b
+scanUses _  = Map.empty
+
+collectPairLocals :: CStatement a -> Map.Map Int CType
+collectPairLocals (DefVar t i _)
+    | isPair t = Map.singleton i t
+collectPairLocals (BindExpr t _ i k)
+    | isPair t = Map.insert i t (collectPairLocals k)
+    | otherwise = collectPairLocals k
+collectPairLocals (Seq x y) = Map.union (collectPairLocals x) (collectPairLocals y)
+collectPairLocals (If _ x y) = Map.union (collectPairLocals x) (collectPairLocals y)
+collectPairLocals (While _ x) = collectPairLocals x
+collectPairLocals (DefFun _ _ params b) =
+    Map.union (collectPairLocals b) (collectPairArgs params)
+    where
+        collectPairArgs [] = Map.empty
+        collectPairArgs [CParam i t] = if isPair t then Map.insert i t Map.empty else Map.empty
+        collectPairArgs [_] = Map.empty
+        collectPairArgs (i:is) = Map.union (collectPairArgs [i]) (collectPairArgs is)
+collectPairLocals _ = Map.empty
+
+isPair :: CType -> Bool
+isPair (CTPair _ _) = True
+isPair (CTPtr (CTPair _ _)) = True
+isPair _ = False
+
+
+getFunsWithParams :: CStatement a -> Map.Map Int [Int]
+getFunsWithParams (DefFun _ ifun params _) =
+    Map.insert ifun (paramsToList params) Map.empty
+    where
+        paramsToList [] = []
+        paramsToList (CParam i _ : rest) = i : paramsToList rest
+        paramsToList (CParamEnv i : rest) = i : paramsToList rest
+getFunsWithParams (Seq x y) = Map.union (getFunsWithParams x) (getFunsWithParams y)
+getFunsWithParams _ = Map.empty
+
+
+-- a function return type can be demoted if every use of the return value of said function
+-- is stored in a var that can also be demoted
+
+-- returns true if the result of call this function is only ever stored in a var
+    -- through defvars/updatevars/binds directly
+returnIsAlwaysStoredExpr :: Int -> CExpression a -> Bool
+returnIsAlwaysStoredExpr ifun expr@CallExpr{} =
+    let (f', _) = collectArgs expr
+    in case f' of
+        Var _ i' | i' == ifun -> False
+        _ -> True
+returnIsAlwaysStoredExpr ifun (Not x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStoredExpr ifun (LIntOp _ x y) = returnIsAlwaysStoredExpr ifun x && returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (LCmpOp _ x y) = returnIsAlwaysStoredExpr ifun x && returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (Prod _ x y) = returnIsAlwaysStoredExpr ifun x && returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (ConsList _ x y) = returnIsAlwaysStoredExpr ifun x && returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (Fst _ _ y) = returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (Snd _ _ y) = returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (IsEmpty _ y) = returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (HeadList _ y) = returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (TailList _ y) = returnIsAlwaysStoredExpr ifun y
+returnIsAlwaysStoredExpr ifun (CastExpr _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStoredExpr ifun (IndexList _ _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStoredExpr ifun (Box _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStoredExpr ifun (Unbox _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStoredExpr _ _ = True
+
+
+returnIsAlwaysStored :: Int -> CStatement a -> Bool
+returnIsAlwaysStored ifun (DefVar _ _ expr@CallExpr{}) =
+    let (_, args) = collectArgs expr
+    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
+returnIsAlwaysStored ifun (DefVar _ _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStored ifun (UpdateVar _ _ expr@CallExpr{}) =
+    let (_, args) = collectArgs expr
+    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
+returnIsAlwaysStored ifun (UpdateVar _ _ x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStored ifun (BindExpr _ expr@CallExpr{} _ y) =
+    let (_, args) = collectArgs expr
+    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args && returnIsAlwaysStored ifun y
+returnIsAlwaysStored ifun (BindExpr _ x _ y) = returnIsAlwaysStoredExpr ifun x && returnIsAlwaysStored ifun y
+returnIsAlwaysStored ifun (Seq x y) = returnIsAlwaysStored ifun x && returnIsAlwaysStored ifun y
+returnIsAlwaysStored ifun (If c x y) = returnIsAlwaysStoredExpr ifun c && returnIsAlwaysStored ifun x && returnIsAlwaysStored ifun y
+returnIsAlwaysStored ifun (While c x) = returnIsAlwaysStoredExpr ifun c && returnIsAlwaysStored ifun x
+returnIsAlwaysStored ifun (Return x) = returnIsAlwaysStoredExpr ifun x
+returnIsAlwaysStored ifun (DefFun _ _ _ x) = returnIsAlwaysStored ifun x
+returnIsAlwaysStored _ _ = True
+
+-- get all the defvars/updatevars/binds that hold a return of that function
+getVarsThatHoldReturn :: Int -> CStatement a -> Set.Set Int
+getVarsThatHoldReturn ifun (DefVar _ i expr@CallExpr{}) =
+    let (f', _) = collectArgs expr
+    in case f' of
+        Var _ i' | i' == ifun -> Set.insert i Set.empty
+        _ -> Set.empty
+getVarsThatHoldReturn ifun (UpdateVar _ i expr@CallExpr{}) =
+    let (f', _) = collectArgs expr
+    in case f' of
+        Var _ i' | i' == ifun -> Set.insert i Set.empty
+        _ -> Set.empty
+getVarsThatHoldReturn ifun (BindExpr _ expr@CallExpr{} i y) =
+    let (f', _) = collectArgs expr
+    in case f' of
+        Var _ i' | i' == ifun -> Set.insert i (getVarsThatHoldReturn ifun y)
+        _ -> getVarsThatHoldReturn ifun y
+getVarsThatHoldReturn ifun (Seq x y) = Set.union (getVarsThatHoldReturn ifun x) (getVarsThatHoldReturn ifun y)
+getVarsThatHoldReturn ifun (If _ x y) = Set.union (getVarsThatHoldReturn ifun x) (getVarsThatHoldReturn ifun y)
+getVarsThatHoldReturn ifun (While _ y) = getVarsThatHoldReturn ifun y
+getVarsThatHoldReturn ifun (DefFun _ _ _ y) = getVarsThatHoldReturn ifun y
+getVarsThatHoldReturn _ _ = Set.empty
+
+
+
+-- put pairs on stack
+stripPairPtr :: Int -> CType -> Map.Map Int Bool -> CType
+stripPairPtr i t m =
+    case Map.lookup i m of
+        Just True ->
+            case t of
+                (CTPtr (CTPair tl tr)) -> CTPair tl tr
+                x -> x
+        _ -> t
+
+demotePairs :: CStatement a -> Map.Map Int Bool -> Map.Map Int [Int] -> CStatement a
+demotePairs (DefFun tret ifun params body) m funs = DefFun (stripPairPtr ifun tret m) ifun (demotePairsParams params) (demotePairs body m funs)
+    where
+        demotePairsParams :: CParams -> CParams
+        demotePairsParams [] = []
+        demotePairsParams [CParam i t] = [CParam i (stripPairPtr i t m)]
+        demotePairsParams [x] = [x]
+        demotePairsParams (i:is) = demotePairsParams [i] ++ demotePairsParams is
+demotePairs (DefVar t i (Prod tp x y)) m funs = DefVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
+demotePairs (DefVar t i (Val UnitV)) m _ = 
+    let t' = stripPairPtr i t m
+    in DefVar t' i (defaultVal t')
+demotePairs (DefVar t i x) m funs = DefVar (stripPairPtr i t m) i (demotePairsExpr x m funs)
+demotePairs (UpdateVar t i (Prod tp x y)) m funs = UpdateVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
+demotePairs (UpdateVar t i x) m funs = UpdateVar (stripPairPtr i t m) i (demotePairsExpr x m funs)
+demotePairs (If c x y) m funs = If (demotePairsExpr c m funs) (demotePairs x m funs) (demotePairs y m funs)
+demotePairs (While c x) m funs = While (demotePairsExpr c m funs) (demotePairs x m funs)
+demotePairs (BindExpr t x i y) m funs = BindExpr (stripPairPtr i t m) (demotePairsExpr x m funs) i (demotePairs y m funs)
+demotePairs (Seq x y) m funs = Seq (demotePairs x m funs) (demotePairs y m funs)
+demotePairs (Return x) m funs = Return (demotePairsExpr x m funs)
+demotePairs x _ _ = x
+
+demotePairsExpr :: CExpression a -> Map.Map Int Bool -> Map.Map Int [Int] -> CExpression a
+demotePairsExpr (Var t i) m _ = Var (stripPairPtr i t m) i
+demotePairsExpr (Not x) m funs = Not (demotePairsExpr x m funs)
+demotePairsExpr (LIntOp op x y) m funs = LIntOp op (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (LCmpOp op x y) m funs = LCmpOp op (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (Ternary t c x y) m funs = Ternary t (demotePairsExpr c m funs) (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (Fst tp tr (Var tv i)) m _ = Fst (stripPairPtr i tp m) tr (Var tv i)
+demotePairsExpr (Snd tp tr (Var tv i)) m _ = Snd (stripPairPtr i tp m) tr (Var tv i)
+demotePairsExpr (Fst tp tr e) m funs = Fst tp tr (demotePairsExpr e m funs)
+demotePairsExpr (Snd tp tr e) m funs = Snd tp tr (demotePairsExpr e m funs)
+demotePairsExpr (Prod t x y) m funs = Prod t (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (ConsList t x y) m funs = ConsList t (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (HeadList t e) m funs = HeadList t (demotePairsExpr e m funs)
+demotePairsExpr (TailList t e) m funs = TailList t (demotePairsExpr e m funs)
+demotePairsExpr (IsEmpty t e) m funs = IsEmpty t (demotePairsExpr e m funs)
+demotePairsExpr (IndexList t x y) m funs = IndexList t (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (ApplyClosure t f a) m funs = ApplyClosure t (demotePairsExpr f m funs) (demotePairsExpr a m funs)
+demotePairsExpr (CallExpr tf tx f a) m funs =
+        let (f', args) = collectArgs (CallExpr tf tx f a)
+        in case f' of
+            Var _ i -> case Map.lookup i funs of
+                            Just ids -> rebuildCall tf f' (demoteArgs args ids)
+                            _ -> CallExpr tf tx (demotePairsExpr f m funs) (demotePairsExpr a m funs)
+                where
+                    demoteArgs :: [CArg] -> [Int] -> [CArg]
+                    demoteArgs [] _ = []
+                    demoteArgs [CArg targ (Prod tp l r)] [idProd] =
+                        case Map.lookup idProd m of
+                            Just True -> [CArg tp (Prod (stripPairPtr i tp m) (demotePairsExpr l m funs) (demotePairsExpr r m funs))]
+                            _ -> [CArg targ (Prod tp l r)]
+                    demoteArgs [CArg targ x] _ = [CArg targ (demotePairsExpr x m funs)]
+                    demoteArgs (i:is) (id':id'') = demoteArgs [i] [id'] ++ demoteArgs is id''
+            _ -> CallExpr tf tx (demotePairsExpr f m funs) (demotePairsExpr a m funs)
+
+    -- CallExpr tf tx (demotePairsExpr f m funs) (demotePairsExpr a m funs)
+demotePairsExpr (CastExpr t e) m funs = CastExpr t (demotePairsExpr e m funs)
+demotePairsExpr (Box t e) m funs = Box t (demotePairsExpr e m funs)
+demotePairsExpr (Unbox t e) m funs = Unbox t (demotePairsExpr e m funs)
+demotePairsExpr x _ _ = x
 
 
 -- MAIN
@@ -869,13 +1067,6 @@ keepOptimising body defs mergedMap = do
     let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs elminatedBody)
     let escapeBody = removeLocalEnvs elminatedBody (foldr mergeEscape emptyEscapeResult escapeRes)
     let escapeBody' = removeSingleVars escapeBody (foldr mergeEscape emptyEscapeResult escapeRes)
-    
-    -- let escapeRes = map (`escapeAnalysis` emptyEscapeResult) (getDefs inlinedBody)
-    -- let envRemovedBody = removeLocalEnvs inlinedBody (foldr mergeEscape emptyEscapeResult escapeRes)
-    -- let (elminatedBody, changedAlias) = eliminateAliases envRemovedBody
-    -- -- then removeSingleVars on elminatedBody
-    -- let escapeRes2 = map (`escapeAnalysis` emptyEscapeResult) (getDefs elminatedBody)
-    -- let escapeBody' = removeSingleVars elminatedBody (foldr mergeEscape emptyEscapeResult escapeRes2)
 
     let removedUselessBody = removeUseless escapeBody'
     let newDefs = getDefs removedUselessBody
@@ -911,11 +1102,14 @@ helloRun progName progCode = do
     let cbody = addBoxing cbody0 -- boxing values
     let defs = map addBoxing defs0
     let strFunTypes = getStrFunTypes defs Map.empty
-    let (finalBody', finalDefs, finalMergeMap) = keepOptimising cbody defs mergedMap
-    let finalBody = removeCasts finalBody'
+    let (finalBody', _, finalMergeMap) = keepOptimising cbody defs mergedMap
+    let finalBody'' = removeCasts finalBody'
+    -- let finalBody = finalBody''
+    let finalBody = demotePairs finalBody'' (canBeByValue finalBody'') (getFunsWithParams finalBody'')
+    let finalDefs = getDefs finalBody
 
     let pairTypes = collectPairTypes finalBody Set.empty
-    print pairTypes
+    print (canBeByValue finalBody'')
 
     putStrLn "\n--- Printing C ---"
     let imports =   "\n#include <stdbool.h>" ++

@@ -171,8 +171,8 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
 print("OPtimised MERGESORT ******")
 runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST(", ", 42)));\n")
 
-# print("Pure C MERGESORT ******")
-# runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
+print("Pure C MERGESORT ******")
+runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
 
 
 

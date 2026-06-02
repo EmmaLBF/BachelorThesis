@@ -20,15 +20,15 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 };
 
 // function defitions
-int v0(Pair_Int_Int* v1);
+int v0(Pair_Int_Int v1);
 
 // closure defitions
 // function implementations
-int v0(Pair_Int_Int* v1) {
-  if (((v1)->snd == 0)) {
-    return (v1)->fst;
+int v0(Pair_Int_Int v1) {
+  if (((v1).snd == 0)) {
+    return (v1).fst;
   } else {
-    return v0(makePair_Int_Int((v1)->snd, ((v1)->fst % (v1)->snd)));
+    return v0(makePair_Int_Int((v1).snd, ((v1).fst % (v1).snd)));
   }
 }
 
