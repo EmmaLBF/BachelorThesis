@@ -994,6 +994,9 @@ showCArgs (CArg _ x : rest) = "CArg " ++ showCExpression x Map.empty ++ "\n" ++ 
 showListStmt :: [CStatement a] -> String
 showListStmt = concatMap (showCStmt 0 Map.empty Map.empty Map.empty)
 
+printIntArgMap :: Map.Map Int CArg -> String
+printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " ++ showCArg arg Map.empty) (Map.toList m)
+
 -- MAIN
 
 generateClosureStructs :: [CStatement a] -> LiftEnv -> CStatement a
