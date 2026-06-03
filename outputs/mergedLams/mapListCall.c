@@ -40,7 +40,7 @@ NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   if (((v2) == NULL)) {
     return NULL;
   } else {
-    return v10((v2)->head, (v2)->tail);
+    return v10(env10, box_int((v2)->head), (void*)((v2)->tail));
   }
 }
 

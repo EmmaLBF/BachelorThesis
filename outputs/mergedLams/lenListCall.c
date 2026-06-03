@@ -33,7 +33,7 @@ int v0(NodeInt* v1) {
   if (((v1) == NULL)) {
     return 0;
   } else {
-    return v6((v1)->head, (v1)->tail);
+    return v6(env6, box_int((v1)->head), (void*)((v1)->tail));
   }
 }
 

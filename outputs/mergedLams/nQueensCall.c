@@ -361,7 +361,7 @@ int v0(Node* v1) {
   if (((v1) == NULL)) {
     return 0;
   } else {
-    return v40((v1)->head, (v1)->tail);
+    return v40(env40, (void*)((v1)->head), (void*)((v1)->tail));
   }
 }
 
@@ -373,7 +373,7 @@ Node* v44(void* env44, void* v5_raw) {
 Node* v50(void* env50, void* v18_raw, void* v19_raw) {
   Node* v18 = (Node*)v18_raw;
   Node* v19 = (Node*)v19_raw;
-  return cons(v18, v15(v19, ((Env_v50*)env50)->v17));
+  return cons(v18, v15(env15, (void*)(v19), (void*)(((Env_v50*)env50)->v17)));
 }
 
 Node* v15(void* env15, void* v16_raw, void* v17_raw) {
@@ -382,7 +382,7 @@ Node* v15(void* env15, void* v16_raw, void* v17_raw) {
   if (((v16) == NULL)) {
     return v17;
   } else {
-    return v50((v16)->head, (v16)->tail);
+    return v50(env50, (void*)((v16)->head), (void*)((v16)->tail));
   }
 }
 
@@ -393,12 +393,12 @@ bool v54(void* env54, void* v37_raw) {
 
 bool v56(void* env56, void* v36_raw) {
   int v36 = *(int*)v36_raw;
-  return v54((((Env_v56*)env56)->v35)->snd);
+  return v54(env54, box_int((((Env_v56*)env56)->v35)->snd));
 }
 
 bool v58(void* env58, void* v35_raw) {
   Pair_Int_Int *v35 = (Pair_Int_Int*)v35_raw;
-  return v56((v35)->fst);
+  return v56(env56, box_int((v35)->fst));
 }
 
 Closure* v59(void* env59, void* v34_raw) {
@@ -434,18 +434,18 @@ Closure* v59(void* env59, void* v34_raw) {
 
 bool (*v61(void* env61, void* v33_raw))(Pair_Int_Int*) {
   int v33 = *(int*)v33_raw;
-  return v59((((Env_v61*)env61)->v32)->snd);
+  return v59(env59, box_int((((Env_v61*)env61)->v32)->snd));
 }
 
 bool (*v63(void* env63, void* v32_raw))(Pair_Int_Int*) {
   Pair_Int_Int *v32 = (Pair_Int_Int*)v32_raw;
-  return v61((v32)->fst);
+  return v61(env61, box_int((v32)->fst));
 }
 
 bool v70(void* env70, void* v30_raw, void* v31_raw) {
   Pair_Int_Int *v30 = (Pair_Int_Int*)v30_raw;
   Node* v31 = (Node*)v31_raw;
-  return (!(v63(((Env_v70*)env70)->v28)(v30)) && v27(((Env_v70*)env70)->v28, v31));
+  return (!(v63(env63, (void*)(((Env_v70*)env70)->v28))(v30)) && v27(env27, (void*)(((Env_v70*)env70)->v28), (void*)(v31)));
 }
 
 bool v27(void* env27, void* v28_raw, void* v29_raw) {
@@ -454,13 +454,13 @@ bool v27(void* env27, void* v28_raw, void* v29_raw) {
   if (((v29) == NULL)) {
     return true;
   } else {
-    return v70((v29)->head, (v29)->tail);
+    return v70(env70, (void*)((v29)->head), (void*)((v29)->tail));
   }
 }
 
 Node* v76(void* env76, void* v26_raw) {
   Node* v26 = (Node*)v26_raw;
-  if (v27(((Env_v76*)env76)->v25, ((Env_v76*)env76)->v23)) {
+  if (v27(env27, (void*)(((Env_v76*)env76)->v25), (void*)(((Env_v76*)env76)->v23))) {
     return cons(cons(((Env_v76*)env76)->v25, ((Env_v76*)env76)->v23), v26);
   } else {
     return v26;
@@ -469,7 +469,7 @@ Node* v76(void* env76, void* v26_raw) {
 
 Node* v82(void* env82, void* v25_raw) {
   Pair_Int_Int *v25 = (Pair_Int_Int*)v25_raw;
-  return v76(v20(((Env_v82*)env82)->v21, ((Env_v82*)env82)->v22, ((Env_v82*)env82)->v23, (((Env_v82*)env82)->v24 + 1)));
+  return v76(env76, (void*)(v20(((Env_v82*)env82)->v21, ((Env_v82*)env82)->v22, ((Env_v82*)env82)->v23, (((Env_v82*)env82)->v24 + 1))));
 }
 
 Node* v20(void* env20, void* v21_raw, void* v22_raw, void* v23_raw, void* v24_raw) {
@@ -480,14 +480,14 @@ Node* v20(void* env20, void* v21_raw, void* v22_raw, void* v23_raw, void* v24_ra
   if ((v24 == v21)) {
     return NULL;
   } else {
-    return v82(makePair_Int_Int(v22, v24));
+    return v82(env82, (void*)(makePair_Int_Int(v22, v24)));
   }
 }
 
 Node* v97(void* env97, void* v13_raw, void* v14_raw) {
   Node* v13 = (Node*)v13_raw;
   Node* v14 = (Node*)v14_raw;
-  return v15(v20(((Env_v97*)env97)->v10, ((Env_v97*)env97)->v11, v13, 0), v9(((Env_v97*)env97)->v10, ((Env_v97*)env97)->v11, v14));
+  return v15(env15, (void*)(v20(((Env_v97*)env97)->v10, ((Env_v97*)env97)->v11, v13, 0)), (void*)(v9(((Env_v97*)env97)->v10, ((Env_v97*)env97)->v11, v14)));
 }
 
 Node* v9(void* env9, void* v10_raw, void* v11_raw, void* v12_raw) {
@@ -497,7 +497,7 @@ Node* v9(void* env9, void* v10_raw, void* v11_raw, void* v12_raw) {
   if (((v12) == NULL)) {
     return NULL;
   } else {
-    return v97((v12)->head, (v12)->tail);
+    return v97(env97, (void*)((v12)->head), (void*)((v12)->tail));
   }
 }
 
@@ -507,12 +507,12 @@ Node* v6(void* env6, void* v7_raw, void* v8_raw) {
   if ((v7 == ((Env_v6*)env6)->v4)) {
     return v8;
   } else {
-    return v6((v7 + 1), v9(((Env_v6*)env6)->v4, v7, v8));
+    return v6(env6, box_int((v7 + 1)), (void*)(v9(((Env_v6*)env6)->v4, v7, v8)));
   }
 }
 
 Node* v107(int v4) {
-  return v44(v6);
+  return v44(env44, (void*)(v6));
 }
 
 // main

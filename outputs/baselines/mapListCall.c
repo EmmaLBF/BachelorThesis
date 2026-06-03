@@ -65,7 +65,7 @@ NodeInt* v12(void* env12, void* v2_raw) {
   if (((v2) == NULL)) {
     return NULL;
   } else {
-    return v10((v2)->head)((v2)->tail);
+    return v10(env10, box_int((v2)->head))((v2)->tail);
   }
 }
 

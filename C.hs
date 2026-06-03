@@ -779,7 +779,42 @@ makeClosureFactories (Seq x y) m =
     in (Seq x' y', Set.union c c')
 makeClosureFactories x _ = (x, Set.empty)
 
+-- add env parameters to call sites of hoisted functions
+-- if we call a function that is in our lifted set we need to make an env to its call list
+addEnvParameterExpr :: CExpression a -> Map.Map Int (Set.Set CParam) -> CExpression a
+addEnvParameterExpr (CallExpr tf tx f x) m =
+    let (f', args) = collectArgs (CallExpr tf tx f x)
+    in case f' of
+        (Var _ i) -> 
+            case Map.lookup i m of
+                Just _ -> rebuildCall tf f' (CArg CTVoidPtr (Val (EnvV i)) : args)
+                _ -> CallExpr tf tx f x
+        _ -> CallExpr tf tx f x
+addEnvParameterExpr (LIntOp op x y) m = LIntOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr (LCmpOp op x y) m = LCmpOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr (LBoolOp op x y) m = LBoolOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr (ConsList t x y) m = ConsList t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr (Not x) m = Not (addEnvParameterExpr x m)
+addEnvParameterExpr (Abs x) m = Abs (addEnvParameterExpr x m)
+addEnvParameterExpr (TailList t x) m = TailList t (addEnvParameterExpr x m)
+addEnvParameterExpr (HeadList t x) m = HeadList t (addEnvParameterExpr x m)
+addEnvParameterExpr (IsEmpty t x) m = IsEmpty t (addEnvParameterExpr x m)
+addEnvParameterExpr (Fst t1 t2 x) m = Fst t1 t2 (addEnvParameterExpr x m)
+addEnvParameterExpr (Snd t1 t2 x) m = Snd t1 t2 (addEnvParameterExpr x m)
+addEnvParameterExpr (IndexList t x y) m = IndexList t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr (Prod t x y) m = Prod t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
+addEnvParameterExpr x _ = x
 
+addEnvParameter :: CStatement a -> Map.Map Int (Set.Set CParam) -> CStatement a
+addEnvParameter (UpdateVar t i x) m = UpdateVar t i (addEnvParameterExpr x m)
+addEnvParameter (DefVar t i x) m = DefVar t i (addEnvParameterExpr x m)
+addEnvParameter (Seq x y) m = Seq (addEnvParameter x m) (addEnvParameter y m)
+addEnvParameter (If c x y) m = If (addEnvParameterExpr c m) (addEnvParameter x m) (addEnvParameter y m)
+addEnvParameter (While c y) m = While (addEnvParameterExpr c m) (addEnvParameter y m)
+addEnvParameter (BindExpr t c i y) m = BindExpr t (addEnvParameterExpr c m) i (addEnvParameter y m)
+addEnvParameter (DefFun t ifun p body) m = DefFun t ifun p (addEnvParameter body m)
+addEnvParameter (Return c) m = Return (addEnvParameterExpr c m)
+addEnvParameter x _ = x
 
 
 -- OPTIMISATIONS
@@ -1284,9 +1319,11 @@ run progName progCode canMerge = do
                 in (lambdaLift merged Map.empty, mergedLams)
             else (lambdaLift c Map.empty, Map.empty)
     let (cbody'', closureFuns) = makeClosureFactories cbody' parentParamsMap
+    let cbody''' = addEnvParameter cbody'' parentParamsMap
+    let mergedMap' = Map.foldlWithKey' (\acc k _ -> Map.insertWith (+) k 2 acc) mergedMap parentParamsMap
     print closureFuns
 
-    let cbody = addBoxing cbody''
+    let cbody = addBoxing cbody'''
     let defs = getDefs cbody
     let strFunTypes = getStrFunTypes defs Map.empty
 
@@ -1302,8 +1339,8 @@ run progName progCode canMerge = do
     let retExpr = findFirstReturn cbody
     let mainBodyWithoutRet = removeFirstReturn cbody
 
-    let retImpl = showCExpression retExpr mergedMap
-    let mainBodyImpl = showCStmt 0 mergedMap Map.empty strFunTypes mainBodyWithoutRet
+    let retImpl = showCExpression retExpr mergedMap'
+    let mainBodyImpl = showCStmt 0 mergedMap' Map.empty strFunTypes mainBodyWithoutRet
     let pairTypes = collectPairTypes cbody Set.empty
     print pairTypes
 
