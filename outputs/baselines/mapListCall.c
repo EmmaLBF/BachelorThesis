@@ -18,12 +18,14 @@ int v14(int v5);
 typedef struct {
     NodeInt* v4;
     int (*v1)(int);
+    NodeInt* v2;
     int v3;
 } Env_v9;
 
 typedef struct {
     int v3;
     int (*v1)(int);
+    NodeInt* v2;
 } Env_v10;
 
 typedef struct {
@@ -42,14 +44,16 @@ typedef struct {
 // function implementations
 NodeInt* v9(void* env9, void* v4_raw) {
   NodeInt* v4 = (NodeInt*)v4_raw;
-  return consInt(((Env_v9*)env9)->v1(((Env_v9*)env9)->v3), (NodeInt*)((Closure*)v0(((Env_v9*)env9)->v1))->fn(((Closure*)v0(((Env_v9*)env9)->v1))->env, v4));
+  return consInt(((Env_v9*)env9)->v1(((Env_v9*)env9)->v3), v0(((Env_v9*)env9)->v1)(v4));
 }
 
 Closure* v10(void* env10, void* v3_raw) {
   int v3 = *(int*)v3_raw;
   Env_v9* env9 = malloc(sizeof(Env_v9));
   env9->v3 = v3;
-  env9->v1 = ((Env_v10*)env10)->v1;
+  env9->v1 = ((Env_v9*)env9)->v1;
+  env9->v2 = ((Env_v9*)env9)->v2;
+  env9->v3 = ((Env_v9*)env9)->v3;
   Closure* c9 = malloc(sizeof(Closure));
   c9->env = env9;
   c9->fn = (void* (*)(void*, void*))v9;
@@ -61,18 +65,14 @@ NodeInt* v12(void* env12, void* v2_raw) {
   if (((v2) == NULL)) {
     return NULL;
   } else {
-    Env_v10* env10 = malloc(sizeof(Env_v10));
-    env10->v1 = ((Env_v12*)env12)->v1;
-    Closure* c10 = malloc(sizeof(Closure));
-    c10->env = env10;
-    c10->fn = (void* (*)(void*, void*))v10;
-    return (NodeInt*)((Closure*)(Closure*)((Closure*)c10)->fn(((Closure*)c10)->env, box_int((v2)->head)))->fn(((Closure*)(Closure*)((Closure*)c10)->fn(((Closure*)c10)->env, box_int((v2)->head)))->env, (v2)->tail);
+    return v10((v2)->head)((v2)->tail);
   }
 }
 
 Closure* v0(int (*v1)(int)) {
   Env_v12* env12 = malloc(sizeof(Env_v12));
   env12->v1 = v1;
+  env12->v1 = ((Env_v12*)env12)->v1;
   Closure* c12 = malloc(sizeof(Closure));
   c12->env = env12;
   c12->fn = (void* (*)(void*, void*))v12;
@@ -85,7 +85,7 @@ int v14(int v5) {
 
 // main
 int main(void) {
-  printListInt((NodeInt*)((Closure*)v0(v14))->fn(((Closure*)v0(v14))->env, consInt(1, consInt(2, consInt(3, NULL)))));
+  printListInt(v0(v14)(consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

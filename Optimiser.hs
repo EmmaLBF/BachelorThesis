@@ -813,13 +813,6 @@ demotePairsExpr x _ _ = x
 
 -- ***** HELPERS ****
 
-
--- collects a list of defs from the whole ast
-getDefs :: CStatement a -> [CStatement a]
-getDefs stmt@DefFun{} = [stmt]
-getDefs (Seq x y) = getDefs x ++ getDefs y
-getDefs _ = []
-
 -- collects a map of each fun id with the ids of its params from the whole ast
 getFunsWithParams :: CStatement a -> Map.Map Int [Int]
 getFunsWithParams (DefFun _ ifun params _) =

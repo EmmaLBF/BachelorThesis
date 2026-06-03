@@ -17,6 +17,7 @@ typedef struct {
     int v3;
     NodeInt* v4;
     int (*v1)(int);
+    NodeInt* v2;
 } Env_v10;
 
 typedef struct {
@@ -39,12 +40,7 @@ NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   if (((v2) == NULL)) {
     return NULL;
   } else {
-    Env_v10* env10 = malloc(sizeof(Env_v10));
-    env10->v1 = v1;
-    Closure* c10 = malloc(sizeof(Closure));
-    c10->env = env10;
-    c10->fn = (void* (*)(void*, void*))v10;
-    return (NodeInt*)((Closure*)c10)->fn(((Closure*)c10)->env, box_int((v2)->head), (v2)->tail);
+    return v10((v2)->head, (v2)->tail);
   }
 }
 

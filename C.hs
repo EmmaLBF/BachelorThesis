@@ -26,6 +26,7 @@ import qualified Data.Map as Map
 data CParam where
   CParam :: Int -> CType -> CParam
   CParamEnv  :: Int -> CParam -- void* env parameter
+  deriving (Show, Ord)
 
 instance Eq CParam where
   CParam i _ == CParam j _ = i == j
@@ -290,6 +291,14 @@ findReturn (If _ x _) = findReturn x
 findReturn (While _ x) = findReturn x
 findReturn _ = Nothing
 
+replaceReturnClosure :: CStatement a -> Int -> CStatement a
+replaceReturnClosure (Return _) i = Return (Val (ClosureV i))
+replaceReturnClosure (BindExpr t x c y) i = BindExpr t x c (replaceReturnClosure y i)
+replaceReturnClosure (Seq x y) i = Seq (replaceReturnClosure x i) (replaceReturnClosure y i)
+replaceReturnClosure (If c x y) i = If c (replaceReturnClosure x i) (replaceReturnClosure y i)
+replaceReturnClosure (While c y) i = While c (replaceReturnClosure y i)
+replaceReturnClosure x _ = x
+
 findDefFun :: Int -> CStatement a -> Maybe Int
 findDefFun i (Seq (DefFun _ ifun1 _ _) _) | ifun1 == i = Just ifun1
 findDefFun i (Seq _ y) = findDefFun i y
@@ -320,336 +329,458 @@ collectArgs (CallExpr _ tx f x) =
     in (f', as ++ [CArg tx x])
 collectArgs e = (e, [])
 
--- number of hops through map depends on num of args
 collectArgsApply :: CExpression a -> (CExpression a, [CArg])
 collectArgsApply (ApplyClosure tx f x) =
     let (f', as) = collectArgsApply (unsafeCoerce f)
     in (f', as ++ [CArg tx x])
 collectArgsApply e = (e, [])
 
-applyWithCast :: CType -> CExpression a -> [CArg] -> CExpression b
-applyWithCast _ base [] = unsafeCoerce base
-applyWithCast retType base [CArg t a] = CastExpr retType (ApplyClosure t base a)
-applyWithCast retType base (CArg t a : rest) = applyWithCast retType (ApplyClosure t base a) rest
+-- -- number of hops through map depends on num of args
+-- applyWithCast :: CType -> CExpression a -> [CArg] -> CExpression b
+-- applyWithCast _ base [] = unsafeCoerce base
+-- applyWithCast retType base [CArg t a] = CastExpr retType (ApplyClosure t base a)
+-- applyWithCast retType base (CArg t a : rest) = applyWithCast retType (ApplyClosure t base a) rest
 
-hoistClosureAllocs :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> (Hoisted b, CExpression a)
-hoistClosureAllocs ifun env closureRet funs expr@(CallExpr tf _ _ _) =
-    let (func, args) = collectArgs expr
-        (argAllocs, args') = unzip $ map (\(CArg t a) ->
-            let (allocs, a') = hoistClosureAllocs ifun env closureRet funs a
-            in (allocs, CArg t a')) args
-        allArgAllocs = concat argAllocs
-    in case func of
-        myVar@(Var tvar ivar) ->
-            let ownExtraPs    = Map.findWithDefault [] ivar env
-                parentExtraPs = Map.findWithDefault [] ifun env
-                retType =   let hops = length args'
-                                follow 0 fId = Map.findWithDefault CTClosure fId funs
-                                follow n fId = case Map.lookup fId closureRet of
-                                                    Just fId' -> follow (n-1) fId'
-                                                    Nothing   -> Map.findWithDefault CTClosure fId funs
-                            in follow hops ivar
-                closureVar    = Val (ClosureV ivar)
-                directPs      = ownExtraPs \\ parentExtraPs
-                parentPs      = ownExtraPs `intersect` parentExtraPs
-                alloc         = [AllocEnv ivar ifun directPs parentPs, AllocClosure ivar]
-            in case Map.lookup ivar closureRet of
-                Just _ ->
-                    let (factoryArgs, applyArgs') = splitAt (length directPs) args'
-                    in  if null ownExtraPs
-                        then -- no captures: first applyArg is plain C call, rest via ApplyClosure
-                            let applied = case applyArgs' of
-                                    [] -> rebuildCall tvar myVar factoryArgs
-                                    (first : rest) ->
-                                        let firstApplied = rebuildCall tvar myVar [first]
-                                        in 
-                                            trace ("apply4 " ++ show ivar ++ " = " ++ printType retType) $
-                                            applyWithCast retType firstApplied rest
-                            in (allArgAllocs, applied)
-                        -- has captures: alloc closure, apply all args
-                        else 
-                            trace ("apply3 " ++ show ivar ++ " = " ++ printType retType) $
-                            (allArgAllocs ++ alloc, applyWithCast CTClosure closureVar args')
-                Nothing ->
-                    if null ownExtraPs
-                        then (allArgAllocs, rebuildCall tvar myVar args')
-                        else (allArgAllocs ++ alloc, applyWithCast retType closureVar args')
-        _ -> (allArgAllocs, rebuildCall tf func args')
-hoistClosureAllocs ifun env closureRet funs (Ternary tp c t e) =
-    let (ca, c') = hoistClosureAllocs ifun env closureRet funs c
-        (ta, t') = hoistClosureAllocs ifun env closureRet funs t
-        (ea, e') = hoistClosureAllocs ifun env closureRet funs e
-    in (ca ++ ta ++ ea, Ternary tp c' t' e')
-hoistClosureAllocs ifun env closureRet funs (Not x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, Not x')
-hoistClosureAllocs ifun env closureRet funs (Abs x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, Abs x')
-hoistClosureAllocs ifun env closureRet funs (IsEmpty t x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, IsEmpty t x')
-hoistClosureAllocs ifun env closureRet funs (HeadList t x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, HeadList t x')
-hoistClosureAllocs ifun env closureRet funs (TailList t x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, TailList t x')
-hoistClosureAllocs ifun env closureRet funs (Fst tp tr x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, Fst tp tr x')
-hoistClosureAllocs ifun env closureRet funs (Snd tp tr x) =
-    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
-    in (a, Snd tp tr x')
-hoistClosureAllocs ifun env closureRet funs (Prod t f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, Prod t f' g')
-hoistClosureAllocs ifun env closureRet funs (CastExpr f g) =
-    let (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (ga, CastExpr f g')
-hoistClosureAllocs ifun env closureRet funs (IndexList t f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, IndexList t f' g')
-hoistClosureAllocs ifun env closureRet funs (ConsList t f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, ConsList t f' g')
-hoistClosureAllocs ifun env closureRet funs (ApplyClosure tx f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, ApplyClosure tx f' g')
-hoistClosureAllocs ifun env closureRet funs (LIntOp op f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, LIntOp op f' g')
-hoistClosureAllocs ifun env closureRet funs (LCmpOp op f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, LCmpOp op f' g')
-hoistClosureAllocs ifun env closureRet funs (LBoolOp op f g) =
-    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
-        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
-    in (fa ++ ga, LBoolOp op f' g')
-hoistClosureAllocs ifun env _ _ expr@(Var _ f) =
-    let ownExtraPs    = Map.findWithDefault [] f env
-        parentExtraPs = Map.findWithDefault [] ifun env
-        directPs      = ownExtraPs \\ parentExtraPs
-        parentPs      = ownExtraPs `intersect` parentExtraPs
-        alloc         = [AllocEnv f ifun directPs parentPs, AllocClosure f]
-    in if null ownExtraPs
-       then ([], expr)             -- no captures, plain function pointer, leave as-is
-       else (alloc, Val (ClosureV f))  -- has captures, emit alloc, replace with c
-hoistClosureAllocs _ _ _ _ x = ([], x)
+-- hoistClosureAllocs :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> (Hoisted b, CExpression a)
+-- hoistClosureAllocs ifun env closureRet funs expr@(CallExpr tf _ _ _) =
+--     let (func, args) = collectArgs expr
+--         (argAllocs, args') = unzip $ map (\(CArg t a) ->
+--             let (allocs, a') = hoistClosureAllocs ifun env closureRet funs a
+--             in (allocs, CArg t a')) args
+--         allArgAllocs = concat argAllocs
+--     in case func of
+--         myVar@(Var tvar ivar) ->
+--             let ownExtraPs    = Map.findWithDefault [] ivar env
+--                 parentExtraPs = Map.findWithDefault [] ifun env
+--                 retType =   let hops = length args'
+--                                 follow 0 fId = Map.findWithDefault CTClosure fId funs
+--                                 follow n fId = case Map.lookup fId closureRet of
+--                                                     Just fId' -> follow (n-1) fId'
+--                                                     Nothing   -> Map.findWithDefault CTClosure fId funs
+--                             in follow hops ivar
+--                 closureVar    = Val (ClosureV ivar)
+--                 directPs      = ownExtraPs \\ parentExtraPs
+--                 parentPs      = ownExtraPs `intersect` parentExtraPs
+--                 alloc         = [AllocEnv ivar ifun directPs parentPs, AllocClosure ivar]
+--             in case Map.lookup ivar closureRet of
+--                 Just _ ->
+--                     let (factoryArgs, applyArgs') = splitAt (length directPs) args'
+--                     in  if null ownExtraPs
+--                         then -- no captures: first applyArg is plain C call, rest via ApplyClosure
+--                             let applied = case applyArgs' of
+--                                     [] -> rebuildCall tvar myVar factoryArgs
+--                                     (first : rest) ->
+--                                         let firstApplied = rebuildCall tvar myVar [first]
+--                                         in 
+--                                             trace ("apply4 " ++ show ivar ++ " = " ++ printType retType) $
+--                                             applyWithCast retType firstApplied rest
+--                             in (allArgAllocs, applied)
+--                         -- has captures: alloc closure, apply all args
+--                         else 
+--                             trace ("apply3 " ++ show ivar ++ " = " ++ printType retType) $
+--                             (allArgAllocs ++ alloc, applyWithCast CTClosure closureVar args')
+--                 Nothing ->
+--                     if null ownExtraPs
+--                         then (allArgAllocs, rebuildCall tvar myVar args')
+--                         else (allArgAllocs ++ alloc, applyWithCast retType closureVar args')
+--         _ -> (allArgAllocs, rebuildCall tf func args')
+-- hoistClosureAllocs ifun env closureRet funs (Ternary tp c t e) =
+--     let (ca, c') = hoistClosureAllocs ifun env closureRet funs c
+--         (ta, t') = hoistClosureAllocs ifun env closureRet funs t
+--         (ea, e') = hoistClosureAllocs ifun env closureRet funs e
+--     in (ca ++ ta ++ ea, Ternary tp c' t' e')
+-- hoistClosureAllocs ifun env closureRet funs (Not x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, Not x')
+-- hoistClosureAllocs ifun env closureRet funs (Abs x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, Abs x')
+-- hoistClosureAllocs ifun env closureRet funs (IsEmpty t x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, IsEmpty t x')
+-- hoistClosureAllocs ifun env closureRet funs (HeadList t x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, HeadList t x')
+-- hoistClosureAllocs ifun env closureRet funs (TailList t x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, TailList t x')
+-- hoistClosureAllocs ifun env closureRet funs (Fst tp tr x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, Fst tp tr x')
+-- hoistClosureAllocs ifun env closureRet funs (Snd tp tr x) =
+--     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+--     in (a, Snd tp tr x')
+-- hoistClosureAllocs ifun env closureRet funs (Prod t f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, Prod t f' g')
+-- hoistClosureAllocs ifun env closureRet funs (CastExpr f g) =
+--     let (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (ga, CastExpr f g')
+-- hoistClosureAllocs ifun env closureRet funs (IndexList t f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, IndexList t f' g')
+-- hoistClosureAllocs ifun env closureRet funs (ConsList t f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, ConsList t f' g')
+-- hoistClosureAllocs ifun env closureRet funs (ApplyClosure tx f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, ApplyClosure tx f' g')
+-- hoistClosureAllocs ifun env closureRet funs (LIntOp op f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, LIntOp op f' g')
+-- hoistClosureAllocs ifun env closureRet funs (LCmpOp op f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, LCmpOp op f' g')
+-- hoistClosureAllocs ifun env closureRet funs (LBoolOp op f g) =
+--     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+--         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+--     in (fa ++ ga, LBoolOp op f' g')
+-- hoistClosureAllocs ifun env _ _ expr@(Var _ f) =
+--     let ownExtraPs    = Map.findWithDefault [] f env
+--         parentExtraPs = Map.findWithDefault [] ifun env
+--         directPs      = ownExtraPs \\ parentExtraPs
+--         parentPs      = ownExtraPs `intersect` parentExtraPs
+--         alloc         = [AllocEnv f ifun directPs parentPs, AllocClosure f]
+--     in if null ownExtraPs
+--        then ([], expr)             -- no captures, plain function pointer, leave as-is
+--        else (alloc, Val (ClosureV f))  -- has captures, emit alloc, replace with c
+-- hoistClosureAllocs _ _ _ _ x = ([], x)
 
-rewriteExpr :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> CExpression a
-rewriteExpr ifun env closureRet funs (CallExpr tf tx (f :: CExpression (arg -> a)) x) =
-    let x' = rewriteExpr ifun env closureRet funs x
-        oneHopRetType fId = case Map.lookup fId closureRet of
-            Just fId' -> case Map.lookup fId' funs of
-                Just t  -> t
-                Nothing -> oneHopRetType fId'   -- follow the chain further until you find smth in funs, otherwise we get stuck in the lets
-            Nothing   -> Map.findWithDefault CTClosure fId funs
-    in case f of
-        myVar@(Var tvar fId) ->
-            case tvar of
-                CTClosure -> 
-                    trace ("apply1 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
-                    applyWithCast (oneHopRetType fId) myVar [CArg tx x']
-                _ ->
-                    case (Map.lookup fId env, Map.member fId closureRet) of
-                        (Nothing, True) ->
-                            case Map.lookup fId funs of
-                                Just _  -> CallExpr tf tx myVar x'  -- top-level fn, direct call
-                                Nothing -> 
-                                    trace ("apply2 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
-                                    applyWithCast (oneHopRetType fId) myVar [CArg tx x']
-                        _ -> CallExpr tf tx (rewriteExpr ifun env closureRet funs myVar) x'  -- local closure var, use apply
-        _ ->
-            let f' = rewriteExpr ifun env closureRet funs f
-            in case outermostVar f of
-                Just fId | Map.member fId closureRet -> applyWithCast (oneHopRetType fId) f' [CArg tx x']
-                _ -> CallExpr tf tx f' x'
-rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (Abs x) = Abs (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (Fst tp tr x) = Fst tp tr (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (Snd tp tr x) = Snd tp tr (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (IsEmpty t x) = IsEmpty t (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (HeadList t x) = HeadList t (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (TailList t x) = TailList t (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (IndexList t l i) = IndexList t (rewriteExpr ifun m closureRet funs l) i
-rewriteExpr ifun m closureRet funs  (Prod t x y) = Prod t (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
-rewriteExpr ifun m closureRet funs  (ConsList t l x) = ConsList t (rewriteExpr ifun m closureRet funs l) (rewriteExpr ifun m closureRet funs x)
-rewriteExpr ifun m closureRet funs  (LIntOp op x y) = LIntOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
-rewriteExpr ifun m closureRet funs  (LCmpOp op x y) = LCmpOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
-rewriteExpr ifun m closureRet funs  (LBoolOp op x y) = LBoolOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
-rewriteExpr ifun m closureRet funs  (Ternary tp x y z) = Ternary tp (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y) (rewriteExpr ifun m closureRet funs z)
-rewriteExpr ifun m _  _ (Var t i) =
-    case Map.lookup ifun m of -- check if the var is part of the current params or in an env
-        Just extraPs -> case findParam extraPs i of
-            Just (CParam _ pt) -> GetEnvField pt ifun i
-            _                  -> Var t i
-        _ -> Var t i
-        where
-            findParam :: CParams -> Int -> Maybe CParam
-            findParam [] _ = Nothing
-            findParam [CParam ip tp] toFind
-                | ip == toFind = Just (CParam ip tp)
-                | otherwise = Nothing
-            findParam (p:rest) toFind =
-                let param = findParam [p] toFind
-                in case param of
-                    Nothing -> findParam rest toFind
-                    _ -> param
-rewriteExpr _ _ _ _ x = x
+-- rewriteExpr :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CExpression a -> CExpression a
+-- rewriteExpr ifun env closureRet funs (CallExpr tf tx (f :: CExpression (arg -> a)) x) =
+--     let x' = rewriteExpr ifun env closureRet funs x
+--         oneHopRetType fId = case Map.lookup fId closureRet of
+--             Just fId' -> case Map.lookup fId' funs of
+--                 Just t  -> t
+--                 Nothing -> oneHopRetType fId'   -- follow the chain further until you find smth in funs, otherwise we get stuck in the lets
+--             Nothing   -> Map.findWithDefault CTClosure fId funs
+--     in case f of
+--         myVar@(Var tvar fId) ->
+--             case tvar of
+--                 CTClosure -> 
+--                     trace ("apply1 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
+--                     applyWithCast (oneHopRetType fId) myVar [CArg tx x']
+--                 _ ->
+--                     case (Map.lookup fId env, Map.member fId closureRet) of
+--                         (Nothing, True) ->
+--                             case Map.lookup fId funs of
+--                                 Just _  -> CallExpr tf tx myVar x'  -- top-level fn, direct call
+--                                 Nothing -> 
+--                                     trace ("apply2 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
+--                                     applyWithCast (oneHopRetType fId) myVar [CArg tx x']
+--                         _ -> CallExpr tf tx (rewriteExpr ifun env closureRet funs myVar) x'  -- local closure var, use apply
+--         _ ->
+--             let f' = rewriteExpr ifun env closureRet funs f
+--             in case outermostVar f of
+--                 Just fId | Map.member fId closureRet -> applyWithCast (oneHopRetType fId) f' [CArg tx x']
+--                 _ -> CallExpr tf tx f' x'
+-- rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (Abs x) = Abs (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (Fst tp tr x) = Fst tp tr (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (Snd tp tr x) = Snd tp tr (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (IsEmpty t x) = IsEmpty t (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (HeadList t x) = HeadList t (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (TailList t x) = TailList t (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (IndexList t l i) = IndexList t (rewriteExpr ifun m closureRet funs l) i
+-- rewriteExpr ifun m closureRet funs  (Prod t x y) = Prod t (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
+-- rewriteExpr ifun m closureRet funs  (ConsList t l x) = ConsList t (rewriteExpr ifun m closureRet funs l) (rewriteExpr ifun m closureRet funs x)
+-- rewriteExpr ifun m closureRet funs  (LIntOp op x y) = LIntOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
+-- rewriteExpr ifun m closureRet funs  (LCmpOp op x y) = LCmpOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
+-- rewriteExpr ifun m closureRet funs  (LBoolOp op x y) = LBoolOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
+-- rewriteExpr ifun m closureRet funs  (Ternary tp x y z) = Ternary tp (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y) (rewriteExpr ifun m closureRet funs z)
+-- rewriteExpr ifun m _  _ (Var t i) =
+--     case Map.lookup ifun m of -- check if the var is part of the current params or in an env
+--         Just extraPs -> case findParam extraPs i of
+--             Just (CParam _ pt) -> GetEnvField pt ifun i
+--             _                  -> Var t i
+--         _ -> Var t i
+--         where
+--             findParam :: CParams -> Int -> Maybe CParam
+--             findParam [] _ = Nothing
+--             findParam [CParam ip tp] toFind
+--                 | ip == toFind = Just (CParam ip tp)
+--                 | otherwise = Nothing
+--             findParam (p:rest) toFind =
+--                 let param = findParam [p] toFind
+--                 in case param of
+--                     Nothing -> findParam rest toFind
+--                     _ -> param
+-- rewriteExpr _ _ _ _ x = x
 
-rewriteStmt :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CStatement a -> CStatement a
-rewriteStmt ifun m closureRet funs (Seq x y) = Seq (rewriteStmt ifun m closureRet funs x) (rewriteStmt ifun m closureRet funs y)
-rewriteStmt ifun m closureRet funs (While cond x) = While (rewriteExpr ifun m closureRet funs cond) (rewriteStmt ifun m closureRet funs x)
-rewriteStmt _ m closureRet funs (DefFun tret ifun1 params body) = DefFun tret ifun1 params (rewriteStmt ifun1 m closureRet funs body)
-rewriteStmt ifun m closureRet funs (DefVar t i x) = DefVar t i (rewriteExpr ifun m closureRet funs x)
-rewriteStmt ifun env closureRet funs (Return x) =
-    let x' = rewriteExpr ifun env closureRet funs x
-        (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
-    in foldr (Seq . unsafeCoerce) (Return x'') allocs
-rewriteStmt ifun env closureRet funs (BindExpr t x i y) =
-    let x' = rewriteExpr ifun env closureRet funs x
-        (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
-        y' = rewriteStmt ifun env closureRet funs y
-    in foldr (Seq . unsafeCoerce) (BindExpr t x'' i y') allocs
-rewriteStmt ifun env closureRet funs (If cond t f) =
-    let cond' = rewriteExpr ifun env closureRet funs cond
-        (allocs, cond'') = hoistClosureAllocs ifun env closureRet funs cond'
-    in foldr (Seq . unsafeCoerce) (If cond'' (rewriteStmt ifun env closureRet funs t)
-        (rewriteStmt ifun env closureRet funs f)) allocs
-rewriteStmt ifun env closureRet funs (UpdateVar t i x) =
-    let x' = rewriteExpr ifun env closureRet funs x
-        (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
-    in foldr (Seq . unsafeCoerce) (UpdateVar t i x'') allocs
-rewriteStmt _ _ _ _ x = x
+-- rewriteStmt :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CStatement a -> CStatement a
+-- rewriteStmt ifun m closureRet funs (Seq x y) = Seq (rewriteStmt ifun m closureRet funs x) (rewriteStmt ifun m closureRet funs y)
+-- rewriteStmt ifun m closureRet funs (While cond x) = While (rewriteExpr ifun m closureRet funs cond) (rewriteStmt ifun m closureRet funs x)
+-- rewriteStmt _ m closureRet funs (DefFun tret ifun1 params body) = DefFun tret ifun1 params (rewriteStmt ifun1 m closureRet funs body)
+-- rewriteStmt ifun m closureRet funs (DefVar t i x) = DefVar t i (rewriteExpr ifun m closureRet funs x)
+-- rewriteStmt ifun env closureRet funs (Return x) =
+--     let x' = rewriteExpr ifun env closureRet funs x
+--         (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
+--     in foldr (Seq . unsafeCoerce) (Return x'') allocs
+-- rewriteStmt ifun env closureRet funs (BindExpr t x i y) =
+--     let x' = rewriteExpr ifun env closureRet funs x
+--         (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
+--         y' = rewriteStmt ifun env closureRet funs y
+--     in foldr (Seq . unsafeCoerce) (BindExpr t x'' i y') allocs
+-- rewriteStmt ifun env closureRet funs (If cond t f) =
+--     let cond' = rewriteExpr ifun env closureRet funs cond
+--         (allocs, cond'') = hoistClosureAllocs ifun env closureRet funs cond'
+--     in foldr (Seq . unsafeCoerce) (If cond'' (rewriteStmt ifun env closureRet funs t)
+--         (rewriteStmt ifun env closureRet funs f)) allocs
+-- rewriteStmt ifun env closureRet funs (UpdateVar t i x) =
+--     let x' = rewriteExpr ifun env closureRet funs x
+--         (allocs, x'') = hoistClosureAllocs ifun env closureRet funs x'
+--     in foldr (Seq . unsafeCoerce) (UpdateVar t i x'') allocs
+-- rewriteStmt _ _ _ _ x = x
 
-liftStmt :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CStatement a -> (LiftEnv, ClosureReturnEnv, FunTypes, Lifted a, CStatement a)
-liftStmt _ env closureRet funs (DefFun tret ifun params body) =
-    let freeMapRaw = freeVars (DefFun tret ifun params body)
-        freeMap = Map.withoutKeys freeMapRaw (Map.keysSet funs)
-        extraPs = Map.elems freeMap
-        newParams = case extraPs of
-            [] -> params
-            _  -> CParamEnv ifun : params
-        env' = Map.insert ifun extraPs env
-    in  case getInnerFunId body of
-            Just ifun1 ->
-                let closureRet' =
-                        let innerExtraPs = Map.findWithDefault [] ifun1 env''
-                        in if null innerExtraPs then closureRet
-                            else Map.insert ifun ifun1 closureRet
-                    funs' = case tret of
-                        CTFun _ b -> Map.insert ifun b funs
-                        _         -> Map.insert ifun tret funs
-                    (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet' funs' body
-                    (body'', closureRet''') =
-                        let innerExtraPs = Map.findWithDefault [] ifun1 env''
-                            paramIds = map paramId params
-                            directPs = filter (\p -> paramId p `elem` paramIds) innerExtraPs
-                            parentPs = innerExtraPs \\ directPs
-                        in if null innerExtraPs
-                            then (body', closureRet'')
-                            else (Seq (AllocEnv ifun1 ifun directPs parentPs) (Seq (AllocClosure ifun1) (Return (Val (ClosureV ifun1))))
-                                , Map.insert ifun ifun1 closureRet'')
-                    thisDef =
-                        let innerExtraPs = Map.findWithDefault [] ifun1 env''
-                        in if null innerExtraPs
-                            then DefFun tret ifun newParams body''
-                            else DefFun CTClosure ifun newParams body''
-                    funs''' = if null (Map.findWithDefault [] ifun1 env'')
-                                then funs''
-                                else Map.insert ifun (Map.findWithDefault CTClosure ifun1 funs'') funs''
-                in (env'', closureRet''', funs''' , lifted ++ [thisDef], Skip)
-            -- Nothing ->
-            --     let funs' = Map.insert ifun tret funs
-            --         (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
-            --         thisDef = DefFun tret ifun newParams body'
-            --     in (env'', closureRet'', funs'', lifted ++ [thisDef], Skip)
-            Nothing ->
-                let funs' = Map.insert ifun tret funs
-                    (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
+-- liftStmt :: Int -> LiftEnv -> ClosureReturnEnv -> FunTypes -> CStatement a -> (LiftEnv, ClosureReturnEnv, FunTypes, Lifted a, CStatement a)
+-- liftStmt _ env closureRet funs (DefFun tret ifun params body) =
+--     let freeMapRaw = freeVars (DefFun tret ifun params body)
+--         freeMap = Map.withoutKeys freeMapRaw (Map.keysSet funs)
+--         extraPs = Map.elems freeMap
+--         newParams = case extraPs of
+--             [] -> params
+--             _  -> CParamEnv ifun : params
+--         env' = Map.insert ifun extraPs env
+--     in  case getInnerFunId body of
+--             Just ifun1 ->
+--                 let closureRet' =
+--                         let innerExtraPs = Map.findWithDefault [] ifun1 env''
+--                         in if null innerExtraPs then closureRet
+--                             else Map.insert ifun ifun1 closureRet
+--                     funs' = case tret of
+--                         CTFun _ b -> Map.insert ifun b funs
+--                         _         -> Map.insert ifun tret funs
+--                     (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet' funs' body
+--                     (body'', closureRet''') =
+--                         let innerExtraPs = Map.findWithDefault [] ifun1 env''
+--                             paramIds = map paramId params
+--                             directPs = filter (\p -> paramId p `elem` paramIds) innerExtraPs
+--                             parentPs = innerExtraPs \\ directPs
+--                         in if null innerExtraPs
+--                             then (body', closureRet'')
+--                             else (Seq (AllocEnv ifun1 ifun directPs parentPs) (Seq (AllocClosure ifun1) (Return (Val (ClosureV ifun1))))
+--                                 , Map.insert ifun ifun1 closureRet'')
+--                     thisDef =
+--                         let innerExtraPs = Map.findWithDefault [] ifun1 env''
+--                         in if null innerExtraPs
+--                             then DefFun tret ifun newParams body''
+--                             else DefFun CTClosure ifun newParams body''
+--                     funs''' = if null (Map.findWithDefault [] ifun1 env'')
+--                                 then funs''
+--                                 else Map.insert ifun (Map.findWithDefault CTClosure ifun1 funs'') funs''
+--                 in (env'', closureRet''', funs''' , lifted ++ [thisDef], Skip)
+--             -- Nothing ->
+--             --     let funs' = Map.insert ifun tret funs
+--             --         (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
+--             --         thisDef = DefFun tret ifun newParams body'
+--             --     in (env'', closureRet'', funs'', lifted ++ [thisDef], Skip)
+--             Nothing ->
+--                 let funs' = Map.insert ifun tret funs
+--                     (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
                     
-                    -- Inspect the rewritten body's return to see what it really produces.
-                    (actualRet, closureRet''') = case findReturn body of
-                        Just n -> 
-                            case stripWrap n of
-                                (CallExpr _ _ f _) ->
-                                    trace ("\nreturn is call expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
-                                    case outermostVar f of
-                                        Just fid
-                                            | Map.member fid closureRet'' ->
-                                                -- inner is a closure factory; we return its closure
-                                                (CTClosure, Map.insert ifun fid closureRet'')
-                                            | Map.lookup fid funs'' == Just CTClosure ->
-                                                (CTClosure, Map.insert ifun fid closureRet'')
-                                        _ -> (tret, closureRet'')
-                                (Val (ClosureV cid)) ->
-                                    trace ("\nreturn is closure " ++ show ifun ++ "\n") $
-                                    (CTClosure, Map.insert ifun cid closureRet'')
-                                _ -> 
-                                    trace ("\nreturn is expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
-                                    (tret, closureRet'')
-                        _ -> (tret, closureRet'')
+--                     -- Inspect the rewritten body's return to see what it really produces.
+--                     (actualRet, closureRet''') = case findReturn body of
+--                         Just n -> 
+--                             case stripWrap n of
+--                                 (CallExpr _ _ f _) ->
+--                                     trace ("\nreturn is call expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
+--                                     case outermostVar f of
+--                                         Just fid
+--                                             | Map.member fid closureRet'' ->
+--                                                 -- inner is a closure factory; we return its closure
+--                                                 (CTClosure, Map.insert ifun fid closureRet'')
+--                                             | Map.lookup fid funs'' == Just CTClosure ->
+--                                                 (CTClosure, Map.insert ifun fid closureRet'')
+--                                         _ -> (tret, closureRet'')
+--                                 (Val (ClosureV cid)) ->
+--                                     trace ("\nreturn is closure " ++ show ifun ++ "\n") $
+--                                     (CTClosure, Map.insert ifun cid closureRet'')
+--                                 _ -> 
+--                                     trace ("\nreturn is expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
+--                                     (tret, closureRet'')
+--                         _ -> (tret, closureRet'')
 
-                    funs''' = Map.insert ifun actualRet funs'
-                    thisDef = DefFun actualRet ifun newParams body'
-                in (env'', closureRet''', funs''', lifted ++ [thisDef], Skip)
-liftStmt fun env closureRet funs (Seq x y) =
-    let (env', closureRet', funs',  lx, x') = liftStmt fun env closureRet funs  x
-        (env'', closureRet'', funs'',  ly, y') = liftStmt fun env' closureRet' funs' y
-    in (env'', closureRet'', funs'', lx ++ ly, Seq x' y')
-liftStmt fun env closureRet funs (If cond x y) =
-    let (env', closureRet', funs',  lx, x') = liftStmt fun env closureRet funs  x
-        (env'', closureRet'', funs'',  ly, y') = liftStmt fun env' closureRet' funs' y
-    in (env'', closureRet'', funs'', lx ++ ly, If (rewriteExpr fun env closureRet'' funs'' cond) x' y')
-liftStmt fun env closureRet funs (While cond x) =
-    let (env', closureRet', funs', lx, x') = liftStmt fun env closureRet funs x
-    in (env', closureRet', funs', lx, While (rewriteExpr fun env closureRet' funs' cond) x')
-liftStmt fun env closureRet funs (BindExpr t x i y) =
-    let -- first pass: determine closureRet1 before we know x''
-        closureRet1 = case outermostVar x of
-            Just f | Map.member f closureRet -> Map.insert i f closureRet
-            Just f | not (null (Map.findWithDefault [] f env)) -> Map.insert i f closureRet
-            _ -> closureRet
-        (env', closureRet', funs', ly, y') = liftStmt fun env closureRet1 funs y
-        x' = rewriteExpr fun env' closureRet' funs' x
-        (allocs, x'') = hoistClosureAllocs fun env' closureRet' funs' x'
-        -- after hoisting, x'' might be Val (ClosureV f) — update closureRet for t'
-        t' = case x'' of
-            Val (ClosureV _) -> CTClosure
-            Var _ f | Map.member f closureRet ->
-                case t of
-                    CTFun arg _ -> CTFun arg CTClosure
-                    _           -> t
-            _ -> case outermostVar x'' of
-                    Just f | not (null (Map.findWithDefault [] f env')) -> CTClosure
-                    Just f | Map.member f closureRet' -> CTClosure
-                    _ -> case x'' of
-                            ApplyClosure {} -> CTClosure
-                            CastExpr ct _   -> ct
-                            _               -> t
-    in (env', closureRet', funs', ly, foldr (Seq . unsafeCoerce) (BindExpr t' x'' i y') allocs)
-liftStmt fun env closureRet funs s = (env, closureRet, funs, [], rewriteStmt fun env closureRet funs s)
+--                     funs''' = Map.insert ifun actualRet funs'
+--                     thisDef = DefFun actualRet ifun newParams body'
+--                 in (env'', closureRet''', funs''', lifted ++ [thisDef], Skip)
+-- liftStmt fun env closureRet funs (Seq x y) =
+--     let (env', closureRet', funs',  lx, x') = liftStmt fun env closureRet funs  x
+--         (env'', closureRet'', funs'',  ly, y') = liftStmt fun env' closureRet' funs' y
+--     in (env'', closureRet'', funs'', lx ++ ly, Seq x' y')
+-- liftStmt fun env closureRet funs (If cond x y) =
+--     let (env', closureRet', funs',  lx, x') = liftStmt fun env closureRet funs  x
+--         (env'', closureRet'', funs'',  ly, y') = liftStmt fun env' closureRet' funs' y
+--     in (env'', closureRet'', funs'', lx ++ ly, If (rewriteExpr fun env closureRet'' funs'' cond) x' y')
+-- liftStmt fun env closureRet funs (While cond x) =
+--     let (env', closureRet', funs', lx, x') = liftStmt fun env closureRet funs x
+--     in (env', closureRet', funs', lx, While (rewriteExpr fun env closureRet' funs' cond) x')
+-- liftStmt fun env closureRet funs (BindExpr t x i y) =
+--     let -- first pass: determine closureRet1 before we know x''
+--         closureRet1 = case outermostVar x of
+--             Just f | Map.member f closureRet -> Map.insert i f closureRet
+--             Just f | not (null (Map.findWithDefault [] f env)) -> Map.insert i f closureRet
+--             _ -> closureRet
+--         (env', closureRet', funs', ly, y') = liftStmt fun env closureRet1 funs y
+--         x' = rewriteExpr fun env' closureRet' funs' x
+--         (allocs, x'') = hoistClosureAllocs fun env' closureRet' funs' x'
+--         -- after hoisting, x'' might be Val (ClosureV f) — update closureRet for t'
+--         t' = case x'' of
+--             Val (ClosureV _) -> CTClosure
+--             Var _ f | Map.member f closureRet ->
+--                 case t of
+--                     CTFun arg _ -> CTFun arg CTClosure
+--                     _           -> t
+--             _ -> case outermostVar x'' of
+--                     Just f | not (null (Map.findWithDefault [] f env')) -> CTClosure
+--                     Just f | Map.member f closureRet' -> CTClosure
+--                     _ -> case x'' of
+--                             ApplyClosure {} -> CTClosure
+--                             CastExpr ct _   -> ct
+--                             _               -> t
+--     in (env', closureRet', funs', ly, foldr (Seq . unsafeCoerce) (BindExpr t' x'' i y') allocs)
+-- liftStmt fun env closureRet funs s = (env, closureRet, funs, [], rewriteStmt fun env closureRet funs s)
 
-lambdaLift :: CStatement a -> (CStatement a, ClosureReturnEnv, LiftEnv, FunTypes, [CStatement a])
-lambdaLift stmt =
-    let (env, closureRet, funs, lifted, stmt') = liftStmt (-1) Map.empty Map.empty Map.empty stmt
-    in (Prelude.foldr Seq stmt' lifted, closureRet, env, funs, lifted)
+-- lambdaLift :: CStatement a -> (CStatement a, ClosureReturnEnv, LiftEnv, FunTypes, [CStatement a])
+-- lambdaLift stmt =
+--     let (env, closureRet, funs, lifted, stmt') = liftStmt (-1) Map.empty Map.empty Map.empty stmt
+--     in (Prelude.foldr Seq stmt' lifted, closureRet, env, funs, lifted)
+
+findFirstDefFun :: CStatement a -> Maybe (CStatement a)
+findFirstDefFun stmt@DefFun{} = Just stmt
+findFirstDefFun (Seq x y) = 
+    let xdef = findFirstDefFun x
+    in case xdef of
+        Nothing -> findFirstDefFun y
+        _ -> xdef
+findFirstDefFun (If _ x y) = 
+    let xdef = findFirstDefFun x
+    in case xdef of
+        Nothing -> findFirstDefFun y
+        _ -> xdef
+findFirstDefFun _ = Nothing
+
+removeDefFun :: CStatement a -> Int -> CStatement a
+removeDefFun (DefFun tret ifun' params body) ifun
+    | ifun == ifun' = Skip
+    | otherwise = DefFun tret ifun' params (removeDefFun body ifun)
+removeDefFun (Seq x y) ifun = Seq (removeDefFun x ifun) (removeDefFun y ifun)
+removeDefFun (If c x y) ifun = If c (removeDefFun x ifun) (removeDefFun y ifun)
+removeDefFun (While c x) ifun = While c (removeDefFun x ifun)
+removeDefFun x _ = x
 
 
+paramsToList :: CParams -> [Int]
+paramsToList [] = []
+paramsToList (CParam i _ : rest) = i : paramsToList rest
+paramsToList (CParamEnv{} : rest) = paramsToList rest
 
+-- for each def search in its body for the first def you find
+-- if there is one we lift it out (sequence it before) and remove it from the body
+-- the lifted function needs an env as a parameter with the params of all its parents
+-- this only lifts one def at a time
+liftDefs :: CStatement a -> Map.Map Int (Set.Set CParam) -> (CStatement a, Bool, Map.Map Int (Set.Set CParam))
+liftDefs stmt@(DefFun tret ifun params body) m =
+    let defToRemove = findFirstDefFun body
+    in case defToRemove of
+        Nothing -> (stmt, False, m)
+        Just (DefFun tret' ifun' params' body') -> 
+            let removedDefBody = removeDefFun body ifun'
+                newDef = DefFun tret' ifun' (CParamEnv ifun' : params') body'
+                newSet = case Map.lookup ifun m of
+                                Just s -> Set.union (Set.fromList params) s
+                                _ -> Set.fromList params
+            in (Seq newDef (DefFun tret ifun params removedDefBody), True, Map.insert ifun' newSet m)
+        _ -> error "not def"
+liftDefs (Seq x y) m = 
+    let (x', removed, m') = liftDefs x m
+    in if removed then (Seq x' y, True, m')
+       else 
+        let (y', removed', m'') = liftDefs y m 
+        in (Seq x y', removed', m'')
+liftDefs x m = (x, False, m)
+
+lambdaLift :: CStatement a -> Map.Map Int (Set.Set CParam) -> (CStatement a, Map.Map Int (Set.Set CParam))
+lambdaLift stmt m = 
+    let (stmt', removed, m') = liftDefs stmt m
+        stmt'' = replaceParentVarAccess stmt' (-1) m'
+    in if removed then lambdaLift stmt'' m' else (stmt'', m')
 
 stripWrap :: CExpression a -> CExpression a
 stripWrap (Unbox _ r) = unsafeCoerce (stripWrap r)
 stripWrap (CastExpr _ r) = unsafeCoerce (stripWrap r)
 stripWrap (Box _ r) = unsafeCoerce (stripWrap r)
 stripWrap r = r
+
+-- all of the parent function(s)'s paramteters need to be accessed through the env
+-- instead of directly through var
+replaceParentVarAccessExpr :: CExpression a -> Int -> Map.Map Int (Set.Set CParam) -> CExpression a
+replaceParentVarAccessExpr (Var t i) currFun m =
+    case Map.lookup currFun m of
+        Just funSet -> case i `elem` (paramsToList (Set.toList funSet)) of
+                            True -> GetEnvField t currFun i
+                            _ -> (Var t i)
+        _ -> (Var t i)
+replaceParentVarAccessExpr (LIntOp op x y) currFun m = LIntOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (LCmpOp op x y) currFun m = LCmpOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (LBoolOp op x y) currFun m = LBoolOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (ConsList t x y) currFun m = ConsList t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (CallExpr tx ty x y) currFun m = CallExpr tx ty (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (Not x) currFun m = Not (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (Abs x) currFun m = Abs (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (TailList t x) currFun m = TailList t (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (HeadList t x) currFun m = HeadList t (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (IsEmpty t x) currFun m = IsEmpty t (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (Fst t1 t2 x) currFun m = Fst t1 t2 (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (Snd t1 t2 x) currFun m = Snd t1 t2 (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccessExpr (IndexList t x y) currFun m = IndexList t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr (Prod t x y) currFun m = Prod t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
+replaceParentVarAccessExpr x _ _ = x
+
+replaceParentVarAccess :: CStatement a -> Int -> Map.Map Int (Set.Set CParam) -> CStatement a
+replaceParentVarAccess (UpdateVar t i x) currFun m = UpdateVar t i (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccess (DefVar t i x) currFun m = DefVar t i (replaceParentVarAccessExpr x currFun m)
+replaceParentVarAccess (Seq x y) currFun m = Seq (replaceParentVarAccess x currFun m) (replaceParentVarAccess y currFun m)
+replaceParentVarAccess (If c x y) currFun m = If (replaceParentVarAccessExpr c currFun m) (replaceParentVarAccess x currFun m) (replaceParentVarAccess y currFun m)
+replaceParentVarAccess (While c y) currFun m = While (replaceParentVarAccessExpr c currFun m) (replaceParentVarAccess y currFun m)
+replaceParentVarAccess (BindExpr t c i y) currFun m = BindExpr t (replaceParentVarAccessExpr c currFun m) i (replaceParentVarAccess y currFun m)
+replaceParentVarAccess (DefFun t ifun p body) _ m = DefFun t ifun p (replaceParentVarAccess body ifun m)
+replaceParentVarAccess (Return c) currFun m = Return (replaceParentVarAccessExpr c currFun m)
+replaceParentVarAccess x _ _ = x
+
+-- functions which immediately return another function need to return closures instead
+-- if the function just returns a var, lookup the var in the map
+    -- if its parent parameters contain the current params, the current function is its parent
+        -- so it needs to be a closure
+makeClosureFactories :: CStatement a -> Map.Map Int (Set.Set CParam) -> (CStatement a, Set.Set Int)
+makeClosureFactories stmt@(DefFun _ ifun params body) m =
+    let funRet = findReturn body
+    in case funRet of
+        Just (Var _ i) -> 
+            case Map.lookup i m of
+                Just funSet -> 
+                    if Set.isSubsetOf (Set.fromList params) funSet 
+                    then -- curr fun is parent
+                        let allocEnv = AllocEnv i i params (Set.toList funSet)
+                            allocCls = AllocClosure i
+                            newBody = Seq allocEnv (Seq allocCls (replaceReturnClosure body i))
+                        in (DefFun CTClosure ifun params newBody, Set.insert ifun Set.empty)
+                    else (stmt, Set.empty)
+                _ -> (stmt, Set.empty)
+        _ -> (stmt, Set.empty)
+makeClosureFactories (Seq x y) m = 
+    let (x', c) = makeClosureFactories x m
+        (y', c') = makeClosureFactories y m
+    in (Seq x' y', Set.union c c')
+makeClosureFactories x _ = (x, Set.empty)
+
+
+
 
 -- OPTIMISATIONS
 
@@ -1065,11 +1196,11 @@ printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " 
 
 -- MAIN
 
-generateClosureStructs :: [CStatement a] -> LiftEnv -> CStatement a
+generateClosureStructs :: [CStatement a] -> Map.Map Int (Set.Set CParam) -> CStatement a
 generateClosureStructs [] _ = Skip
 generateClosureStructs (DefFun _ ifun params _ : rest) liftenv =
     let envParams = case Map.lookup ifun liftenv of
-                        Just ps -> ps
+                        Just ps -> Set.toList ps
                         Nothing -> []
         allParams = params ++ envParams
     in Seq (DefClosureStruct ifun allParams) (generateClosureStructs rest liftenv)
@@ -1112,6 +1243,12 @@ getStrFunTypes ((DefFun tret ifun _ _) : rest) m =
     in getStrFunTypes rest m'
 getStrFunTypes (_ : rest) m = getStrFunTypes rest m
 
+-- collects a list of defs from the whole ast
+getDefs :: CStatement a -> [CStatement a]
+getDefs stmt@DefFun{} = [stmt]
+getDefs (Seq x y) = getDefs x ++ getDefs y
+getDefs _ = []
+
 
 {-
 gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
@@ -1136,13 +1273,21 @@ run progName progCode canMerge = do
     putStrLn "--- Translating to CLang ---"
     putStrLn $ CL.showCStmt 0 clOpt
 
-    let ((cbody', closureEnv, liftenv, _, defs), mergedMap) =
+    -- let ((cbody', closureEnv, liftenv, _, defs), mergedMap) =
+    --         if canMerge then
+    --             let (merged, mergedLams) = mergeLambdas c c Map.empty
+    --             in (lambdaLift merged, mergedLams)
+    --         else (lambdaLift c, Map.empty)
+    let ((cbody', parentParamsMap), mergedMap) =
             if canMerge then
                 let (merged, mergedLams) = mergeLambdas c c Map.empty
-                in (lambdaLift merged, mergedLams)
-            else (lambdaLift c, Map.empty)
+                in (lambdaLift merged Map.empty, mergedLams)
+            else (lambdaLift c Map.empty, Map.empty)
+    let (cbody'', closureFuns) = makeClosureFactories cbody' parentParamsMap
+    print closureFuns
 
-    let cbody = addBoxing cbody'
+    let cbody = addBoxing cbody''
+    let defs = getDefs cbody
     let strFunTypes = getStrFunTypes defs Map.empty
 
     putStrLn "\n--- Printing C ---"
@@ -1152,15 +1297,13 @@ run progName progCode canMerge = do
                     "\n#include <stdint.h>" ++
                     libName
 
-    let closureStructs = generateClosureStructs defs liftenv
+    let closureStructs = generateClosureStructs defs parentParamsMap
     let funDefs = showFunDefs defs
-    let (funPart, mainBody) = splitTopLevel cbody
-    let retExpr = findFirstReturn mainBody
-    let mainBodyWithoutRet = removeFirstReturn mainBody
+    let retExpr = findFirstReturn cbody
+    let mainBodyWithoutRet = removeFirstReturn cbody
 
     let retImpl = showCExpression retExpr mergedMap
-    let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
-    let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
+    let mainBodyImpl = showCStmt 0 mergedMap Map.empty strFunTypes mainBodyWithoutRet
     let pairTypes = collectPairTypes cbody Set.empty
     print pairTypes
 
@@ -1169,9 +1312,9 @@ run progName progCode canMerge = do
             "\n// pair type defitions" ++ concatMap genPairDeclaration (Set.toList pairTypes) ++
             "\n// function defitions" ++ funDefs ++
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty Map.empty strFunTypes closureStructs ++
-            "\n// function implementations" ++ funImpl ++
-            "\n// main\nint main(void) {" ++ mainBodyImpl ++
-                    case show (typeRep mainBody) of
+            "\n// function implementations" ++ mainBodyImpl ++
+            "\n// main\nint main(void) {"  ++
+                    case show (typeRep cbody) of
                         "Int" -> "\n  printInt("
                         "[Int]" -> "\n  printListInt("
                         _ -> error "cannot print"
