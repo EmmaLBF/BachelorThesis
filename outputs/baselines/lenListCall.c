@@ -8,37 +8,37 @@
 
 // pair type defitions
 // function defitions
-int v4(NodeInt* v3);
-int (*v5(int v2))(NodeInt*);
+int v5(NodeInt* v3);
+int (*v6(int v2))(NodeInt*);
 int v0(NodeInt* v1);
 
 // closure defitions
 typedef struct {
     NodeInt* v3;
-} Env_v4;
+} Env_v5;
 
 typedef struct {
     int v2;
-} Env_v5;
+} Env_v6;
 
 typedef struct {
     NodeInt* v1;
 } Env_v0;
 
 // function implementations
-int v4(NodeInt* v3) {
+int v5(NodeInt* v3) {
   return (1 + v0(v3));
 }
 
-int (*v5(int v2))(NodeInt*) {
-  return v4;
+int (*v6(int v2))(NodeInt*) {
+  return v5;
 }
 
 int v0(NodeInt* v1) {
   if (((v1) == NULL)) {
     return 0;
   } else {
-    return v5((v1)->head)((v1)->tail);
+    return v6((v1)->head)((v1)->tail);
   }
 }
 

@@ -9,7 +9,7 @@
 // pair type defitions
 // function defitions
 NodeInt* v0(int (*v1)(int), NodeInt* v2);
-int v11(int v5);
+int v14(int v5);
 
 // closure defitions
 // function implementations
@@ -21,13 +21,13 @@ NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   }
 }
 
-int v11(int v5) {
+int v14(int v5) {
   return (v5 * 2);
 }
 
 // main
 int main(void) {
-  printListInt(v0(v11, consInt(1, consInt(2, consInt(3, NULL)))));
+  printListInt(v0(v14, consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

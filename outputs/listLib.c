@@ -76,10 +76,6 @@ Pair* mk_pair(void* fst, void* snd) {
     return p;
 }
 
-// Pair mk_pair(void* fst, void* snd) {
-//     return (Pair){ .fst = fst, .snd = snd };
-// }
-
 // generate list
 
 NodeInt* LIST(size_t size, int seed) {

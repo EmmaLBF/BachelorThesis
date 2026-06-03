@@ -66,9 +66,11 @@ data CValue a where
 data CExpression a where
     Val :: CValue a -> CExpression a
     Not :: CExpression Bool -> CExpression Bool
+    Abs :: CExpression Int -> CExpression Int
     Var :: CType -> Int -> CExpression a
     LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
     LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
+    LBoolOp :: AL.BoolOp -> CExpression Bool -> CExpression Bool -> CExpression Bool
     Ternary :: CType -> CExpression Bool -> CExpression a -> CExpression a -> CExpression a
     -- Tuples
     Prod :: CType -> CExpression a -> CExpression b -> CExpression (a, b)
@@ -132,6 +134,7 @@ translateValueBack _ = error "Cannot translate back"
 translateExpr :: forall a. CL.CExpression a -> CExpression a
 translateExpr CL.EmptyList = EmptyList (fromTypeRep (typeRep (Proxy :: Proxy a)))
 translateExpr (CL.Not e) = Not (translateExpr e)
+translateExpr (CL.Abs e) = Abs (translateExpr e)
 translateExpr (CL.Fst (p :: CL.CExpression (b, c))) = 
     let tp = fromTypeRep (typeRep (Proxy :: Proxy (b, c)))
         tr = fromTypeRep (typeRep (Proxy :: Proxy b))
@@ -155,6 +158,7 @@ translateExpr (CL.CallExpr (f :: CL.CExpression func) (x :: CL.CExpression arg))
 translateExpr (CL.IndexList (l :: CL.CExpression [b]) i) = IndexList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l) (translateExpr i)
 translateExpr (CL.LIntOp op e1 e2) = LIntOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.LCmpOp op e1 e2) = LCmpOp op (translateExpr e1) (translateExpr e2)
+translateExpr (CL.LBoolOp op e1 e2) = LBoolOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.Ternary c t f) = Ternary (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr c) (translateExpr t) (translateExpr f)
 
 translate :: CL.CStatement a -> CStatement a
@@ -193,8 +197,10 @@ addBoxingExpr (ConsList t x y) = ConsList t (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (ApplyClosure tx f x) = ApplyClosure tx (addBoxingExpr f) (Box tx (addBoxingExpr x))
 addBoxingExpr (LIntOp op x y) = LIntOp op (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (LCmpOp op x y) = LCmpOp op (addBoxingExpr x) (addBoxingExpr y)
+addBoxingExpr (LBoolOp op x y) = LBoolOp op (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (Ternary tp c t e) = Ternary tp (addBoxingExpr c) (addBoxingExpr t) (addBoxingExpr e)
 addBoxingExpr (Not x) = Not (addBoxingExpr x)
+addBoxingExpr (Abs x) = Abs (addBoxingExpr x)
 addBoxingExpr (IsEmpty t x) = IsEmpty t (addBoxingExpr x)
 addBoxingExpr (CastExpr t x) = CastExpr t (addBoxingExpr x)
 addBoxingExpr (CallExpr tf tx f x) = CallExpr tf tx (addBoxingExpr f) (addBoxingExpr x)
@@ -219,6 +225,7 @@ merge (xfree, xbound) (yfree, ybound) = (Map.union xfree yfree, Map.union xbound
 -- free, bound
 freeVarsExpr :: CExpression a -> (CParamMap, CParamMap)
 freeVarsExpr (Not x) = freeVarsExpr x
+freeVarsExpr (Abs x) = freeVarsExpr x
 freeVarsExpr (Fst _ _ x) = freeVarsExpr x
 freeVarsExpr (Snd _ _ x) = freeVarsExpr x
 freeVarsExpr (Box _ x) = freeVarsExpr x
@@ -235,6 +242,7 @@ freeVarsExpr GetEnvField {} =  (Map.empty, Map.empty)
 freeVarsExpr (Prod _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (LIntOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (LCmpOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
+freeVarsExpr (LBoolOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (CallExpr _ _ f x) = merge (freeVarsExpr f) (freeVarsExpr x)
 freeVarsExpr (ConsList _ l x) = merge (freeVarsExpr l) (freeVarsExpr x)
 freeVarsExpr (Var t i) = (Map.singleton i (CParam i t), Map.empty)
@@ -354,10 +362,14 @@ hoistClosureAllocs ifun env closureRet funs expr@(CallExpr tf _ _ _) =
                                     [] -> rebuildCall tvar myVar factoryArgs
                                     (first : rest) ->
                                         let firstApplied = rebuildCall tvar myVar [first]
-                                        in applyWithCast retType firstApplied rest
+                                        in 
+                                            trace ("apply4 " ++ show ivar ++ " = " ++ printType retType) $
+                                            applyWithCast retType firstApplied rest
                             in (allArgAllocs, applied)
                         -- has captures: alloc closure, apply all args
-                        else (allArgAllocs ++ alloc, applyWithCast retType closureVar args')
+                        else 
+                            trace ("apply3 " ++ show ivar ++ " = " ++ printType retType) $
+                            (allArgAllocs ++ alloc, applyWithCast CTClosure closureVar args')
                 Nothing ->
                     if null ownExtraPs
                         then (allArgAllocs, rebuildCall tvar myVar args')
@@ -371,6 +383,9 @@ hoistClosureAllocs ifun env closureRet funs (Ternary tp c t e) =
 hoistClosureAllocs ifun env closureRet funs (Not x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
     in (a, Not x')
+hoistClosureAllocs ifun env closureRet funs (Abs x) =
+    let (a, x') = hoistClosureAllocs ifun env closureRet funs x
+    in (a, Abs x')
 hoistClosureAllocs ifun env closureRet funs (IsEmpty t x) =
     let (a, x') = hoistClosureAllocs ifun env closureRet funs x
     in (a, IsEmpty t x')
@@ -413,6 +428,10 @@ hoistClosureAllocs ifun env closureRet funs (LCmpOp op f g) =
     let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
         (ga, g') = hoistClosureAllocs ifun env closureRet funs g
     in (fa ++ ga, LCmpOp op f' g')
+hoistClosureAllocs ifun env closureRet funs (LBoolOp op f g) =
+    let (fa, f') = hoistClosureAllocs ifun env closureRet funs f
+        (ga, g') = hoistClosureAllocs ifun env closureRet funs g
+    in (fa ++ ga, LBoolOp op f' g')
 hoistClosureAllocs ifun env _ _ expr@(Var _ f) =
     let ownExtraPs    = Map.findWithDefault [] f env
         parentExtraPs = Map.findWithDefault [] ifun env
@@ -435,23 +454,25 @@ rewriteExpr ifun env closureRet funs (CallExpr tf tx (f :: CExpression (arg -> a
     in case f of
         myVar@(Var tvar fId) ->
             case tvar of
-                CTClosure -> applyWithCast (oneHopRetType fId) myVar [CArg tx x']
+                CTClosure -> 
+                    trace ("apply1 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
+                    applyWithCast (oneHopRetType fId) myVar [CArg tx x']
                 _ ->
                     case (Map.lookup fId env, Map.member fId closureRet) of
                         (Nothing, True) ->
                             case Map.lookup fId funs of
                                 Just _  -> CallExpr tf tx myVar x'  -- top-level fn, direct call
-                                Nothing -> applyWithCast (oneHopRetType fId) myVar [CArg tx x']
+                                Nothing -> 
+                                    trace ("apply2 " ++ show fId ++ " = " ++ printType (oneHopRetType fId)) $
+                                    applyWithCast (oneHopRetType fId) myVar [CArg tx x']
                         _ -> CallExpr tf tx (rewriteExpr ifun env closureRet funs myVar) x'  -- local closure var, use apply
         _ ->
             let f' = rewriteExpr ifun env closureRet funs f
             in case outermostVar f of
-                Just fId | Map.member fId closureRet ->
-                    if Map.member fId env
-                    then CallExpr tf tx f' x'
-                    else applyWithCast (oneHopRetType fId) f' [CArg tx x']
+                Just fId | Map.member fId closureRet -> applyWithCast (oneHopRetType fId) f' [CArg tx x']
                 _ -> CallExpr tf tx f' x'
 rewriteExpr ifun m closureRet funs  (Not x) = Not (rewriteExpr ifun m closureRet funs x)
+rewriteExpr ifun m closureRet funs  (Abs x) = Abs (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Fst tp tr x) = Fst tp tr (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (Snd tp tr x) = Snd tp tr (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (IsEmpty t x) = IsEmpty t (rewriteExpr ifun m closureRet funs x)
@@ -462,6 +483,7 @@ rewriteExpr ifun m closureRet funs  (Prod t x y) = Prod t (rewriteExpr ifun m cl
 rewriteExpr ifun m closureRet funs  (ConsList t l x) = ConsList t (rewriteExpr ifun m closureRet funs l) (rewriteExpr ifun m closureRet funs x)
 rewriteExpr ifun m closureRet funs  (LIntOp op x y) = LIntOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
 rewriteExpr ifun m closureRet funs  (LCmpOp op x y) = LCmpOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
+rewriteExpr ifun m closureRet funs  (LBoolOp op x y) = LBoolOp op (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y)
 rewriteExpr ifun m closureRet funs  (Ternary tp x y z) = Ternary tp (rewriteExpr ifun m closureRet funs x) (rewriteExpr ifun m closureRet funs y) (rewriteExpr ifun m closureRet funs z)
 rewriteExpr ifun m _  _ (Var t i) =
     case Map.lookup ifun m of -- check if the var is part of the current params or in an env
@@ -544,11 +566,40 @@ liftStmt _ env closureRet funs (DefFun tret ifun params body) =
                                 then funs''
                                 else Map.insert ifun (Map.findWithDefault CTClosure ifun1 funs'') funs''
                 in (env'', closureRet''', funs''' , lifted ++ [thisDef], Skip)
+            -- Nothing ->
+            --     let funs' = Map.insert ifun tret funs
+            --         (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
+            --         thisDef = DefFun tret ifun newParams body'
+            --     in (env'', closureRet'', funs'', lifted ++ [thisDef], Skip)
             Nothing ->
                 let funs' = Map.insert ifun tret funs
                     (env'', closureRet'', funs'', lifted, body') = liftStmt ifun env' closureRet funs' body
-                    thisDef = DefFun tret ifun newParams body'
-                in (env'', closureRet'', funs'', lifted ++ [thisDef], Skip)
+                    
+                    -- Inspect the rewritten body's return to see what it really produces.
+                    (actualRet, closureRet''') = case findReturn body of
+                        Just n -> 
+                            case stripWrap n of
+                                (CallExpr _ _ f _) ->
+                                    trace ("\nreturn is call expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
+                                    case outermostVar f of
+                                        Just fid
+                                            | Map.member fid closureRet'' ->
+                                                -- inner is a closure factory; we return its closure
+                                                (CTClosure, Map.insert ifun fid closureRet'')
+                                            | Map.lookup fid funs'' == Just CTClosure ->
+                                                (CTClosure, Map.insert ifun fid closureRet'')
+                                        _ -> (tret, closureRet'')
+                                (Val (ClosureV cid)) ->
+                                    trace ("\nreturn is closure " ++ show ifun ++ "\n") $
+                                    (CTClosure, Map.insert ifun cid closureRet'')
+                                _ -> 
+                                    trace ("\nreturn is expr " ++ show ifun ++ " " ++ showCExpression n Map.empty ++ "\n") $
+                                    (tret, closureRet'')
+                        _ -> (tret, closureRet'')
+
+                    funs''' = Map.insert ifun actualRet funs'
+                    thisDef = DefFun actualRet ifun newParams body'
+                in (env'', closureRet''', funs''', lifted ++ [thisDef], Skip)
 liftStmt fun env closureRet funs (Seq x y) =
     let (env', closureRet', funs',  lx, x') = liftStmt fun env closureRet funs  x
         (env'', closureRet'', funs'',  ly, y') = liftStmt fun env' closureRet' funs' y
@@ -591,6 +642,14 @@ lambdaLift stmt =
     let (env, closureRet, funs, lifted, stmt') = liftStmt (-1) Map.empty Map.empty Map.empty stmt
     in (Prelude.foldr Seq stmt' lifted, closureRet, env, funs, lifted)
 
+
+
+
+stripWrap :: CExpression a -> CExpression a
+stripWrap (Unbox _ r) = unsafeCoerce (stripWrap r)
+stripWrap (CastExpr _ r) = unsafeCoerce (stripWrap r)
+stripWrap (Box _ r) = unsafeCoerce (stripWrap r)
+stripWrap r = r
 
 -- OPTIMISATIONS
 
@@ -648,39 +707,44 @@ mergeLambdas prog (While x y) m =
     in (While x y', m')
 mergeLambdas _ stmt m = (stmt, m)
 
+addPtrType :: CType -> Set.Set (CType, CType) -> Set.Set (CType, CType)
+addPtrType t s =
+    case t of
+        CTPtr (CTPair tx ty) -> Set.insert (tx, ty) s
+        CTPair tx ty -> Set.insert (tx, ty) s
+        _ -> s
+
 -- MAKE PAIR DEFS
 collectPairTypes :: CStatement a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
-collectPairTypes (DefFun _ _ _ body) s = collectPairTypes body s
+collectPairTypes (DefFun t _ _ body) s = collectPairTypes body (addPtrType t s)
 collectPairTypes (Seq x y) s = collectPairTypes x (collectPairTypes y s)
 collectPairTypes (If c x y) s = collectPairTypes x (collectPairTypes y (collectPairTypesExpr c s))
 collectPairTypes (While c x) s = collectPairTypes x (collectPairTypesExpr c s)
 collectPairTypes (Return x) s = collectPairTypesExpr x s
-collectPairTypes (DefVar _ _ x) s = collectPairTypesExpr x s
-collectPairTypes (UpdateVar _ _ x) s = collectPairTypesExpr x s
-collectPairTypes (BindExpr _ c _ x) s = collectPairTypes x (collectPairTypesExpr c s)
+collectPairTypes (DefVar t _ x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypes (UpdateVar t _ x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypes (BindExpr t x _ y) s = collectPairTypesExpr x (collectPairTypes y (addPtrType t s))
 collectPairTypes _ s = s
 
 collectPairTypesExpr :: CExpression a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
-collectPairTypesExpr (Prod t x y) s = 
-    case t of
-        CTPtr (CTPair tx ty) -> Set.insert (tx, ty) (collectPairTypesExpr x (collectPairTypesExpr y s))
-        CTPair tx ty -> Set.insert (tx, ty) (collectPairTypesExpr x (collectPairTypesExpr y s))
-        _ -> collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (Prod t x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType t s))
 collectPairTypesExpr (Not x) s = collectPairTypesExpr x s
-collectPairTypesExpr (HeadList _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (TailList _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (IsEmpty _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (IndexList _ _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (Fst _ _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (Snd _ _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (Box _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (Unbox _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (CastExpr _ x) s = collectPairTypesExpr x s
-collectPairTypesExpr (ConsList _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (Abs x) s = collectPairTypesExpr x s
+collectPairTypesExpr (HeadList t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (TailList t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (IsEmpty t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (IndexList t x y) s = collectPairTypesExpr y (collectPairTypesExpr x (addPtrType t s))
+collectPairTypesExpr (Fst t _ x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (Snd t _ x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (Box t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (Unbox t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (CastExpr t x) s = collectPairTypesExpr x (addPtrType t s)
+collectPairTypesExpr (ConsList t x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType t s))
 collectPairTypesExpr (LIntOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
+collectPairTypesExpr (LBoolOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
 collectPairTypesExpr (LCmpOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
-collectPairTypesExpr (CallExpr _ _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
-collectPairTypesExpr (Ternary _ x y z) s = collectPairTypesExpr x (collectPairTypesExpr y (collectPairTypesExpr z s))
+collectPairTypesExpr (CallExpr tx ty x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType tx (addPtrType ty s)))
+collectPairTypesExpr (Ternary t x y z) s = collectPairTypesExpr x (collectPairTypesExpr y (collectPairTypesExpr z (addPtrType t s)))
 collectPairTypesExpr _ s = s
 
 genPairDeclaration :: (CType, CType) -> String
@@ -801,7 +865,7 @@ boxForApply _      e = "(void*)(" ++ e ++ ")"
 
 showCValue :: CValue a -> String
 showCValue (IntV n)  = show n
-showCValue (BoolV b) = show b
+showCValue (BoolV b) = if b then "true" else "false"
 showCValue UnitV = "NULL"
 showCValue (PairV x y) = 
     "{ .fst = " ++ showCValue x ++ ", .snd = " ++ showCValue y ++ "}"
@@ -828,8 +892,10 @@ showCExpression :: CExpression a -> Map.Map Int Int -> String
 showCExpression (EmptyList _) _ = "NULL"
 showCExpression (Val v) _ = showCValue v
 showCExpression (Var _ i) _ = "v" ++ show i
+showCExpression (Abs x) m = "abs(" ++ showCExpression x m ++ ")"
 showCExpression (Not x) m = "!(" ++ showCExpression x m ++ ")"
 showCExpression (LIntOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showBinOp op ++ " " ++ showCExpression y m ++ ")"
+showCExpression (LBoolOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showBoolOp op ++ " " ++ showCExpression y m ++ ")"
 showCExpression (LCmpOp op x y) m = "(" ++ showCExpression x m ++ " " ++ CL.showCmpOp op ++ " " ++ showCExpression y m ++ ")"
 showCExpression (Box t x) m = box t (showCExpression x m)
 showCExpression (Unbox t x) m = unbox t ("(" ++ showCExpression x m ++ ")")
@@ -1068,7 +1134,7 @@ run progName progCode canMerge = do
         c = translate clOptRepl
 
     putStrLn "--- Translating to CLang ---"
-    putStrLn $ CL.showCStmt 0 clBase
+    putStrLn $ CL.showCStmt 0 clOpt
 
     let ((cbody', closureEnv, liftenv, _, defs), mergedMap) =
             if canMerge then
@@ -1096,6 +1162,7 @@ run progName progCode canMerge = do
     let mainBodyImpl = showCStmt 1 mergedMap closureEnv strFunTypes mainBodyWithoutRet
     let funImpl = showCStmt 0 mergedMap closureEnv strFunTypes funPart
     let pairTypes = collectPairTypes cbody Set.empty
+    print pairTypes
 
     let content =
             "\n// imports" ++ imports ++
@@ -1121,10 +1188,13 @@ main :: IO ()
 main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
+    let progsQueen = [("nQueensCall", AL.nQueensCall)]
 
     -- let canMerge = True
     mapM_ (\(name, prog) -> run name prog False) progsInt
     mapM_ (\(name, prog) -> run name prog False) progsList
+    mapM_ (\(name, prog) -> run name prog False) progsQueen
 
     mapM_ (\(name, prog) -> run name prog True) progsInt
     mapM_ (\(name, prog) -> run name prog True) progsList
+    mapM_ (\(name, prog) -> run name prog True) progsQueen

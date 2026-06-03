@@ -43,35 +43,35 @@ NodeInt* v7(NodeInt* v8, NodeInt* v9) {
   if (((v8) == NULL)) {
     return v9;
   } else {
-    NodeInt* v33 = NULL;
+    NodeInt* v36 = NULL;
     if (((v9) == NULL)) {
-      v33 = v8;
+      v36 = v8;
     } else {
-      NodeInt* v29 = NULL;
+      NodeInt* v33 = NULL;
       if (((v8)->head < (v9)->head)) {
-        v29 = consInt((v8)->head, v7((v8)->tail, v9));
+        v33 = consInt((v8)->head, v7((v8)->tail, v9));
       } else {
-        v29 = consInt((v9)->head, v7((v9)->tail, v8));
+        v33 = consInt((v9)->head, v7((v9)->tail, v8));
       }
-      v33 = v29;
+      v36 = v33;
     }
-    return v33;
+    return v36;
   }
 }
 
 Pair_NodeInt_NodeInt v17(Pair_Int_NodeInt v18) {
-  Pair_NodeInt_NodeInt v55 = { .fst = NULL, .snd = NULL};
+  Pair_NodeInt_NodeInt v51 = { .fst = NULL, .snd = NULL};
   if (((v18).fst == 0)) {
-    v55 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = (v18).snd };
+    v51 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = (v18).snd };
   } else {
     if ((((v18).snd) == NULL)) {
-      v55 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = NULL };
+      v51 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = NULL };
     } else {
       Pair_NodeInt_NodeInt v23 = v17((Pair_Int_NodeInt){ .fst = ((v18).fst - 1), .snd = ((v18).snd)->tail });
-      v55 = (Pair_NodeInt_NodeInt){ .fst = consInt(((v18).snd)->head, (v23).fst), .snd = (v23).snd };
+      v51 = (Pair_NodeInt_NodeInt){ .fst = consInt(((v18).snd)->head, (v23).fst), .snd = (v23).snd };
     }
   }
-  return v55;
+  return v51;
 }
 
 int v24(NodeInt* v25) {
@@ -86,14 +86,14 @@ NodeInt* v0(NodeInt* v1) {
   if (((v1) == NULL)) {
     return NULL;
   } else {
-    NodeInt* v85 = NULL;
+    NodeInt* v73 = NULL;
     if ((((v1)->tail) == NULL)) {
-      v85 = consInt((v1)->head, NULL);
+      v73 = consInt((v1)->head, NULL);
     } else {
       Pair_NodeInt_NodeInt v6 = v17((Pair_Int_NodeInt){ .fst = (v24(v1) / 2), .snd = v1 });
-      v85 = v7(v0((v6).fst), v0((v6).snd));
+      v73 = v7(v0((v6).fst), v0((v6).snd));
     }
-    return v85;
+    return v73;
   }
 }
 

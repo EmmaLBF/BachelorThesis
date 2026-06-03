@@ -8,24 +8,24 @@ import Data.Dynamic ( toDyn, Typeable, Dynamic, fromDynamic )
 import Data.Map (Map)
 import qualified Data.Map as Map
 
+-- ─────────────────────────────────────────────
+--  The Language (GADT, typed via phantom param)
+-- ─────────────────────────────────────────────
+
 data BinOp = Plus | Min | Times | Div | Mod
   deriving Show
 
 data CmpOp = Eq | Lt | Gt
   deriving Show
 
--- ─────────────────────────────────────────────
---  The Language (GADT, typed via phantom param)
--- ─────────────────────────────────────────────
-
--- Algebraic data types
--- Pattern matching
+data BoolOp = Or | And
+  deriving Show
 
 data Lang a where
   -- | Free variable – looked up in the environment at eval time
   Var :: (Typeable a) => Int -> Lang a
   -- | Lambda abstraction, using Higher order abstract syntax
-  Abs :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
+  Lam :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
   -- | Function application
   Apply :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b
   -- | Add recursion (for mutual recursion combine with tuples)
@@ -37,6 +37,9 @@ data Lang a where
   -- | OPERATIONS
   LIntOp :: BinOp -> Lang Int -> Lang Int -> Lang Int
   LCmpOp :: CmpOp -> Lang Int -> Lang Int -> Lang Bool
+  LBoolOp :: BoolOp -> Lang Bool -> Lang Bool -> Lang Bool
+  Not :: Lang Bool -> Lang Bool
+  Abs :: Lang Int -> Lang Int
   -- | TUPLES
   Prod :: (Typeable a, Typeable b) => Lang a -> Lang b -> Lang (a, b)
   Fst :: (Typeable a, Typeable b) => Lang (a, b) -> Lang a
@@ -50,12 +53,20 @@ data Lang a where
            -> Lang (a -> [a] -> b)  -- cons case: head -> tail -> result
            -> Lang b
 
+-- ─────────────────────────────────────────────
+--  Eval Functions
+-- ─────────────────────────────────────────────
+
 binop :: BinOp -> Int -> Int -> Int
 binop Min = (-)
 binop Plus = (+)
 binop Div = div
 binop Times = (*)
 binop Mod = mod
+
+boolop :: BoolOp -> Bool -> Bool -> Bool
+boolop Or = (||)
+boolop And = (&&)
 
 cmpop :: CmpOp -> Int -> Int -> Bool
 cmpop Lt = (<)
@@ -72,7 +83,7 @@ eval = ev 0 Map.empty
           Just v -> v
           Nothing -> error "Type mismatch in env"
         Nothing -> error "Variable not found"
-    ev fresh env (Abs f) = \v ->
+    ev fresh env (Lam f) = \v ->
       let env' = Map.insert fresh (toDyn v) env
        in ev (fresh + 1) env' (f (Var fresh))
     ev fresh env (Apply f x) =
@@ -87,6 +98,16 @@ eval = ev 0 Map.empty
       let l' = ev fresh env l
           r' = ev fresh env r
        in binop op l' r'
+    ev fresh env (Not x) =
+      let x' = ev fresh env x
+       in not x'
+    ev fresh env (Abs x) =
+      let x' = ev fresh env x
+       in abs x'
+    ev fresh env (LBoolOp op l r) =
+      let l' = ev fresh env l
+          r' = ev fresh env r
+       in boolop op l' r'
     ev fresh env (LCmpOp op l r) =
       let l' = ev fresh env l
           r' = ev fresh env r
@@ -102,16 +123,16 @@ eval = ev 0 Map.empty
         [] -> ev fresh env nilCase
         (h:t) -> ev fresh env consCase h t
 
--- Syntactic Sugar
+-- ─────────────────────────────────────────────
+--  Syntactic Sugar
+-- ─────────────────────────────────────────────
+
 lam :: (Typeable a, Typeable b) => (Lang a -> Lang b) -> Lang (a -> b)
-lam = Abs
+lam = Lam
 
 app :: (Typeable a, Typeable b) => Lang (a -> b) -> Lang a -> Lang b
 app = Apply
 
--- | Syntactic sugar for Let bindings `let x = v in e`.
--- In lambda calculus this is mathematically equivalent to `(\x -> e) v`.
--- Thus, we can easily express local variables using only `Apply` and `Abs`!
 let_ :: (Typeable a, Typeable b) => Lang a -> (Lang a -> Lang b) -> Lang b
 let_ val body = app (lam body) val
 
@@ -127,13 +148,25 @@ a ==: b = LCmpOp Eq a b
 a <: b = LCmpOp Lt a b
 a >: b = LCmpOp Gt a b
 
+(||:), (&&:) :: Lang Bool -> Lang Bool -> Lang Bool
+a ||: b = LBoolOp Or a b
+a &&: b = LBoolOp And a b
+
 int :: Int -> Lang Int
 int = LInt
 
--- Examples
--- 1. Simple Arithmetic
-exArith :: Lang Int
-exArith = (int 10 +: int 2) *: int 3
+bool :: Bool -> Lang Bool
+bool = LBool
+
+nil :: Typeable a => Lang [a]
+nil = EmptyList
+
+cons :: Typeable a => Lang a -> Lang [a] -> Lang [a]
+cons = ConsList
+
+-- ─────────────────────────────────────────────
+--  Examples
+-- ─────────────────────────────────────────────
 
 -- 2. Factorial
 fac :: Lang (Int -> Int)
@@ -236,14 +269,6 @@ ackermann = Fix $ lam $ \f -> lam $ \p ->
             (f `app` Prod (m -: int 1) (f `app` Prod m (n -: int 1)))
         )
 
--- 10. Integer Square Root (Newton's Method using while-like recursion)
--- State is (n, guess). If nextGuess >= guess, we found the root.
--- Note: We use the encoded `let_` for nextX instead of a regular Haskell `let`.
--- A regular Haskell `let` just gives a name for a piece of the AST, which is then
--- duplicated when used.
--- By using the encoded `let_` (which compiles to lambda abstraction and application),
--- the expression is evaluated exactly once at runtime, and its resulting value is
--- bound in the environment and then reused.
 isqrtHelper :: Lang ((Int, Int) -> Int)
 isqrtHelper = Fix $ lam $ \f -> lam $ \p ->
   let n = Fst p
@@ -296,20 +321,7 @@ sumDigits = Fix $ lam $ \f -> lam $ \n ->
     (int 0)
     ((n %: int 10) +: (f `app` (n /: int 10)))
 
--- 13. Let Binding Example
--- Using our let_ syntactic sugar to bind x=42 and evaluate x + x
-letExample :: Lang Int
-letExample = let_ (int 42) $ \x ->
-  x +: x
-
--- helpers
-nil :: Typeable a => Lang [a]
-nil = EmptyList
-
-cons :: Typeable a => Lang a -> Lang [a] -> Lang [a]
-cons = ConsList
-
--- sum a list
+-- 13. Sum List
 sumList :: Lang ([Int] -> Int)
 sumList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
@@ -319,8 +331,8 @@ sumList = Fix $ lam $ \f -> lam $ \xs ->
 sumListCall :: Lang Int
 sumListCall = sumList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- length of a list
-lenList :: Lang ([Int] -> Int)
+-- 14. length of a list
+lenList :: Typeable a => Lang ([a] -> Int)
 lenList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
     (int 0)
@@ -329,7 +341,7 @@ lenList = Fix $ lam $ \f -> lam $ \xs ->
 lenListCall :: Lang Int
 lenListCall = lenList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- map over a list
+-- 15. map over a list
 mapList :: Lang ((Int -> Int) -> [Int] -> [Int])
 mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
   CaseList xs
@@ -339,6 +351,9 @@ mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
 mapListCall :: Lang [Int]
 mapListCall = (mapList `app` (lam $ \x -> x *: int 2))
                       `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
+
+
+-- 16. mergesort
 
 mergeList :: Lang ([Int] -> [Int] -> [Int])
 mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
@@ -392,12 +407,97 @@ mergeSort = Fix $ lam $ \f -> lam $ \l ->
 mergeSortCall :: Lang [Int]
 mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))
 
+-- 17. N-queens
+
+-- appendds two lists
+appendList :: Typeable a => Lang ([a] -> [a] -> [a])
+appendList =
+  Fix $ lam $ \f ->
+    lam $ \xs ->
+      lam $ \ys ->
+        CaseList xs
+          ys
+          (lam $ \h -> lam $ \t -> h `cons` (f `app` t `app` ys))
+
+queensInterfere :: Lang ((Int, Int) -> (Int, Int) -> Bool)
+queensInterfere =
+  lam $ \q1 ->
+    let_ (Fst q1) $ \r1 ->
+    let_ (Snd q1) $ \c1 ->
+      lam $ \q2 ->
+        let_ (Fst q2) $ \r2 ->
+        let_ (Snd q2) $ \c2 ->
+          c1 ==: c2 ||: (Abs (c1 -: c2) ==: Abs (r1 -: r2))
+
+queenSafe :: Lang ((Int, Int) -> [(Int, Int)] -> Bool)
+queenSafe =
+  Fix $ lam $ \f ->
+    lam $ \newQ ->
+      lam $ \placements ->
+        CaseList placements
+          (bool True)
+          (lam $ \h ->
+              lam $ \t ->
+                Not (queensInterfere `app` newQ `app` h) &&: (f `app` newQ `app` t))
+
+-- Try every column for `row`, extending `placed` with valid placements.
+tryCols :: Lang (Int -> Int -> [(Int, Int)] -> Int -> [[(Int, Int)]])
+tryCols = 
+  Fix $ lam $ \f ->
+    lam $ \n -> 
+      lam $ \row -> 
+        lam $ \placed -> 
+          lam $ \col ->
+            If (col ==: n)
+              nil
+              (let_ (Prod row col) $ \newQ ->
+                let_ (f `app` n `app` row `app` placed `app` (col +: int 1)) $ \rest ->
+                  If (queenSafe `app` newQ `app` placed)
+                    (cons (cons newQ placed) rest)
+                    rest)
+
+-- Extend every partial solution by one row, concatenating.
+extendAll :: Lang (Int -> Int -> [[(Int, Int)]] -> [[(Int, Int)]])
+extendAll = 
+  Fix $ lam $ \f ->
+    lam $ \n -> 
+      lam $ \row -> 
+        lam $ \partials ->
+          CaseList partials
+            nil
+            (lam $ \p -> 
+              lam $ \ps ->
+                (appendList `app` (tryCols `app` n `app` row `app` p `app` int 0))
+                            `app` (f `app` n `app` row `app` ps))
+
+-- Drive: extend row by row, starting from one empty partial.
+nQueens :: Lang (Int -> [[(Int, Int)]])
+nQueens = 
+  lam $ \n ->
+    let_ (Fix $ lam $ \f -> 
+            lam $ \row -> 
+              lam $ \partials ->
+                If (row ==: n)
+                  partials
+                  (f `app` (row +: int 1)
+                    `app` (extendAll `app` n `app` row `app` partials)))
+        $ \solveRows ->
+    solveRows `app` int 0 `app` cons nil nil
+
+nQueensCall :: Lang Int
+nQueensCall = lenList `app` (nQueens `app` int 4)
+
+-- Test just extendAll without the solve loop
+testExtendAll :: Lang Int
+testExtendAll = lenList `app` (extendAll `app` int 4 `app` int 0 `app` (cons nil nil))
+
+-- Test just tryCols directly
+testTryCols :: Lang Int
+testTryCols = lenList `app` ( tryCols `app` int 4 `app` int 0 `app` nil `app` int 0)
 
 main :: IO ()
 main = do
   putStrLn "--- Evaluating Examples ---"
-  putStrLn $ "Let Example (let x = 42 in x + x) = " ++ show (eval letExample)
-  putStrLn $ "Arith: (10 + 2) * 3 = " ++ show (eval exArith)
   putStrLn $ "Factorial 5 = " ++ show (eval (fac `app` int 5))
   putStrLn $ "Fibonacci 10 = " ++ show (eval (fib `app` int 10))
   let p = Prod (int 56) (int 42)
@@ -412,4 +512,4 @@ main = do
   putStrLn $ "Integer Sqrt 1000 = " ++ show (eval (isqrt `app` int 1000))
   putStrLn $ "Is 42 Even? = " ++ show (eval (isEvenLang `app` int 42))
   putStrLn $ "Is 42 Odd? = " ++ show (eval (isOddLang `app` int 42))
-  putStrLn $ "Sum of digits of 12345 = " ++ show (eval (sumDigits `app` int 12345))
+  putStrLn $ "N-Queens " ++ show (eval (nQueens `app` int 4))

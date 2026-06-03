@@ -129,7 +129,7 @@ def only_run(c_file):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall"]
+progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall", "nQueensCall"]
 trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond):
@@ -168,11 +168,11 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
 # print("MergeLams MERGESORT ******")
 # runTrials("mergeSortCall", "outputs/mergedLams/", 4, "  printListInt(v0(LIST", "()));\n")
 
-print("OPtimised MERGESORT ******")
-runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST(", ", 42)));\n")
+# print("OPtimised MERGESORT ******")
+# runTrials("mergeSortCall", "outputs/optimised/", 4, "  printListInt(v0(LIST(", ", 42)));\n")
 
-print("Pure C MERGESORT ******")
-runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
+# print("Pure C MERGESORT ******")
+# runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
 
 
 
@@ -183,9 +183,9 @@ runTrials("mergeSort", "OtherCode/", 6, "   int len = ", ";\n")
 #     only_run(prog)
 
 
-# print("Test All Basic ******")
-# for folder in ["baselines", "mergedLams", "removedClosureAllocs", "inlined"]:
-#     print("\n" + ("-" * 30))
-#     print("\n" + folder)
-#     for prog in progs:
-#         only_run(folder + "/" + prog)
+print("Test All Basic ******")
+for folder in ["baselines", "mergedLams", "optimised"]:
+    print("\n" + ("-" * 30))
+    print("\n" + folder)
+    for prog in progs:
+        only_run(folder + "/" + prog)

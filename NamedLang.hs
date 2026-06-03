@@ -8,9 +8,16 @@ module NamedLang where
 
 import Data.Dynamic
 
-import AbsLang (BinOp(..), CmpOp(..))
+import AbsLang (BinOp(..), CmpOp(..), BoolOp(..))
 import qualified AbsLang as AL
 import Data.Typeable
+import Control.Monad.State
+
+fresh :: State Int Int
+fresh = do
+  n <- get
+  modify (+1)
+  return n
 
 data NamedLang a where
   -- | Free variable
@@ -28,6 +35,9 @@ data NamedLang a where
   -- | OPERATIONS
   LIntOp :: BinOp -> NamedLang Int -> NamedLang Int -> NamedLang Int
   LCmpOp :: CmpOp -> NamedLang Int -> NamedLang Int -> NamedLang Bool
+  LBoolOp :: BoolOp -> NamedLang Bool -> NamedLang Bool -> NamedLang Bool
+  Not :: NamedLang Bool -> NamedLang Bool
+  Abs :: NamedLang Int -> NamedLang Int
   -- | TUPLES
   Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)
   Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a
@@ -38,7 +48,7 @@ data NamedLang a where
   CaseList :: (Typeable a, Typeable b) => NamedLang [a] -> NamedLang b -> NamedLang (a -> [a] -> b) -> NamedLang b
 
 translate :: Int -> AL.Lang a -> (NamedLang a, Int)
-translate c (AL.Abs f) = let (body, c') = translate (c+1) (f (AL.Var c))
+translate c (AL.Lam f) = let (body, c') = translate (c+1) (f (AL.Var c))
                          in (Lam (Proxy :: Proxy a) c body, c') -- (Lam c (fst (translate (c+1) (f (AL.Var c)))), c + 1)
 translate c (AL.Var x) = (Var x, c)
 translate c (AL.LInt x) = (LInt x, c)
@@ -49,6 +59,10 @@ translate c (AL.Fst x) = let (body, c') = translate c x
                          in (Fst body, c')
 translate c (AL.Snd x) = let (body, c') = translate c x
                          in (Snd body, c')
+translate c (AL.Not x) = let (body, c') = translate c x
+                         in (Not body, c')
+translate c (AL.Abs x) = let (body, c') = translate c x
+                         in (Abs body, c')
 translate c (AL.Apply x y) = let p = translate c x
                                  q = translate (snd p) y
                              in (Apply (fst p) (fst q), snd q)
@@ -59,6 +73,9 @@ translate c (AL.If x y z) = let p = translate c x
 translate c (AL.LIntOp x y z) = let p = translate c y
                                     q = translate (snd p) z
                                 in (LIntOp x (fst p) (fst q), snd q)
+translate c (AL.LBoolOp x y z) = let p = translate c y
+                                     q = translate (snd p) z
+                                in (LBoolOp x (fst p) (fst q), snd q)
 translate c (AL.LCmpOp x y z) = let p = translate c y
                                     q = translate (snd p) z
                                 in (LCmpOp x (fst p) (fst q), snd q)
@@ -113,6 +130,9 @@ pretty expr = go [] expr
         LBool b -> show b
         LIntOp op l r -> "(" ++ go env l ++ " " ++ show op ++ " " ++ go env r ++ ")"
         LCmpOp op l r -> "(" ++ go env l ++ " " ++ show op ++ " " ++ go env r ++ ")"
+        LBoolOp op l r -> "(" ++ go env l ++ " " ++ show op ++ " " ++ go env r ++ ")"
+        Not p -> "(! " ++ go env p ++ ")"
+        Abs p -> "|" ++ go env p ++ "|"
         Prod a b -> "(" ++ go env a ++ ", " ++ go env b ++ ")"
         Fst p -> "(fst " ++ go env p ++ ")"
         Snd p -> "(snd " ++ go env p ++ ")"

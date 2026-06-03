@@ -51,6 +51,7 @@ escapeAnalysisExpr escapes (Val (EnvV i)) r =
     then r { escapedEnvs = Set.insert i (escapedEnvs r) }
     else r
 escapeAnalysisExpr escapes (Not x) m = escapeAnalysisExpr escapes x m
+escapeAnalysisExpr escapes (Abs x) m = escapeAnalysisExpr escapes x m
 escapeAnalysisExpr escapes (Fst _ _ x) m = escapeAnalysisExpr escapes x m
 escapeAnalysisExpr escapes (Snd _ _ x) m = escapeAnalysisExpr escapes x m
 escapeAnalysisExpr escapes (IsEmpty _ x) m = escapeAnalysisExpr escapes x m
@@ -64,6 +65,7 @@ escapeAnalysisExpr escapes (ConsList _ x y) m = escapeAnalysisExpr escapes x (es
 escapeAnalysisExpr escapes (Prod _ x y) m = escapeAnalysisExpr escapes x (escapeAnalysisExpr escapes y m)
 escapeAnalysisExpr escapes (LIntOp _ x y) m = escapeAnalysisExpr escapes  x (escapeAnalysisExpr escapes y m)
 escapeAnalysisExpr escapes (LCmpOp _ x y) m = escapeAnalysisExpr escapes x (escapeAnalysisExpr escapes y m)
+escapeAnalysisExpr escapes (LBoolOp _ x y) m = escapeAnalysisExpr escapes x (escapeAnalysisExpr escapes y m)
 escapeAnalysisExpr escapes (CallExpr _ _ f x) m = escapeAnalysisExpr escapes f (escapeAnalysisExpr escapes x m)
 escapeAnalysisExpr escapes (ApplyClosure _ f x) m = escapeAnalysisExpr escapes f (escapeAnalysisExpr escapes x m)
 escapeAnalysisExpr escapes (IndexList _ x y) m = escapeAnalysisExpr escapes x (escapeAnalysisExpr escapes y m)
@@ -140,11 +142,13 @@ getGlobalInfoExpr (ApplyClosure _ f x) m = getGlobalInfoExpr x (getGlobalInfoExp
 getGlobalInfoExpr (Ternary _ c t e) m = getGlobalInfoExpr e (getGlobalInfoExpr t (getGlobalInfoExpr c m))
 getGlobalInfoExpr (LIntOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (LCmpOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
+getGlobalInfoExpr (LBoolOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (ConsList _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (Prod _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (Fst _ _ x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (Snd _ _ x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (Not x) m = getGlobalInfoExpr x m
+getGlobalInfoExpr (Abs x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (IsEmpty _ x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (HeadList _ x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (TailList _ x) m = getGlobalInfoExpr x m
@@ -167,6 +171,7 @@ removeEnvsAndVarsExpr (Var t i) r =
             | n <= 1 -> removeEnvsAndVarsExpr (unsafeCoerce x) r
         _ -> Var t i
 removeEnvsAndVarsExpr (Not x) r = Not (removeEnvsAndVarsExpr x r)
+removeEnvsAndVarsExpr (Abs x) r = Abs (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (Fst tp tr x) r = Fst tp tr (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (Snd tp tr x) r = Snd tp tr (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (IsEmpty t x) r = IsEmpty t (removeEnvsAndVarsExpr x r)
@@ -177,6 +182,7 @@ removeEnvsAndVarsExpr (Unbox t x) r = Unbox t (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (CastExpr t x) r = CastExpr t (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (LIntOp op x y) r = LIntOp op (removeEnvsAndVarsExpr x r) (removeEnvsAndVarsExpr y r)
 removeEnvsAndVarsExpr (LCmpOp op x y) r = LCmpOp op (removeEnvsAndVarsExpr x r) (removeEnvsAndVarsExpr y r)
+removeEnvsAndVarsExpr (LBoolOp op x y) r = LBoolOp op (removeEnvsAndVarsExpr x r) (removeEnvsAndVarsExpr y r)
 removeEnvsAndVarsExpr (Ternary t c x y) r = Ternary t (removeEnvsAndVarsExpr c r) (removeEnvsAndVarsExpr x r) (removeEnvsAndVarsExpr y r)
 removeEnvsAndVarsExpr (CallExpr tf tx f x) r = CallExpr tf tx (removeEnvsAndVarsExpr f r) (removeEnvsAndVarsExpr x r)
 removeEnvsAndVarsExpr (ApplyClosure t f x) r = ApplyClosure t (removeEnvsAndVarsExpr f r) (removeEnvsAndVarsExpr x r)
@@ -530,8 +536,10 @@ replaceVarAssignment (GetEnvField t structId fieldId) m =
         Just (CArg _ (Val (EnvV newId))) -> replaceVarAssignment (GetEnvField t newId fieldId) m
         _ -> GetEnvField t structId fieldId
 replaceVarAssignment (Not x) m = Not (replaceVarAssignment x m)
+replaceVarAssignment (Abs x) m = Abs (replaceVarAssignment x m)
 replaceVarAssignment (LIntOp op x y) m = LIntOp op (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (LCmpOp op x y) m = LCmpOp op (replaceVarAssignment x m) (replaceVarAssignment y m)
+replaceVarAssignment (LBoolOp op x y) m = LBoolOp op (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (Ternary tp x y z) m = Ternary tp (replaceVarAssignment x m) (replaceVarAssignment y m) (replaceVarAssignment z m)
 replaceVarAssignment (CallExpr tf tx x y) m = CallExpr tf tx (replaceVarAssignment x m) (replaceVarAssignment y m)
 replaceVarAssignment (Prod t x y) m = Prod t (replaceVarAssignment x m) (replaceVarAssignment y m)
@@ -599,8 +607,10 @@ scanExpr (Var _ i) = Map.singleton i BadUse  -- bare use is bad
 scanExpr (Fst _ _ e) = scanExpr e
 scanExpr (Snd _ _ e) = scanExpr e
 scanExpr (Not x) = scanExpr x
+scanExpr (Abs x) = scanExpr x
 scanExpr (LIntOp _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
 scanExpr (LCmpOp _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
+scanExpr (LBoolOp _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
 scanExpr (Ternary _ c x y) = Map.unionWith mergeUse (scanExpr c) (Map.unionWith mergeUse (scanExpr x) (scanExpr y))
 scanExpr (ConsList _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
 scanExpr (Prod _ x y) = Map.unionWith mergeUse (scanExpr x) (scanExpr y)
@@ -758,8 +768,10 @@ demotePairs x _ _ = x
 demotePairsExpr :: CExpression a -> Map.Map Int Bool -> Map.Map Int [Int] -> CExpression a
 demotePairsExpr (Var t i) m _ = Var (stripPairPtr i t m) i
 demotePairsExpr (Not x) m funs = Not (demotePairsExpr x m funs)
+demotePairsExpr (Abs x) m funs = Abs (demotePairsExpr x m funs)
 demotePairsExpr (LIntOp op x y) m funs = LIntOp op (demotePairsExpr x m funs) (demotePairsExpr y m funs)
 demotePairsExpr (LCmpOp op x y) m funs = LCmpOp op (demotePairsExpr x m funs) (demotePairsExpr y m funs)
+demotePairsExpr (LBoolOp op x y) m funs = LBoolOp op (demotePairsExpr x m funs) (demotePairsExpr y m funs)
 demotePairsExpr (Ternary t c x y) m funs = Ternary t (demotePairsExpr c m funs) (demotePairsExpr x m funs) (demotePairsExpr y m funs)
 demotePairsExpr (Fst tp tr (Var tv i)) m _ = Fst (stripPairPtr i tp m) tr (Var tv i)
 demotePairsExpr (Snd tp tr (Var tv i)) m _ = Snd (stripPairPtr i tp m) tr (Var tv i)
@@ -827,11 +839,6 @@ findFunDef i (def@(DefFun _ ifun _ _) : rest) =
     else findFunDef i rest
 findFunDef _ _ = error "not valid def"
 
-stripWrap :: CExpression a -> CExpression a
-stripWrap (Unbox _ r) = unsafeCoerce r
-stripWrap (CastExpr _ r) = unsafeCoerce r
-stripWrap (Box _ r) = unsafeCoerce r
-stripWrap r = r
 
 stripBox :: CExpression a -> CExpression a
 stripBox (Box _ x) = unsafeCoerce x
