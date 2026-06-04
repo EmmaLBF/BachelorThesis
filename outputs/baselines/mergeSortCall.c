@@ -334,10 +334,10 @@ NodeInt* v32(void* env32, void* v13_raw) {
   env7->v6 = ((Env_v32*)env32)->v6;
   if ((((Env_v32*)env32)->v10 < ((Env_v32*)env32)->v12)) {
     Closure* c7 = v7(env7, (void*)(((Env_v32*)env32)->v11));
-    return consInt(((Env_v32*)env32)->v10, (void*)(c7)->fn((c7)->env, ((Env_v32*)env32)->v9));
+    return consInt(((Env_v32*)env32)->v10, (NodeInt*)(c7)->fn((c7)->env, ((Env_v32*)env32)->v9));
   } else {
     Closure* c7 = v7(env7, (void*)(v13));
-    return consInt(((Env_v32*)env32)->v12, (void*)(c7)->fn((c7)->env, ((Env_v32*)env32)->v8));
+    return consInt(((Env_v32*)env32)->v12, (NodeInt*)(c7)->fn((c7)->env, ((Env_v32*)env32)->v8));
   }
 }
 
@@ -378,7 +378,7 @@ NodeInt* v35(void* env35, void* v11_raw) {
     return ((Env_v35*)env35)->v8;
   } else {
     Closure* c33 = v33(env33, box_int((((Env_v35*)env35)->v9)->head));
-    return (void*)(c33)->fn((c33)->env, (((Env_v35*)env35)->v9)->tail);
+    return (NodeInt*)(c33)->fn((c33)->env, (((Env_v35*)env35)->v9)->tail);
   }
 }
 
@@ -415,7 +415,7 @@ NodeInt* v38(void* env38, void* v9_raw) {
     return v9;
   } else {
     Closure* c36 = v36(env36, box_int((((Env_v38*)env38)->v8)->head));
-    return (void*)(c36)->fn((c36)->env, (((Env_v38*)env38)->v8)->tail);
+    return (NodeInt*)(c36)->fn((c36)->env, (((Env_v38*)env38)->v8)->tail);
   }
 }
 
@@ -445,7 +445,7 @@ NodeInt* v43(void* env43, void* v6_raw) {
   env7->v4 = ((Env_v43*)env43)->v4;
   env7->v5 = ((Env_v43*)env43)->v5;
   Closure* c7 = v7(env7, (void*)(v0((v6)->fst)));
-  return (void*)(c7)->fn((c7)->env, v0((v6)->snd));
+  return (NodeInt*)(c7)->fn((c7)->env, v0((v6)->snd));
 }
 
 Pair_NodeInt_NodeInt* v45(void* env45, void* v23_raw) {
@@ -523,7 +523,7 @@ Pair_NodeInt_NodeInt* v51(void* env51, void* v20_raw) {
       return makePair_NodeInt_NodeInt(NULL, NULL);
     } else {
       Closure* c49 = v49(env49, box_int((v20)->head));
-      return (void*)(c49)->fn((c49)->env, (v20)->tail);
+      return (Pair_NodeInt_NodeInt*)(c49)->fn((c49)->env, (v20)->tail);
     }
   }
 }
@@ -629,7 +629,7 @@ int v24(void* env24, void* v25_raw) {
     return 0;
   } else {
     Closure* c62 = v62(env62, box_int((v25)->head));
-    return (void*)(c62)->fn((c62)->env, (v25)->tail);
+    return (int)(intptr_t)(c62)->fn((c62)->env, (v25)->tail);
   }
 }
 
@@ -692,7 +692,7 @@ NodeInt* v72(void* env72, void* v3_raw) {
     return consInt(((Env_v72*)env72)->v2, NULL);
   } else {
     Closure* c70 = v70(env70, box_int((v3)->head));
-    return (void*)(c70)->fn((c70)->env, (v3)->tail);
+    return (NodeInt*)(c70)->fn((c70)->env, (v3)->tail);
   }
 }
 
@@ -714,7 +714,7 @@ NodeInt* v0(NodeInt* v1) {
     return NULL;
   } else {
     Closure* c73 = v73(env73, box_int((v1)->head));
-    return (void*)(c73)->fn((c73)->env, (v1)->tail);
+    return (NodeInt*)(c73)->fn((c73)->env, (v1)->tail);
   }
 }
 

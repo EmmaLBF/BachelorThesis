@@ -45,7 +45,7 @@ typedef struct {
 NodeInt* v9(void* env9, void* v4_raw) {
   NodeInt* v4 = (NodeInt*)v4_raw;
   Closure* c0 = v0(((Env_v9*)env9)->v1);
-  return consInt(((Env_v9*)env9)->v1(((Env_v9*)env9)->v3), (void*)(c0)->fn((c0)->env, v4));
+  return consInt(((Env_v9*)env9)->v1(((Env_v9*)env9)->v3), (NodeInt*)(c0)->fn((c0)->env, v4));
 }
 
 Closure* v10(void* env10, void* v3_raw) {
@@ -69,7 +69,7 @@ NodeInt* v12(void* env12, void* v2_raw) {
     return NULL;
   } else {
     Closure* c10 = v10(env10, box_int((v2)->head));
-    return (void*)(c10)->fn((c10)->env, (v2)->tail);
+    return (NodeInt*)(c10)->fn((c10)->env, (v2)->tail);
   }
 }
 
@@ -89,7 +89,7 @@ int v14(int v5) {
 Closure* c0 = v0(v14);
 // main
 int main(void) {
-  printListInt((void*)(c0)->fn((c0)->env, consInt(1, consInt(2, consInt(3, NULL)))));
+  printListInt((NodeInt*)(c0)->fn((c0)->env, consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 

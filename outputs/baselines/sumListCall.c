@@ -52,7 +52,7 @@ int v0(NodeInt* v1) {
     return 0;
   } else {
     Closure* c6 = v6(env6, box_int((v1)->head));
-    return (void*)(c6)->fn((c6)->env, (v1)->tail);
+    return (int)(intptr_t)(c6)->fn((c6)->env, (v1)->tail);
   }
 }
 
