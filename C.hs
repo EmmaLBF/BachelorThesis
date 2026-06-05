@@ -55,6 +55,8 @@ data CType
 
 data CArg where
   CArg :: CType -> CExpression a -> CArg
+instance Show CArg where
+    show (CArg _ x) = showCExpression x Map.empty
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -241,11 +243,6 @@ freeVarsExpr (IsEmpty _ l) = freeVarsExpr l
 freeVarsExpr (TailList _ l) = freeVarsExpr l
 freeVarsExpr (HeadList _ l) = freeVarsExpr l
 freeVarsExpr (IndexList _ l _) = freeVarsExpr l
-freeVarsExpr (Val _) = (Map.empty, Map.empty)
-freeVarsExpr (EmptyList _) = (Map.empty, Map.empty)
-freeVarsExpr CastExpr {} =  (Map.empty, Map.empty)
-freeVarsExpr ApplyClosure {} =  (Map.empty, Map.empty)
-freeVarsExpr GetEnvField {} =  (Map.empty, Map.empty)
 freeVarsExpr (Prod _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (LIntOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
 freeVarsExpr (LCmpOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
@@ -254,6 +251,7 @@ freeVarsExpr (CallExpr _ _ f x) = merge (freeVarsExpr f) (freeVarsExpr x)
 freeVarsExpr (ConsList _ l x) = merge (freeVarsExpr l) (freeVarsExpr x)
 freeVarsExpr (Var t i) = (Map.singleton i (CParam i t), Map.empty)
 freeVarsExpr (Ternary _ cond thn els) = merge (merge (freeVarsExpr cond) (freeVarsExpr thn)) (freeVarsExpr els)
+freeVarsExpr _ = (Map.empty, Map.empty)
 
 freeVarsStmt :: CStatement a -> (CParamMap, CParamMap)
 freeVarsStmt (BindExpr t x i y) =
@@ -275,7 +273,6 @@ freeVarsStmt (DefVar t i x) =
     let (xfree, xbound) = freeVarsExpr x
     in (xfree, Map.insert i (CParam i t) xbound)
 freeVarsStmt (Return x) = freeVarsExpr x
-freeVarsStmt Skip = (Map.empty, Map.empty)
 freeVarsStmt _ = (Map.empty, Map.empty)
 
 freeVars :: CStatement a -> CParamMap
@@ -288,6 +285,11 @@ freeVars s =
 paramId :: CParam -> Int
 paramId (CParam i _)  = i
 paramId (CParamEnv i) = i
+
+paramsToList :: CParams -> [Int]
+paramsToList [] = []
+paramsToList (CParam i _ : rest) = i : paramsToList rest
+paramsToList (CParamEnv{} : rest) = paramsToList rest
 
 findReturn :: CStatement a -> Maybe (CExpression a)
 findReturn (Return x) = Just x
@@ -304,8 +306,6 @@ replaceReturnClosure (Seq x y) i = Seq (replaceReturnClosure x i) (replaceReturn
 replaceReturnClosure (If c x y) i = If c (replaceReturnClosure x i) (replaceReturnClosure y i)
 replaceReturnClosure (While c y) i = While c (replaceReturnClosure y i)
 replaceReturnClosure x _ = x
-
---------- HOISTING
 
 rebuildCall :: CType -> CExpression a -> [CArg] -> CExpression a
 rebuildCall tf = foldl (\acc (CArg ta a) -> CallExpr tf ta (unsafeCoerce acc) a)
@@ -345,51 +345,50 @@ removeDefFun (If c x y) ifun = If c (removeDefFun x ifun) (removeDefFun y ifun)
 removeDefFun (While c x) ifun = While c (removeDefFun x ifun)
 removeDefFun x _ = x
 
-paramsToList :: CParams -> [Int]
-paramsToList [] = []
-paramsToList (CParam i _ : rest) = i : paramsToList rest
-paramsToList (CParamEnv{} : rest) = paramsToList rest
+--------- HOISTING
 
 -- for each def search in its body for the first def you find
 -- if there is one we lift it out (sequence it before) and remove it from the body
 -- the lifted function needs an env as a parameter with the params of all its parents
 -- this only lifts one def at a time
-liftDefs :: CStatement a -> ParentParams -> (CStatement a, Bool, ParentParams)
-liftDefs stmt@(DefFun tret ifun params body) m =
+liftDefs :: CStatement a -> State ParentParams (CStatement a)
+liftDefs stmt@(DefFun tret ifun params body) =
     let defToRemove = findFirstDefFun body
     in case defToRemove of
-        Nothing -> (stmt, False, m)
-        Just (DefFun tret' ifun' params' body') ->
+        Nothing -> return stmt
+        Just (DefFun tret' ifun' params' body') -> do
             let removedDefBody = removeDefFun body ifun'
                 newDef = DefFun tret' ifun' (CParamEnv ifun' : params') body'
-                newSet = case Map.lookup ifun m of
-                                Just s -> Set.union (Set.fromList params) s
-                                _ -> Set.fromList params
-            in (Seq newDef (DefFun tret ifun params removedDefBody), True, Map.insert ifun' newSet m)
+            modify $ \m -> 
+                let newSet = Set.union (Set.fromList params) (Map.findWithDefault Set.empty ifun m)
+                in Map.insert ifun' newSet m
+            return (Seq newDef (DefFun tret ifun params removedDefBody))
         _ -> error "not def"
-liftDefs (Seq x y) m =
-    let (x', removed, m') = liftDefs x m
-    in if removed then (Seq x' y, True, m')
-       else
-        let (y', removed', m'') = liftDefs y m
-        in (Seq x y', removed', m'')
-liftDefs x m = (x, False, m)
+liftDefs (Seq x y) = do
+    m <- get
+    x' <- liftDefs x
+    m' <- get
+    if m' /= m 
+        then return (Seq x' y)
+        else Seq x <$> liftDefs y
+liftDefs x = return x
 
-lambdaLift :: CStatement a -> ParentParams -> (CStatement a, ParentParams)
-lambdaLift stmt m =
-    let (stmt', removed, m') = liftDefs stmt m
-        stmt'' = replaceParentVarAccess stmt' (-1) m'
-    in if removed then lambdaLift stmt'' m' else (stmt'', m')
+lambdaLift :: CStatement a -> State ParentParams (CStatement a)
+lambdaLift stmt = do
+    m <- get
+    stmt' <- liftDefs stmt
+    m' <- get
+    let stmt'' = replaceParentVarAccess stmt' (-1) m'
+    if m' /= m then lambdaLift stmt'' else return stmt''
 
 -- all of the parent function(s)'s paramteters need to be accessed through the env
 -- instead of directly through var
 replaceParentVarAccessExpr :: CExpression a -> Int -> ParentParams -> CExpression a
 replaceParentVarAccessExpr (Var t i) currFun m =
     case Map.lookup currFun m of
-        Just funSet -> case i `elem` (paramsToList (Set.toList funSet)) of
-                            True -> GetEnvField t currFun i
-                            _ -> (Var t i)
-        _ -> (Var t i)
+        Just funSet -> if i `elem` paramsToList (Set.toList funSet)
+            then GetEnvField t currFun i else Var t i
+        _ -> Var t i
 replaceParentVarAccessExpr (LIntOp op x y) currFun m = LIntOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
 replaceParentVarAccessExpr (LCmpOp op x y) currFun m = LCmpOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
 replaceParentVarAccessExpr (LBoolOp op x y) currFun m = LBoolOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
@@ -437,7 +436,6 @@ isClosureArg args i
     | i < length args = case args !! i of
         CArg _ (Val (ClosureV _)) -> True
         CArg CTClosure _ -> True
-        -- CArg (CTFun _ _) _ -> True
         _ -> False
     | otherwise = False
 
@@ -964,61 +962,61 @@ mergeLambdas prog (While x y) m =
     in (While x y', m')
 mergeLambdas _ stmt m = (stmt, m)
 
-addPtrType :: CType -> Set.Set (CType, CType) -> Set.Set (CType, CType)
-addPtrType t s =
+addPairType :: CType -> Set.Set (CType, CType) -> Set.Set (CType, CType)
+addPairType t s =
     case t of
         CTPtr (CTPair tx ty) -> Set.insert (tx, ty) s
         CTPair tx ty -> Set.insert (tx, ty) s
         _ -> s
 
 -- MAKE PAIR DEFS
-collectPairTypes :: CStatement a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
-collectPairTypes (DefFun t _ _ body) s = collectPairTypes body (addPtrType t s)
-collectPairTypes (Seq x y) s = collectPairTypes x (collectPairTypes y s)
-collectPairTypes (If c x y) s = collectPairTypes x (collectPairTypes y (collectPairTypesExpr c s))
-collectPairTypes (While c x) s = collectPairTypes x (collectPairTypesExpr c s)
-collectPairTypes (Return x) s = collectPairTypesExpr x s
-collectPairTypes (DefVar t _ x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypes (UpdateVar t _ x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypes (BindExpr t x _ y) s = collectPairTypesExpr x (collectPairTypes y (addPtrType t s))
-collectPairTypes _ s = s
+collectPairTypes :: CStatement a -> State (Set.Set (CType, CType)) ()
+collectPairTypes (DefFun t _ _ x) = modify (addPairType t) >> collectPairTypes x
+collectPairTypes (Seq x y) = collectPairTypes x >> collectPairTypes y
+collectPairTypes (If c x y) = collectPairTypes x >> collectPairTypes y >> collectPairTypesExpr c
+collectPairTypes (While c x) = collectPairTypes x >> collectPairTypesExpr c
+collectPairTypes (Return x) = collectPairTypesExpr x
+collectPairTypes (DefVar t _ x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypes (UpdateVar t _ x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypes (BindExpr t x _ y) = modify (addPairType t) >> collectPairTypesExpr x >> collectPairTypes y
+collectPairTypes _ = return ()
 
-collectPairTypesExpr :: CExpression a -> Set.Set (CType, CType) -> Set.Set (CType, CType)
-collectPairTypesExpr (Prod t x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType t s))
-collectPairTypesExpr (Not x) s = collectPairTypesExpr x s
-collectPairTypesExpr (Abs x) s = collectPairTypesExpr x s
-collectPairTypesExpr (HeadList t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (TailList t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (IsEmpty t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (IndexList t x y) s = collectPairTypesExpr y (collectPairTypesExpr x (addPtrType t s))
-collectPairTypesExpr (Fst t _ x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (Snd t _ x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (Box t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (Unbox t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (CastExpr t x) s = collectPairTypesExpr x (addPtrType t s)
-collectPairTypesExpr (ConsList t x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType t s))
-collectPairTypesExpr (LIntOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
-collectPairTypesExpr (LBoolOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
-collectPairTypesExpr (LCmpOp _ x y) s = collectPairTypesExpr x (collectPairTypesExpr y s)
-collectPairTypesExpr (CallExpr tx ty x y) s = collectPairTypesExpr x (collectPairTypesExpr y (addPtrType tx (addPtrType ty s)))
-collectPairTypesExpr (Ternary t x y z) s = collectPairTypesExpr x (collectPairTypesExpr y (collectPairTypesExpr z (addPtrType t s)))
-collectPairTypesExpr _ s = s
+collectPairTypesExpr :: CExpression a -> State (Set.Set (CType, CType)) ()
+collectPairTypesExpr (Prod t x y) = modify (addPairType t) >> collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (Not x) = collectPairTypesExpr x
+collectPairTypesExpr (Abs x) = collectPairTypesExpr x
+collectPairTypesExpr (HeadList t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (TailList t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (IsEmpty t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (IndexList t x y) = modify (addPairType t) >> collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (Fst t _ x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (Snd t _ x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (Box t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (Unbox t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (CastExpr t x) = modify (addPairType t) >> collectPairTypesExpr x
+collectPairTypesExpr (ConsList t x y) = modify (addPairType t) >> collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (LIntOp _ x y) = collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (LBoolOp _ x y) = collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (LCmpOp _ x y) = collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (CallExpr tx ty x y) = modify (addPairType tx) >> modify (addPairType ty) >> collectPairTypesExpr x >> collectPairTypesExpr y
+collectPairTypesExpr (Ternary t x y z) = modify (addPairType t) >>  collectPairTypesExpr x >> collectPairTypesExpr y >> collectPairTypesExpr z
+collectPairTypesExpr _ = return ()
 
 genPairDeclaration :: (CType, CType) -> String
 genPairDeclaration (a, b) =
-        let strA = printType a
-            strB = printType b
-            strAB = printPairType a ++ "_" ++ printPairType b
-            pairType = "Pair_" ++ strAB
-        in
-           "\ntypedef struct " ++ pairType ++ " {"
-        ++ "\n  " ++ strA ++ " fst;"
-        ++ "\n  " ++ strB ++ " snd;"
-        ++ "\n} " ++ pairType ++ ";"
-        ++ "\n\n" ++ pairType ++ "* make" ++ pairType ++ "(" ++ strA ++ " fst, " ++ strB ++ " snd) {"
-        ++ "\n  " ++ pairType ++ "* p = malloc(sizeof(" ++ pairType ++ "));"
-        ++ "\n  p->fst = fst;\n  p->snd = snd;\n  return p;"
-        ++ "\n};\n"
+    let strA = printType a
+        strB = printType b
+        strAB = printPairType a ++ "_" ++ printPairType b
+        pairType = "Pair_" ++ strAB
+    in
+        "\ntypedef struct " ++ pairType ++ " {"
+    ++ "\n  " ++ strA ++ " fst;"
+    ++ "\n  " ++ strB ++ " snd;"
+    ++ "\n} " ++ pairType ++ ";"
+    ++ "\n\n" ++ pairType ++ "* make" ++ pairType ++ "(" ++ strA ++ " fst, " ++ strB ++ " snd) {"
+    ++ "\n  " ++ pairType ++ "* p = malloc(sizeof(" ++ pairType ++ "));"
+    ++ "\n  p->fst = fst;\n  p->snd = snd;\n  return p;"
+    ++ "\n};\n"
 
 
 
@@ -1135,12 +1133,6 @@ showCValue (ListV l) =
 showCValue (ClosureV i) = "c" ++ show i
 showCValue (EnvV i) = "env" ++ show i
 
-showCArg :: CArg -> MergedMap -> String
-showCArg (CArg _ a) = showCExpression a
-
-instance Show CArg where
-    show (CArg t x) = showCArg (CArg t x) Map.empty
-
 showListLibFunType :: CType -> String
 showListLibFunType CTInt = "Int"
 showListLibFunType CTBool = "Bool"
@@ -1185,7 +1177,7 @@ showCExpression (ApplyClosure targ f arg) m =
     let (func, args) = collectArgsApply (ApplyClosure targ f arg)
         applyCall expr argList =
             "(" ++ expr ++ ")->fn(" ++
-            intercalate ", " (("(" ++ expr ++ ")->env") : map (`showCArg` m) argList) ++ ")"
+            intercalate ", " (("(" ++ expr ++ ")->env") : map (show) argList) ++ ")"
         n = case func of
             Var _ i -> Map.findWithDefault 1 i m
             Val (ClosureV i) -> Map.findWithDefault 1 i m
@@ -1199,7 +1191,7 @@ showCExpression (CallExpr tf tx f arg) m =
         formatArgs [] = []
         formatArgs (CArg _ (Val (EnvV j)) : rest) = ("env" ++ show j) : map (\(CArg t' a) ->
                 boxForApply t' (showCExpression a m)) rest
-        formatArgs args' = map (`showCArg` m) args'
+        formatArgs args' = map show args'
     in case func of
         Var _ i -> case Map.lookup i m of
             Just n ->
@@ -1315,15 +1307,11 @@ showFunTypes [] = ""
 showFunTypes [(i,t)] = "v" ++ show i ++ " = " ++ printType t ++ "\n"
 showFunTypes (i:is) = showFunTypes [i] ++ showFunTypes is
 
-showCArgs :: [CArg] -> String
-showCArgs [] = ""
-showCArgs (CArg _ x : rest) = "CArg " ++ showCExpression x Map.empty ++ "\n" ++  showCArgs rest
-
 showListStmt :: [CStatement a] -> String
 showListStmt = concatMap (showCStmt 0 Map.empty Map.empty)
 
 printIntArgMap :: Map.Map Int CArg -> String
-printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " ++ showCArg arg Map.empty) (Map.toList m)
+printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " ++ show arg) (Map.toList m)
 
 -- MAIN
 
@@ -1352,10 +1340,10 @@ removeFirstReturn (While c x)          = While c (removeFirstReturn x)
 removeFirstReturn x                    = x
 
 splitTopLevel :: CStatement a -> (CStatement a, CStatement a)
-splitTopLevel (Seq l@DefFun {} y) =
+splitTopLevel (Seq l@DefFun{} y) =
     let (funs, body) = splitTopLevel y
     in (Seq l funs, body)
-splitTopLevel (Seq l@DefEnvStruct {} y) =
+splitTopLevel (Seq l@DefEnvStruct{} y) =
     let (funs, body) = splitTopLevel y
     in (Seq l funs, body)
 splitTopLevel (Seq Skip y) = splitTopLevel y
@@ -1415,11 +1403,10 @@ runLiftAndMerge canMerge body freshInt =
                                         then Map.insertWith (+) k 1 acc  -- already has merged param, just add env
                                         else Map.insertWith (+) k 2 acc  -- needs both default param and env
                                     ) mergedLams parentParamsMap
-                in trace (showCStmt 0 Map.empty Map.empty merged)
-                    (lambdaLift merged Map.empty, mergedMap')
+                in (runState (lambdaLift merged) Map.empty, mergedMap')
             else
                 let mergedMap' = Map.foldlWithKey' (\acc k _ -> Map.insertWith (+) k 2 acc) Map.empty parentParamsMap
-                in (lambdaLift body Map.empty, mergedMap')
+                in (runState (lambdaLift body) Map.empty, mergedMap')
         body'' = addEnvParameter body' parentParamsMap
         body''' = applyClosuresPasses body'' parentParamsMap mergedMap freshInt
         body'''' = addEnvAllocs body''' body''' parentParamsMap
@@ -1434,16 +1421,12 @@ run progName progCode canMerge = do
     -- let libName = "\n#include \"listLib.c\"\n"
     -- let progPath = progName
 
-    let (nl, c') = NL.translate 0 progCode
-        (clBase, newFresh) = runState (CL.translate nl) c'
-        (clOpt, newBinds) = CL.optimizeBindings clBase Map.empty
-        clOptRepl = CL.replaceVarBindingStmt clOpt newBinds
-        c = translate clOptRepl
+    let (nl, fresh') = runState (NL.translate progCode) 0
+        (clBase, fresh'') = runState (CL.translate nl) fresh'
+        clOpt = CL.optimizeBindings clBase
+        c = translate clOpt
 
-    putStrLn "--- Translating to CLang ---"
-    putStrLn $ CL.showCStmt 0 clOpt
-
-    let (cbody', parentParamsMap, mergedMap) = runLiftAndMerge canMerge c newFresh
+    let (cbody', parentParamsMap, mergedMap) = runLiftAndMerge canMerge c fresh''
 
     let cbody = addBoxing cbody'
     let defs = getDefs cbody
@@ -1463,7 +1446,7 @@ run progName progCode canMerge = do
 
     let retImpl = showCExpression retExpr mergedMap
     let mainBodyImpl = showCStmt 0 mergedMap strFunTypes mainBodyWithoutRet
-    let pairTypes = collectPairTypes cbody Set.empty
+    let pairTypes = execState (collectPairTypes cbody) Set.empty
     print pairTypes
 
     let content =

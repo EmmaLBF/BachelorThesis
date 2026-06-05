@@ -737,13 +737,12 @@ helloRun progName progCode = do
     -- let libName = "\n#include \"listLib.c\"\n"
     -- let progPath = progName
 
-    let (nl, c') = NL.translate 0 progCode
-        (clBase, newFresh) = runState (CL.translate nl) c'
-        (clOpt, newBinds) = CL.optimizeBindings clBase Map.empty
-        clOptRepl = CL.replaceVarBindingStmt clOpt newBinds
-        c = translate clOptRepl
+    let (nl, fresh') = runState (NL.translate progCode) 0
+        (clBase, fresh'') = runState (CL.translate nl) fresh'
+        clOpt = CL.optimizeBindings clBase
+        c = translate clOpt
 
-    let (cbody0, closureEnv, mergedMap) = runLiftAndMerge True c newFresh
+    let (cbody0, closureEnv, mergedMap) = runLiftAndMerge True c fresh''
     let cbody = addBoxing cbody0 -- boxing values
     let strFunTypes = getStrFunTypes (getDefs cbody) Map.empty
 
@@ -752,7 +751,7 @@ helloRun progName progCode = do
     let finalBody = demotePairs finalBody' (canBeByValue finalBody') (getFunsWithParams finalBody')
     let finalDefs = getDefs finalBody
 
-    let pairTypes = collectPairTypes finalBody Set.empty
+    let pairTypes = execState (collectPairTypes finalBody) Set.empty
     print (canBeByValue finalBody')
 
     putStrLn "\n--- Printing C ---"

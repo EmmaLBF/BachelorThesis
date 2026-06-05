@@ -470,20 +470,6 @@ extendAll =
                 (appendList `app` (tryCols `app` n `app` row `app` p `app` int 0))
                             `app` (f `app` n `app` row `app` ps))
 
--- Drive: extend row by row, starting from one empty partial.
--- nQueens :: Lang (Int -> [[(Int, Int)]])
--- nQueens = 
---   lam $ \n ->
---     let_ (Fix $ lam $ \f -> 
---             lam $ \row -> 
---               lam $ \partials ->
---                 If (row ==: n)
---                   partials
---                   (f `app` (row +: int 1)
---                     `app` (extendAll `app` n `app` row `app` partials)))
---         $ \solveRows ->
---     solveRows `app` int 0 `app` cons nil nil
-
 nQueens :: Lang (Int -> [[(Int, Int)]])
 nQueens =
   lam $ \n ->
