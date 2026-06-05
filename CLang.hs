@@ -123,23 +123,6 @@ translateSub e = do -- catches all statement translation
   i <- fresh
   return ([unsafeCoerce (bindResult i stmt)], Var i)
 
--- translateExpr :: NL.NamedLang a -> CExpression a
--- translateExpr (NL.Var n) = Var n
--- translateExpr (NL.LInt n) = Val (IntV n)
--- translateExpr (NL.LBool b) = Val (BoolV b)
--- translateExpr  NL.EmptyList = EmptyList
--- translateExpr (NL.Fst p) = Fst (translateExpr p)
--- translateExpr (NL.Snd p) = Snd (translateExpr p)
--- translateExpr (NL.Not p) = Not (translateExpr p)
--- translateExpr (NL.Abs p) = Abs (translateExpr p)
--- translateExpr (NL.Prod x y) = Prod (translateExpr x) (translateExpr y)
--- translateExpr (NL.Apply f x) = CallExpr (translateExpr f) (translateExpr x)
--- translateExpr (NL.ConsList x l) = ConsList (translateExpr x) (translateExpr l)
--- translateExpr (NL.LIntOp op l r) = LIntOp op (translateExpr l) (translateExpr r)
--- translateExpr (NL.LCmpOp op l r) = LCmpOp op (translateExpr l) (translateExpr r)
--- translateExpr (NL.LBoolOp op l r) = LBoolOp op (translateExpr l) (translateExpr r)
--- translateExpr x = error ("Expected expression got statement" ++ NL.pretty x)
-
 seqAll :: [CStatement ()] -> CStatement a -> CStatement a
 seqAll ss final = foldr (Seq . unsafeCoerce) final ss
 
@@ -157,47 +140,6 @@ ensureReturn stmt = case stmt of
   DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
   Seq x y -> Seq x (ensureReturn y)
   _ -> stmt
-
--- translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
--- translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
---   fStmt <- translate f
---   xStmt <- translate x
---   fId <- fresh
---   xId <- fresh
---   return $ Seq (unsafeCoerce (bindResult fId fStmt))
---          $ Seq (unsafeCoerce (bindResult xId xStmt))
---          $ Return (CallExpr (Var fId :: CExpression (arg -> a)) (Var xId :: CExpression arg))
--- translate (NL.If cond t f) = do
---   ct <- translate t
---   cf <- translate f
---   cStmt <- translate cond
---   cId <- fresh
---   let condVar = Var cId
---   return $ Seq (unsafeCoerce (bindResult cId cStmt))
---          $ If condVar ct cf
--- translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
---   cf <- translate f
---   ifun <- fresh
---   let body = case cf of
---               (DefFun _ ifun1 _ _) -> Seq cf (Return (Var ifun1))
---               _ -> cf
---   return (unsafeCoerce (DefFun (Proxy :: Proxy b) ifun (i, arg) body))
--- translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
---   cf <- translate f
---   return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (ensureReturn (unsafeCoerce cf))))
--- translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (a1 -> [a1] -> a))) = do
---   let nilExpr  = translateExpr nilCase
---   consStmt <- translate consCase
---   lStmt <- translate l
---   cId <- fresh -- bind id for consCase
---   lId <- fresh -- bind id for list
---   let listVar  = Var lId :: CExpression [a1]
---       callExpr = CallExpr (CallExpr (Var cId) (HeadList listVar)) (TailList listVar)
---       caseBody =  If (IsEmpty listVar) (Return nilExpr) (Return callExpr)
---   return $ Seq (unsafeCoerce (bindResult cId consStmt))
---          $ Seq (unsafeCoerce (bindResult lId lStmt))
---          $ unsafeCoerce caseBody
--- translate x = return $ Return (translateExpr x)
 
 translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do

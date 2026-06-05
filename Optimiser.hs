@@ -18,82 +18,6 @@ import Data.Typeable
 import System.IO
 import Unsafe.Coerce (unsafeCoerce)
 
-
--- ESCAPE ANALYSIS
-
-data GlobalInfo = GlobalInfo
-    { usedEnvs :: Set.Set Int   -- var ids that flow into heap
-    , closureUses :: Map.Map Int Int -- id of closure -> number of times used
-    , functionCalls :: Map.Map Int Int -- id of function called -> number of times called
-    , aliases :: Map.Map Int CArg
-    } deriving (Show)
-
-emptyGlobalInfo :: GlobalInfo
-emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Map.empty
-
-mergeGlobalInfo :: GlobalInfo -> GlobalInfo -> GlobalInfo
-mergeGlobalInfo a b = GlobalInfo
-    (Set.union (usedEnvs a) (usedEnvs b))
-    (Map.unionWith (+) (closureUses a) (closureUses b))
-    (Map.unionWith (+) (functionCalls a) (functionCalls b))
-    (Map.union (aliases a) (aliases b))
-
-getGlobalInfo :: CStatement a -> GlobalInfo -> GlobalInfo
-getGlobalInfo (AllocEnv _ i _ _) m = m { usedEnvs = Set.insert i (usedEnvs m) } 
-getGlobalInfo (Seq x y) m = getGlobalInfo y (getGlobalInfo x m)
-getGlobalInfo (If c x y) m = getGlobalInfo y (getGlobalInfo x (getGlobalInfoExpr c m))
-getGlobalInfo (While c x) m = getGlobalInfo x (getGlobalInfoExpr c m)
-getGlobalInfo (DefFun _ _ params body) m =
-    let m' = foldr (\p acc -> 
-                case p of
-                    CParamEnv i -> m { usedEnvs = Set.insert i (usedEnvs m) } 
-                    _ -> acc ) m params
-    in getGlobalInfo body m'
-getGlobalInfo (BindExpr _ x _ y) m = getGlobalInfo y (getGlobalInfoExpr x m)
-getGlobalInfo (Return x) m = getGlobalInfoExpr x m
-getGlobalInfo (DefVar t i x) m =
-    let m' = case x of
-                Val (EnvV j) -> m { aliases = Map.insert i (CArg t (Val (EnvV j))) (aliases m)}
-                HeadList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (HeadList t2 var)) (aliases m)}
-                TailList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (TailList t2 var)) (aliases m)}
-                expr@Var{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                expr@Fst{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                expr@Snd{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                _ -> m
-    in getGlobalInfoExpr x m'
-getGlobalInfo (UpdateVar _ _ x) m = getGlobalInfoExpr x m
-getGlobalInfo _ m = m
-
-getGlobalInfoExpr :: CExpression a -> GlobalInfo -> GlobalInfo
-getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvs = Set.insert i (usedEnvs m) } 
-getGlobalInfoExpr (Val (ClosureV i)) m = m { closureUses = Map.insertWith (+) i 1 (closureUses m) } 
-getGlobalInfoExpr (GetEnvField _ i _) m = m { usedEnvs = Set.insert i (usedEnvs m) } 
-getGlobalInfoExpr (CallExpr tf tx f x) m =
-    let (func, args) = collectArgs (CallExpr tf tx f x)
-        m' = case func of
-                Var _ i -> m { functionCalls = Map.insertWith (+) i 1 (functionCalls m) } 
-                _ -> getGlobalInfoExpr f m
-    in foldr (\(CArg _ a) acc -> getGlobalInfoExpr a acc) m' args
-getGlobalInfoExpr (ApplyClosure _ f x) m = getGlobalInfoExpr x (getGlobalInfoExpr f m)
-getGlobalInfoExpr (Ternary _ c t e) m = getGlobalInfoExpr e (getGlobalInfoExpr t (getGlobalInfoExpr c m))
-getGlobalInfoExpr (LIntOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (LCmpOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (LBoolOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (ConsList _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (Prod _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (Fst _ _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (Snd _ _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (Not x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (Abs x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (IsEmpty _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (HeadList _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (TailList _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (Box _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (Unbox _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (CastExpr _ x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (IndexList _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr _ m = m
-
 -- can only remove closure if it was actually alloced in this function, ontherwise it was passed as a param
 -- removes envs that are only used locally (no alloc needed) and vars that are only used <= once
 removeEnvsAndVarsExpr :: CExpression a -> EscapeResult -> CExpression a
@@ -257,7 +181,7 @@ inlinePass defs body =
         safeToInline = Map.keys $ Map.filter (== 1) $ Map.filterWithKey
             (\i _ -> case findFunDef i defs of
                 Just DefFun {} -> True
-                _ -> False) (functionCalls globalInfo)
+                _ -> False) (functionCallsGlobal globalInfo)
     in foldr (\i (b, removed) ->
             let (b', didInline) = inlineOne i defs b
             in if didInline then (b', i : removed) else (b, removed)
