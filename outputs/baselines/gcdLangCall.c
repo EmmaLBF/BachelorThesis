@@ -22,7 +22,7 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 // function defitions
 int v0(Pair_Int_Int *v1);
 
-// closure defitions
+// env defitions
 typedef struct {
     Pair_Int_Int *v1;
 } Env_v0;

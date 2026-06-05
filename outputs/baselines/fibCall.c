@@ -10,7 +10,7 @@
 // function defitions
 int v0(int v1);
 
-// closure defitions
+// env defitions
 typedef struct {
     int v1;
 } Env_v0;

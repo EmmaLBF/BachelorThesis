@@ -11,7 +11,7 @@
 int v6(void* env6, void* v2_raw, void* v3_raw);
 int v0(NodeInt* v1);
 
-// closure defitions
+// env defitions
 typedef struct {
     int v2;
     NodeInt* v3;

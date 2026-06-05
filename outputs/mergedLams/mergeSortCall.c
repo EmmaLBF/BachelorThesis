@@ -50,7 +50,7 @@ NodeInt* v70(void* env70, void* v4_raw, void* v5_raw);
 NodeInt* v73(void* env73, void* v2_raw, void* v3_raw);
 NodeInt* v0(NodeInt* v1);
 
-// closure defitions
+// env defitions
 typedef struct {
     int v12;
     NodeInt* v13;

@@ -57,7 +57,7 @@ NodeInt* v72(void* env72, void* v3_raw);
 Closure* v73(void* env73, void* v2_raw);
 NodeInt* v0(NodeInt* v1);
 
-// closure defitions
+// env defitions
 typedef struct {
     NodeInt* v13;
     NodeInt* v1;

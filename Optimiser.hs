@@ -667,20 +667,12 @@ demotePairsExpr (Unbox t e) m funs = Unbox t (demotePairsExpr e m funs)
 demotePairsExpr x _ _ = x
 
 
--- ******* HELPERS
-
-
-
 -- ***** HELPERS ****
 
 -- collects a map of each fun id with the ids of its params from the whole ast
 getFunsWithParams :: CStatement a -> Map.Map Int [Int]
 getFunsWithParams (DefFun _ ifun params _) =
     Map.insert ifun (paramsToList params) Map.empty
-    where
-        paramsToList [] = []
-        paramsToList (CParam i _ : rest) = i : paramsToList rest
-        paramsToList (CParamEnv i : rest) = i : paramsToList rest
 getFunsWithParams (Seq x y) = Map.union (getFunsWithParams x) (getFunsWithParams y)
 getFunsWithParams _ = Map.empty
 
@@ -746,19 +738,16 @@ helloRun progName progCode = do
     -- let progPath = progName
 
     let (nl, c') = NL.translate 0 progCode
-        (clBase, _) = runState (CL.translate nl) c'
+        (clBase, newFresh) = runState (CL.translate nl) c'
         (clOpt, newBinds) = CL.optimizeBindings clBase Map.empty
         clOptRepl = CL.replaceVarBindingStmt clOpt newBinds
         c = translate clOptRepl
 
-    putStrLn "\n--- Merging Lambdas ---"
-    let (merged, mergedMap) = mergeLambdas c c Map.empty
-
-    putStrLn "\n--- Lifting Lambdas ---"
-    let (cbody0, closureEnv, liftenv, _, defs0) = lambdaLift merged
+    let (cbody0, closureEnv, mergedMap) = runLiftAndMerge True c newFresh
     let cbody = addBoxing cbody0 -- boxing values
-    let defs = map addBoxing defs0
-    let strFunTypes = getStrFunTypes defs Map.empty
+    let strFunTypes = getStrFunTypes (getDefs cbody) Map.empty
+
+    -- optimise
     let (finalBody', finalMergeMap) = keepOptimising cbody mergedMap
     let finalBody = demotePairs finalBody' (canBeByValue finalBody') (getFunsWithParams finalBody')
     let finalDefs = getDefs finalBody
@@ -779,20 +768,20 @@ helloRun progName progCode = do
             DefFun _ i _ _ -> Set.member i (usedEnvs globalInfo)
             _ -> False) finalDefs
 
-    let closureStructs = generateClosureStructs closureDefs liftenv
+    let envStructs = generateEnvStructs closureDefs closureEnv
     let funDefs = showFunDefs finalDefs
     let (funPart, mainBody) = splitTopLevel finalBody
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
     let retImpl = showCExpression retExpr finalMergeMap
-    let mainBodyImpl = showCStmt 1 finalMergeMap closureEnv strFunTypes mainBodyWithoutRet
-    let funImpl = showCStmt 0 finalMergeMap closureEnv strFunTypes funPart
+    let mainBodyImpl = showCStmt 1 finalMergeMap strFunTypes mainBodyWithoutRet
+    let funImpl = showCStmt 0 finalMergeMap strFunTypes funPart
 
     let content =
             "\n// imports" ++ imports ++
-            "\n// pair type defitions" ++ concat (map genPairDeclaration (Set.toList pairTypes)) ++
+            "\n// pair type defitions" ++ concatMap genPairDeclaration (Set.toList pairTypes) ++
             "\n// function defitions" ++ funDefs ++
-            "\n\n// closure defitions" ++ showCStmt 0 Map.empty Map.empty strFunTypes closureStructs ++
+            "\n\n// closure defitions" ++ showCStmt 0 Map.empty strFunTypes envStructs ++
             "\n// function implementations" ++ funImpl ++
             "\n// main\nint main(void) {" ++ mainBodyImpl ++
                     case show (typeRep mainBody) of
