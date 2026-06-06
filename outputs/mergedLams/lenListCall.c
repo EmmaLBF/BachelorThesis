@@ -15,7 +15,6 @@ int v0(NodeInt* v1);
 typedef struct {
     int v2;
     NodeInt* v3;
-    NodeInt* v1;
 } Env_v6;
 
 typedef struct {
@@ -31,7 +30,6 @@ int v6(void* env6, void* v2_raw, void* v3_raw) {
 
 int v0(NodeInt* v1) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
-  env6->v1 = v1;
   if (((v1) == NULL)) {
     return 0;
   } else {

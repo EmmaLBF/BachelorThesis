@@ -299,14 +299,14 @@ evalStmt Skip m = Continue m
 evalStmt (Seq x y) m =
   case evalStmt x m of
     ReturnVal v env' -> ReturnVal v env'
-    Continue env'    -> evalStmt y env'
+    Continue env' -> evalStmt y env'
 evalStmt (If cond t e) m =
   if unBool (evalExpr cond m) then evalStmt t m else evalStmt e m
 evalStmt (While cond body) env =
-  if unBool (evalExpr cond env) then
-    case evalStmt body env of
+  if unBool (evalExpr cond env)
+  then case evalStmt body env of
       ReturnVal v env' -> ReturnVal v env'
-      Continue env'    -> evalStmt (While cond body) env'
+      Continue env' -> evalStmt (While cond body) env'
   else Continue env
 evalStmt (DefFun (_ :: Proxy b) ifun (iparam, _ :: Proxy a) body) m =
   let fn :: CValue a -> CValue b
@@ -351,21 +351,7 @@ showCValue (FunV _) = "funv"
 showCValue (ListV l) =
   case l of
     [] -> ""
-    [h] -> showCValue h
     (h:t) -> showCValue h ++ ", " ++ showCValue (ListV t)
-
-showProx :: DType.TypeRep -> String
-showProx p =
-    let args = typeRepArgs p
-        con  = show (DType.typeRepTyCon p)
-    in case (con, args) of
-        ("Int",  [])     -> "int"
-        ("Bool", [])     -> "bool"
-        ("()",   [])     -> "void*"
-        ("[]",   [_])     -> "Node*"
-        ("(,)", [_, _]) -> "Pair*"
-        ("->",   [a, b]) -> showProx b ++ " (*)(" ++ showProx a ++ ")"
-        _                -> show p
 
 showCStmt :: Int -> CStatement a -> String
 showCStmt indent (UpdateVar i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " =~ " ++ showCExpression x ++ ";"
@@ -385,7 +371,7 @@ showCStmt indent (BindExpr x i y) =
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
 showCStmt indent (DefFun tret ifun (i, targ) body) =
-    "\n" ++ indentStr indent ++ showProx (DType.typeRep tret) ++ " function" ++ show ifun ++ " (" ++ showProx (DType.typeRep targ) ++ " v" ++ show i ++ ") {"
+    "\n" ++ indentStr indent ++ show (DType.typeRep tret) ++ " function" ++ show ifun ++ " (" ++ show (DType.typeRep targ) ++ " v" ++ show i ++ ") {"
     ++ showCStmt (indent + 1) body
     ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression f ++ ";"
@@ -405,23 +391,19 @@ showCExpression (LBoolOp op x y) = "(" ++ showCExpression x ++ " " ++ showBoolOp
 showCExpression (LCmpOp op x y) = "(" ++ showCExpression x ++ " " ++ showCmpOp op ++ " " ++ showCExpression y ++ ")"
 showCExpression (CallExpr f arg) = showCExpression f ++ "(" ++ showCExpression arg ++ ")"
 showCExpression (Prod l r) = "(" ++ showCExpression l ++ "," ++ showCExpression r ++ ")"
-showCExpression (ConsList x l) = "cons(&(" ++ showProx (DType.typeRep x) ++ "){" ++ showCExpression x ++ "}, " ++ showCExpression l ++ ")"
+showCExpression (ConsList x l) = "cons(&(" ++ show (typeRep x) ++ "){" ++ showCExpression x ++ "}, " ++ showCExpression l ++ ")"
 showCExpression (IsEmpty l) = "isEmpty(" ++ showCExpression l ++ ")"
-showCExpression (HeadList l) = "*(" ++ showProx (DType.typeRep l) ++ ")" ++ "head(" ++ showCExpression l ++ ")"
+showCExpression (HeadList l) = "*(" ++ show (typeRep l) ++ ")" ++ "head(" ++ showCExpression l ++ ")"
 showCExpression (TailList l) = "tail(" ++ showCExpression l ++ ")"
 showCExpression (IndexList l i) = showCExpression l ++ "[" ++ showCExpression i ++ "]"
 showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" ++ showCExpression thn ++ ") : (" ++ showCExpression els ++ ")"
-
--- showEnv :: Env -> String
--- showEnv Empty = ""
--- showEnv (Extend i x r) = "(" ++ show i ++ ": " ++ showCValue x ++ "), " ++ showEnv r
 
 main :: IO ()
 main = do
     let (nl, fresh') = runState (NL.translate AL.mergeSortCall) 0
         cl = evalState (translate nl) fresh'
         ev = eval cl Empty
-    putStrLn $ NL.pretty nl
+    print nl
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 cl
     putStrLn "--- Opt ---"

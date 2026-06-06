@@ -15,13 +15,10 @@ int v0(NodeInt* v1);
 // env defitions
 typedef struct {
     NodeInt* v3;
-    NodeInt* v1;
-    int v2;
 } Env_v5;
 
 typedef struct {
     int v2;
-    NodeInt* v1;
 } Env_v6;
 
 typedef struct {
@@ -37,8 +34,6 @@ int v5(void* env5, void* v3_raw) {
 Closure* v6(void* env6, void* v2_raw) {
   int v2 = *(int*)v2_raw;
   Env_v5* env5 = malloc(sizeof(Env_v5));
-  env5->v2 = v2;
-  env5->v1 = ((Env_v6*)env6)->v1;
   Closure* c5 = malloc(sizeof(Closure));
   c5->env = env5;
   c5->fn = (void* (*)(void*, void*))v5;
@@ -47,7 +42,6 @@ Closure* v6(void* env6, void* v2_raw) {
 
 int v0(NodeInt* v1) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
-  env6->v1 = v1;
   if (((v1) == NULL)) {
     return 0;
   } else {

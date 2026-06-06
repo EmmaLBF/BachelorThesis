@@ -40,7 +40,7 @@ Node* v8(void* env8, void* v9_raw, void* v10_raw, void* v11_raw);
 Node* v5(void* env5, void* v6_raw, void* v7_raw);
 Node* v104(int v4);
 
-// env defitions
+// closure defitions
 typedef struct {
     Node* v2;
     Node* v3;
@@ -210,9 +210,6 @@ bool v54(void* env54, void* v34_raw) {
 
 Closure* v55(void* env55, void* v33_raw) {
   int v33 = *(int*)v33_raw;
-  Env_v54* env54 = malloc(sizeof(Env_v54));
-  env54->v33 = v33;
-  env54->v32 = ((Env_v55*)env55)->v32;
   Closure* c54 = malloc(sizeof(Closure));
   c54->env = env54;
   c54->fn = (void* (*)(void*, void*))v54;
@@ -221,17 +218,11 @@ Closure* v55(void* env55, void* v33_raw) {
 
 Closure* v57(void* env57, void* v32_raw) {
   int v32 = *(int*)v32_raw;
-  Env_v55* env55 = malloc(sizeof(Env_v55));
-  env55->v32 = v32;
-  Closure* c55 = v55(env55, box_int((((Env_v57*)env57)->v31)->snd));
   return c55;
 }
 
 Closure* v59(void* env59, void* v31_raw) {
   Pair_Int_Int *v31 = (Pair_Int_Int*)v31_raw;
-  Env_v57* env57 = malloc(sizeof(Env_v57));
-  env57->v31 = v31;
-  Closure* c57 = v57(env57, box_int((v31)->fst));
   return c57;
 }
 
@@ -239,8 +230,6 @@ bool v66(void* env66, void* v29_raw, void* v30_raw) {
   Pair_Int_Int *v29 = (Pair_Int_Int*)v29_raw;
   Node* v30 = (Node*)v30_raw;
   Env_v26* env26 = malloc(sizeof(Env_v26));
-  Env_v59* env59 = malloc(sizeof(Env_v59));
-  Closure* c59 = v59(env59, (void*)(((Env_v66*)env66)->v27));
   return (!((Closure*)(c59)->fn((c59)->env, v29)) && v26(env26, (void*)(((Env_v66*)env66)->v27), (void*)(v30)));
 }
 
@@ -258,7 +247,6 @@ bool v26(void* env26, void* v27_raw, void* v28_raw) {
 
 Node* v72(void* env72, void* v25_raw) {
   Node* v25 = (Node*)v25_raw;
-  Env_v26* env26 = malloc(sizeof(Env_v26));
   if (v26(env26, (void*)(((Env_v72*)env72)->v24), (void*)(((Env_v72*)env72)->v22))) {
     return cons(cons(((Env_v72*)env72)->v24, ((Env_v72*)env72)->v22), v25);
   } else {

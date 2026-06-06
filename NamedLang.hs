@@ -3,7 +3,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module NamedLang where
-
 import Data.Dynamic
 import AbsLang (BinOp(..), CmpOp(..), BoolOp(..))
 import qualified AbsLang as AL
@@ -58,24 +57,24 @@ translate (AL.LBoolOp op x y) = LBoolOp op <$> translate x <*> translate y
 translate (AL.If x y z) = If <$> translate x <*> translate y <*> translate z
 translate (AL.CaseList x y z) = CaseList <$> translate x <*> translate y <*> translate z
 
-pretty :: NamedLang a -> String
-pretty e = 
-  case e of
-    Var x -> "x" ++ show x
-    Lam _ i f -> "(\\x" ++ show i ++ " ->\n\t " ++ pretty f ++ ")"
-    If cond t el -> "(if " ++ pretty cond ++ "\n\tthen " ++ pretty t ++ "\n\telse " ++ pretty el ++ ")"
-    Apply f a -> "(" ++ pretty f ++ " " ++ pretty a ++ ")"
-    Fix f -> "(fix " ++ pretty f ++ ")"
-    LInt n -> show n
-    LBool b -> show b
-    LIntOp op l r -> "(" ++ pretty l ++ " " ++ show op ++ " " ++ pretty r ++ ")"
-    LCmpOp op l r -> "(" ++ pretty l ++ " " ++ show op ++ " " ++ pretty r ++ ")"
-    LBoolOp op l r -> "(" ++ pretty l ++ " " ++ show op ++ " " ++ pretty r ++ ")"
-    Not p -> "(! " ++ pretty p ++ ")"
-    Abs p -> "|" ++ pretty p ++ "|"
-    Prod a b -> "(" ++ pretty a ++ ", " ++ pretty b ++ ")"
-    Fst p -> "(fst " ++ pretty p ++ ")"
-    Snd p -> "(snd " ++ pretty p ++ ")"
-    EmptyList -> "[]"
-    ConsList x l -> pretty x ++ ":" ++ pretty l
-    CaseList l nilCase consCase -> "case " ++ pretty l ++ " of\n  [] -> " ++ pretty nilCase ++ "\n  (h:t) ->" ++ pretty consCase
+instance Show (NamedLang a) where
+  show e = 
+    case e of
+      Var x -> "x" ++ show x
+      Lam _ i f -> "(\\x" ++ show i ++ " ->\n\t " ++ show f ++ ")"
+      If cond t el -> "(if " ++ show cond ++ "\n\tthen " ++ show t ++ "\n\telse " ++ show el ++ ")"
+      Apply f a -> "(" ++ show f ++ " " ++ show a ++ ")"
+      Fix f -> "(fix " ++ show f ++ ")"
+      LInt n -> show n
+      LBool b -> show b
+      LIntOp op l r -> "(" ++ show l ++ " " ++ show op ++ " " ++ show r ++ ")"
+      LCmpOp op l r -> "(" ++ show l ++ " " ++ show op ++ " " ++ show r ++ ")"
+      LBoolOp op l r -> "(" ++ show l ++ " " ++ show op ++ " " ++ show r ++ ")"
+      Not p -> "(! " ++ show p ++ ")"
+      Abs p -> "|" ++ show p ++ "|"
+      Prod a b -> "(" ++ show a ++ ", " ++ show b ++ ")"
+      Fst p -> "(fst " ++ show p ++ ")"
+      Snd p -> "(snd " ++ show p ++ ")"
+      EmptyList -> "[]"
+      ConsList x l -> show x ++ ":" ++ show l
+      CaseList l nilCase consCase -> "case " ++ show l ++ " of\n  [] -> " ++ show nilCase ++ "\n  (h:t) ->" ++ show consCase
