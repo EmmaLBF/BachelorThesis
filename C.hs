@@ -370,7 +370,7 @@ liftDefs stmt@(DefFun tret ifun params body) =
             let removedDefBody = removeDefFun body ifun' -- remove the def we found
                 newDef = DefFun tret' ifun' (CParamEnv ifun' : params') body' -- add an env param to it and lift it out
                 usedInNested = Map.keysSet (varUses (getFunctionInfo body' emptyFunctionInfo)) -- vars that are used in the nested body
-            modify $ \(m, n) -> 
+            modify $ \(m, n) ->
                 let parentVars = Set.union (Set.fromList params) (Map.findWithDefault Set.empty ifun m)
                     neededVars = Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars
                 in (Map.insert ifun' neededVars m, Map.insert ifun' ifun n) -- add all of its needed params to the map
@@ -380,7 +380,7 @@ liftDefs (Seq x y) = do
     m <- get
     x' <- liftDefs x
     m' <- get
-    if m' /= m 
+    if m' /= m
         then return (Seq x' y)
         else Seq x <$> liftDefs y
 liftDefs x = return x
@@ -852,7 +852,7 @@ getGlobalInfoExpr _ m = m
 
 -- GET FUNCTION INFO
 data FunctionInfo = FunctionInfo
-    { 
+    {
       funId :: Int
     , funParams :: CParams
     , escapedVars :: Set.Set Int   -- var ids that flow into heap
@@ -860,13 +860,14 @@ data FunctionInfo = FunctionInfo
     , varDefs :: Map.Map Int CArg
     , escapedEnvs :: Set.Set Int   -- env ids that outlive the frame
     , allocedEnvs :: Set.Set Int
+    , envUses :: Set.Set Int
     , functionCalls :: Map.Map Int Int
     , escapedClos :: Set.Set Int
     } deriving (Show)
 
 emptyFunctionInfo :: FunctionInfo
-emptyFunctionInfo = 
-    FunctionInfo 0 [] Set.empty Map.empty Map.empty Set.empty Set.empty Map.empty Set.empty 
+emptyFunctionInfo =
+    FunctionInfo 0 [] Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty
 
 mergeFunctionInfo :: FunctionInfo -> FunctionInfo -> FunctionInfo
 mergeFunctionInfo a b = FunctionInfo
@@ -877,18 +878,21 @@ mergeFunctionInfo a b = FunctionInfo
     (Map.union (varDefs a) (varDefs b))
     (Set.union (escapedEnvs a) (escapedEnvs b))
     (Set.union (allocedEnvs a) (allocedEnvs b))
+    (Set.union (envUses a) (envUses b))
     (Map.unionWith (+) (functionCalls a) (functionCalls b))
     (Set.union (escapedClos a) (escapedClos b))
 
 -- (vars, envs)
 getFunctionInfoExpr :: Bool -> CExpression a -> FunctionInfo -> FunctionInfo
+getFunctionInfoExpr _ (GetEnvField _ envId _) r =
+    r{ envUses = Set.insert envId (envUses r) }
 getFunctionInfoExpr escapes (Var _ i) r =
     if escapes
     then r { escapedVars = Set.insert i (escapedVars r), varUses = Map.insertWith (+) i 1 (varUses r) }
     else r { varUses = Map.insertWith (+) i 1 (varUses r) }
 getFunctionInfoExpr escapes (Val (EnvV i)) r =
     if escapes
-    then r { escapedEnvs = Set.insert i (escapedEnvs r) }
+    then r { escapedEnvs = Set.insert i (escapedEnvs r), envUses = Set.insert i (envUses r)  }
     else r
 getFunctionInfoExpr escapes (Val (ClosureV i)) r =
     if escapes
@@ -915,25 +919,31 @@ getFunctionInfoExpr escapes (CallExpr tf tx f x) m =
         m' = case func of
                 Var _ i -> m { functionCalls = Map.insertWith (+) i 1 (functionCalls m) }
                 _ -> getFunctionInfoExpr escapes f m
-    in foldr (\(CArg _ a) acc -> getFunctionInfoExpr escapes a acc) m' args
+    in foldr (\(CArg _ a) acc -> processArg a acc) m' args
+    where
+        processArg (Val (EnvV _)) m' = m'
+        processArg arg m' = getFunctionInfoExpr True arg m'
 getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr escapes f (getFunctionInfoExpr escapes x m)
 getFunctionInfoExpr escapes (IndexList _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
 getFunctionInfoExpr _ _ m = m
 
 getFunctionInfo :: CStatement a -> FunctionInfo -> FunctionInfo
-getFunctionInfo (DefFun _ ifun params body) r = 
+getFunctionInfo (DefFun _ ifun params body) r =
     let r' = getFunctionInfo body (r { funId = ifun, funParams = params})
     in r' { funId = ifun, funParams = params}
 getFunctionInfo (Seq x y) r = getFunctionInfo y (getFunctionInfo x r)
 getFunctionInfo (Return x) r = getFunctionInfoExpr True x r
-getFunctionInfo (BindExpr _ x i y) r = getFunctionInfo y (getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r) }))  -- x doesn't escape by being bound
+getFunctionInfo (BindExpr t x i y) r = getFunctionInfo y (getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) }))  -- x doesn't escape by being bound
 getFunctionInfo (If c t e) r =
     let r' = getFunctionInfoExpr False c r
     in mergeFunctionInfo (getFunctionInfo t r') (getFunctionInfo e r')
-getFunctionInfo (UpdateVar _ i x) r = getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg (CTPtr CTVoid) x) (varDefs r)})
-getFunctionInfo (DefVar _ i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg (CTPtr CTVoid) x) (varDefs r) })
+getFunctionInfo (UpdateVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r)})
+getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
 getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
-getFunctionInfo (AllocEnv i _ _ _) r = r { allocedEnvs = Set.insert i (allocedEnvs r) }
+getFunctionInfo (AllocEnv i parentId _ parentPs) r =
+    r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r) }
+getFunctionInfo (AllocClosure i) r =
+    r { envUses = Set.insert i (envUses r) }
 getFunctionInfo _ r = r
 
 
@@ -1347,13 +1357,10 @@ printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " 
 
 -- MAIN
 
-generateEnvStructs :: [CStatement a] -> Map.Map Int (Set.Set CParam) -> CStatement a
-generateEnvStructs [] _ = Skip
-generateEnvStructs (DefFun _ ifun params _ : rest) liftenv =
+generateEnvStructs :: Int -> Map.Map Int (Set.Set CParam) -> CStatement a
+generateEnvStructs ifun liftenv =
     let envParams = maybe [] Set.toList (Map.lookup ifun liftenv)
-        allParams = (params ++ envParams)
-    in Seq (DefEnvStruct ifun allParams) (generateEnvStructs rest liftenv)
-generateEnvStructs _ _ = error "not valid def fun"
+    in DefEnvStruct ifun envParams
 
 findFirstReturn :: CStatement a -> CExpression a
 findFirstReturn (Return x)        = x
@@ -1473,10 +1480,10 @@ run progName progCode canMerge = do
                     "\n#include <stdint.h>" ++
                     libName
 
-    let envStructs = generateEnvStructs finalDefs parentParamsMap
+    let envStructs = foldr Seq Skip (map (`generateEnvStructs` parentParamsMap) (Set.toList (usedEnvs (getGlobalInfo finalBody emptyGlobalInfo))))
     let pairTypes = execState (collectPairTypes finalBody) Set.empty
     let funDefs = showFunDefs finalDefs
-    
+
     let (funPart, mainBody) = splitTopLevel finalBody
     let retExpr = findFirstReturn mainBody
     let mainBodyWithoutRet = removeFirstReturn mainBody
