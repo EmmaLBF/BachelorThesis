@@ -109,7 +109,7 @@ data CStatement a where
     Skip :: CStatement a
     DefEnvStruct :: Int -> CParams -> CStatement a  -- same, but fields are concrete types
     AllocClosure :: Int -> CStatement a -- closureId
-    AllocEnv :: Int -> Int -> CParams -> CParams -> CStatement a -- envId parentId directParams parentParams
+    AllocEnv :: Int -> Int -> Map.Map Int CArg -> Map.Map Int CArg -> CStatement a -- envId parentId directParams parentParams
 instance Eq (CStatement a) where
     l == r = (showCStmt 0 Map.empty Map.empty l) == (showCStmt 0 Map.empty Map.empty r)
 
@@ -460,6 +460,18 @@ isParentOf child parent parentMap =
             | otherwise -> isParentOf i parent parentMap
         Nothing -> False
 
+paramsToArgVars :: CParams -> Map.Map Int CArg
+paramsToArgVars [] = Map.empty
+paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
+paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTVoidPtr) (Val (EnvV i)))
+paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
+
+paramsToArgGetEnv :: CParams -> Int -> Map.Map Int CArg
+paramsToArgGetEnv [] _ = Map.empty
+paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
+paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg CTVoidPtr (GetEnvField CTVoidPtr parent i))
+paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
+
 -- functions which immediately return another function need to return closures instead
 -- if the function just returns a var, lookup the var in the map
     -- if its parent parameters contain the current params, the current function is its parent
@@ -490,7 +502,7 @@ makeClosureFactories (DefFun tret ifun params body) stmt m parents closures =
                         then -- curr fun is parent
                             let parentParams = Set.toList funSet \\ params
                                 directParams = Set.toList (Set.intersection (Set.fromList params) funSet)
-                                allocEnv = AllocEnv retId ifun directParams parentParams
+                                allocEnv = AllocEnv retId ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun)
                                 allocCls = if not returnsClosure then AllocClosure retId else Skip -- if its retun is alsready a closure we don't need to reallocate it
                                 newBody = Seq allocEnv (Seq allocCls (replaceReturnClosure body retId))
                             in (DefFun CTClosure ifun params' newBody, Map.insert ifun retId closures, closureParams)
@@ -575,7 +587,7 @@ addEnvAllocs (DefFun tret ifun params body) stmt liftedFuns =
                 Just parentParams ->
                     let parentParams' = (Set.toList parentParams \\ params)
                         directParams = Set.toList parentParams \\ parentParams'
-                    in AllocEnv i ifun directParams parentParams'
+                    in AllocEnv i ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams' ifun)
                 _ -> Skip
 addEnvAllocs (Seq x y) stmt liftedFuns =
     Seq (addEnvAllocs x stmt liftedFuns) (addEnvAllocs y stmt liftedFuns)
@@ -797,7 +809,8 @@ mergeGlobalInfo a b = GlobalInfo
 
 getGlobalInfo :: CStatement a -> GlobalInfo -> GlobalInfo
 getGlobalInfo (AllocEnv _ i directPs _) m = 
-    m { usedEnvs = Set.insert i (usedEnvs m), globalUsedVars = foldr Set.insert (globalUsedVars m) (paramsToList directPs) }
+    let m' = m { usedEnvs = Set.insert i (usedEnvs m) }
+    in foldr (\(CArg _ x) acc -> getGlobalInfoExpr x acc) m' directPs
 getGlobalInfo (Seq x y) m = getGlobalInfo y (getGlobalInfo x m)
 getGlobalInfo (If c x y) m = getGlobalInfo y (getGlobalInfo x (getGlobalInfoExpr c m))
 getGlobalInfo (While c x) m = getGlobalInfo x (getGlobalInfoExpr c m)
@@ -945,8 +958,8 @@ getFunctionInfo (UpdateVar t i x) r = getFunctionInfoExpr False x (r { varUses =
 getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
 getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
 getFunctionInfo (AllocEnv i parentId directPs parentPs) r =
-    r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r),
-    varUses = foldr (\pid acc -> Map.insertWith (+) pid 2 acc) (varUses r) (paramsToList directPs) }
+    let r' = r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r) }
+    in foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) r' directPs
 getFunctionInfo (AllocClosure i) r =
     r { envUses = Set.insert i (envUses r) }
 getFunctionInfo _ r = r
@@ -1289,7 +1302,7 @@ showCStmt indent m funs (DefFun ct ifun params body) =
 showCStmt indent m _ (DefVar ct i x) =
     "\n" ++ indentStr indent ++
         case x of
-            (Val (ClosureV i')) -> printDecl ("c" ++ show i) ct
+            (Val (ClosureV _)) -> printDecl ("c" ++ show i) ct
             (Val (EnvV _)) -> printDecl ("env" ++ show i) ct
             _ ->
                 case ct of
@@ -1306,24 +1319,16 @@ showCStmt indent _ _ (AllocClosure funId) =
     ++ "\n" ++ indentStr indent ++ "c" ++ show funId ++ "->env = env" ++ show funId ++ ";"
     ++ "\n" ++ indentStr indent ++ "c" ++ show funId
     ++ "->fn = (void* (*)(void*, void*))v" ++ show funId ++ ";"
-showCStmt indent _ _ (AllocEnv envId parentId directParams parentParams) =
+showCStmt indent m _ (AllocEnv envId _ directParams parentParams) =
     "\n" ++ indentStr indent ++ "Env_v" ++ show envId ++ "* env" ++ show envId
         ++ " = malloc(sizeof(Env_v" ++ show envId ++ "));"
-    ++ showDirect directParams
-    ++ showParent parentParams
+    ++ showDirect (Map.toList directParams)
+    ++ showDirect (Map.toList parentParams)
   where
     showDirect [] = ""
-    showDirect (CParam ip _ : rest) =
-        "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip
-        ++ " = " ++ "v" ++ show ip ++ ";"
-        ++ showDirect rest
-    showDirect (_ : rest) = showDirect rest
-    showParent [] = ""
-    showParent (CParam ip _ : rest) =
-        "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip
-            ++ " = ((Env_v" ++ show parentId ++ "*)env" ++ show parentId ++ ")->v" ++ show ip ++ ";"
-        ++ showParent rest
-    showParent (_ : rest) = showParent rest
+    showDirect [(ip, CArg _ x)] =
+        "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip ++ " = " ++ showCExpression x m ++ ";"
+    showDirect (i : rest) = showDirect [i] ++ showDirect rest
 showCStmt _ _ _ Skip = ""
 
 showFunDefs :: [CStatement a] -> String

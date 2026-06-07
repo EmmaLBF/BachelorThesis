@@ -145,7 +145,7 @@ removeEnvsAndVars (AllocEnv envId parentId directPs parentPs) _ r =
         else 
             let removedParent = not (Set.member parentId (allocedEnvs r)) && not (paramsHaveEnv parentId (funParams r))
             in if removedParent then
-                AllocEnv envId parentId (directPs ++ parentPs) []
+                AllocEnv envId parentId (Map.union directPs parentPs) Map.empty
                 else AllocEnv envId parentId directPs parentPs
     else 
          trace ("removed env 2 = " ++ show envId) $
@@ -252,7 +252,7 @@ rewriteClosureUseExpr _ _ x = x
 rewriteClosureUse :: Int -> Int -> CStatement b -> CStatement b
 rewriteClosureUse i parentId (Return x) = Return (rewriteClosureUseExpr i parentId x)
 rewriteClosureUse i _ (AllocClosure j) | i == j = Skip
-rewriteClosureUse i _ (AllocEnv j _ [] _) | i == j = Skip
+rewriteClosureUse i _ (AllocEnv j _ m _) | i == j && null m = Skip
 rewriteClosureUse i parentId (Seq x y) = Seq (rewriteClosureUse i parentId x) (rewriteClosureUse i parentId y)
 rewriteClosureUse i parentId (BindExpr t x j y) = BindExpr t (rewriteClosureUseExpr i parentId x) j (rewriteClosureUse i parentId y)
 rewriteClosureUse i parentId (If c t e) = If (rewriteClosureUseExpr i parentId c) (rewriteClosureUse i parentId t) (rewriteClosureUse i parentId e)
@@ -522,8 +522,7 @@ applyAliases x _ = x
 eliminateAliases :: CStatement a -> (CStatement a, Bool)
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
-        envFieldIds = collectAllocEnvDirectIds stmt   -- can't get rid of vars used in allocenv (used by id)
-        m = Map.withoutKeys (aliases info) envFieldIds 
+        m = aliases info
         stmt' = applyAliases stmt m
         stmt'' = removeEnvsAndVars stmt' stmt' emptyFunctionInfo
         -- stmt''' = removeSingleVars stmt'' stmt'' emptyFunctionInfo
@@ -533,14 +532,14 @@ eliminateAliases stmt =
         then (stmt'', False)
         else eliminateAliases stmt''
 
-collectAllocEnvDirectIds :: CStatement a -> Set.Set Int
-collectAllocEnvDirectIds (AllocEnv _ _ directPs _) = Set.fromList [pid | CParam pid _ <- directPs]
-collectAllocEnvDirectIds (Seq x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
-collectAllocEnvDirectIds (If _ x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
-collectAllocEnvDirectIds (While _ x) = collectAllocEnvDirectIds x
-collectAllocEnvDirectIds (DefFun _ _ _ b) = collectAllocEnvDirectIds b
-collectAllocEnvDirectIds (BindExpr _ _ _ y) = collectAllocEnvDirectIds y
-collectAllocEnvDirectIds _ = Set.empty
+-- collectAllocEnvDirectIds :: CStatement a -> Set.Set Int
+-- collectAllocEnvDirectIds (AllocEnv _ _ directPs _) = Set.fromList [pid | CParam pid _ <- directPs]
+-- collectAllocEnvDirectIds (Seq x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
+-- collectAllocEnvDirectIds (If _ x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
+-- collectAllocEnvDirectIds (While _ x) = collectAllocEnvDirectIds x
+-- collectAllocEnvDirectIds (DefFun _ _ _ b) = collectAllocEnvDirectIds b
+-- collectAllocEnvDirectIds (BindExpr _ _ _ y) = collectAllocEnvDirectIds y
+-- collectAllocEnvDirectIds _ = Set.empty
 
 replaceVarAssignment :: CExpression a -> Map.Map Int CArg -> CExpression a
 replaceVarAssignment (Var t i) m =
