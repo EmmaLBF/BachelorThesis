@@ -79,7 +79,7 @@ removeUnusedParams [CParamEnv i] m =
     if i `elem` envUses m 
     then ([CParamEnv i], False)
     else 
-        trace ("removed env " ++ show i ++ " | " ++ show (envUses m))
+        -- trace ("removed env " ++ show i ++ " | " ++ show (envUses m))
         ([], True)
 removeUnusedParams (i:is) m = 
     let (i', b) = removeUnusedParams [i] m
@@ -139,13 +139,17 @@ removeEnvsAndVars :: CStatement a -> CStatement b -> FunctionInfo -> CStatement 
 removeEnvsAndVars (AllocEnv envId parentId directPs parentPs) _ r =
     if Set.member envId (envUses r) 
     then if Set.member envId (allocedEnvs r) && null parentPs
-        then Skip
+        then 
+            trace ("removed env 1 = " ++ show envId) $
+            Skip
         else 
             let removedParent = not (Set.member parentId (allocedEnvs r)) && not (paramsHaveEnv parentId (funParams r))
             in if removedParent then
                 AllocEnv envId parentId (directPs ++ parentPs) []
                 else AllocEnv envId parentId directPs parentPs
-    else Skip 
+    else 
+         trace ("removed env 2 = " ++ show envId) $
+        Skip 
 removeEnvsAndVars (BindExpr t x i y) stmt r = BindExpr t (removeEnvsAndVarsExpr x stmt r) i (removeEnvsAndVars y stmt r)
 removeEnvsAndVars (DefVar t i x) stmt r = DefVar t i (removeEnvsAndVarsExpr x stmt r)
 removeEnvsAndVars (UpdateVar t i x) stmt r = UpdateVar t i (removeEnvsAndVarsExpr x stmt r)
@@ -216,7 +220,6 @@ removeSingleVarsExpr x _ _ = x
 removeEnvsAndVarsUntilFixed :: CStatement a -> CStatement a
 removeEnvsAndVarsUntilFixed body =
     let body' = removeSingleVars body body emptyFunctionInfo
-        -- body'' = removeEnvsAndVars body' body' emptyFunctionInfo
     in  if body == body'
         then body'
         else removeEnvsAndVarsUntilFixed body'
@@ -303,17 +306,17 @@ endsInIf _ = False
 -- Single inlining pass, finds list of functions that are safe to inline (called exactly once)
 -- It then tries to inline all of these functions
 -- It returns a list of the functions that were removed so I can get rid of them later
-inlinePass :: [CStatement a] -> CStatement a -> CStatement a
+inlinePass :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
 inlinePass defs body =
     let globalInfo = getGlobalInfo body emptyGlobalInfo
         safeToInline = Map.keys $ Map.filter (== 1) $ Map.filterWithKey
             (\i _ -> case findFunDef i defs of
                 Just DefFun {} -> True
                 _ -> False) (functionCallsGlobal globalInfo)
-    in foldr (\i b ->
+    in foldr (\i (b, removed) ->
             let (b', didInline) = inlineOne i defs b
-            in if didInline then b' else b
-        ) body safeToInline
+           in if didInline then (b', i : removed) else (b, removed)
+        ) (body, []) safeToInline
 
 -- replace return statement inside both branches of an if statement
 -- so that we can then inline that if statement
@@ -429,24 +432,21 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
     goExpr x = (Skip, x)
 
 -- Keep inlining until nothing changes, bool indicates if anything was removed
-inlineUntilFixed :: CStatement a -> CStatement a
+inlineUntilFixed :: CStatement a -> (CStatement a, Bool)
 inlineUntilFixed body =
-    let body' = inlinePass (getDefs body) body
-    in if body == body'
-       then body'
-       else let globalInfo = getGlobalInfo body emptyGlobalInfo
-                globalInfo' = getGlobalInfo body' emptyGlobalInfo
-                body'' = removeDeadFuns globalInfo globalInfo' body'
-                body''' = inlineUntilFixed body''
-            in body'''
+    let (body', removed) = inlinePass (getDefs body) body
+    in if null removed
+       then (body', False)
+       else let body'' = removeDeadFuns removed body'
+                (body''', removed') = inlineUntilFixed body''
+            in (body''', not (null removed) || removed')
 
 -- pass list of called funs
-removeDeadFuns :: GlobalInfo -> GlobalInfo -> CStatement a -> CStatement a
-removeDeadFuns g g' def@(DefFun _ ifun _ _) =
-    let calls = Map.findWithDefault 0 ifun (functionCallsGlobal g')
-    in if calls == 0 then Skip else def
-removeDeadFuns m m' (Seq x y) = Seq (removeDeadFuns m m' x) (removeDeadFuns m m' y)
-removeDeadFuns _ _ x = x
+removeDeadFuns :: [Int] -> CStatement a -> CStatement a
+removeDeadFuns removedFuns def@(DefFun _ ifun _ _) =
+    if ifun `elem` removedFuns then Skip else def -- still used
+removeDeadFuns m (Seq x y) = Seq (removeDeadFuns m x) (removeDeadFuns m y)
+removeDeadFuns _ x = x
 
 
 cleanSkip :: CStatement a -> CStatement a
@@ -521,8 +521,26 @@ applyAliases x _ = x
 -- returns bool true if an alias was eliminated (something changed)
 eliminateAliases :: CStatement a -> (CStatement a, Bool)
 eliminateAliases stmt =
-    let m = aliases (getGlobalInfo stmt emptyGlobalInfo)
-    in (applyAliases stmt m, not (null m))
+    let info = getGlobalInfo stmt emptyGlobalInfo
+        envFieldIds = collectAllocEnvDirectIds stmt   -- can't get rid of vars used in allocenv (used by id)
+        m = Map.withoutKeys (aliases info) envFieldIds 
+        stmt' = applyAliases stmt m
+        stmt'' = removeEnvsAndVars stmt' stmt' emptyFunctionInfo
+        -- stmt''' = removeSingleVars stmt'' stmt'' emptyFunctionInfo
+    in 
+        -- trace ("aliases " ++ show m) $
+        if stmt == stmt''
+        then (stmt'', False)
+        else eliminateAliases stmt''
+
+collectAllocEnvDirectIds :: CStatement a -> Set.Set Int
+collectAllocEnvDirectIds (AllocEnv _ _ directPs _) = Set.fromList [pid | CParam pid _ <- directPs]
+collectAllocEnvDirectIds (Seq x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
+collectAllocEnvDirectIds (If _ x y) = Set.union (collectAllocEnvDirectIds x) (collectAllocEnvDirectIds y)
+collectAllocEnvDirectIds (While _ x) = collectAllocEnvDirectIds x
+collectAllocEnvDirectIds (DefFun _ _ _ b) = collectAllocEnvDirectIds b
+collectAllocEnvDirectIds (BindExpr _ _ _ y) = collectAllocEnvDirectIds y
+collectAllocEnvDirectIds _ = Set.empty
 
 replaceVarAssignment :: CExpression a -> Map.Map Int CArg -> CExpression a
 replaceVarAssignment (Var t i) m =
@@ -848,23 +866,25 @@ defaultVal _ = unsafeCoerce UnitV
 keepOptimising :: CStatement a -> Map.Map Int Int -> (CStatement a, Map.Map Int Int)
 keepOptimising body mergedMap =
     -- remove closures
-    let (body', removedClosures) = removeClosureAllocs body emptyFunctionInfo
-        mergedMap' = foldr (\(i, _) m -> Map.insert i (Map.findWithDefault 1 i m + 1) m) mergedMap removedClosures
-
-        inlinedBody = inlineUntilFixed body' -- inline
+    let 
+        (inlinedBody, _) = inlineUntilFixed body -- inline
         (removedEnvParamBody, l) = runState (removeEnvParam inlinedBody inlinedBody emptyFunctionInfo) Set.empty
         removedEnvParamBody' = removeCallParamEnv removedEnvParamBody (-1) l
 
         -- remove aliases, local envs and vars that are used <= 1 times
         (elminatedBody, _) = eliminateAliases removedEnvParamBody'
-        escapeBody' = removeEnvsAndVars elminatedBody elminatedBody emptyFunctionInfo
+        removedVars = removeSingleVars elminatedBody elminatedBody emptyFunctionInfo
+
 
         -- remove useless logic and casts
-        removedUselessBody = removeUselessStmt escapeBody'
+        removedUselessBody = removeUselessStmt removedVars
 
-    in if body == removedUselessBody
-        then (removedUselessBody, mergedMap')
-        else keepOptimising removedUselessBody mergedMap'
+        (body', removedClosures) = removeClosureAllocs removedUselessBody emptyFunctionInfo
+        mergedMap' = foldr (\(i, _) m -> Map.insert i (Map.findWithDefault 1 i m + 1) m) mergedMap removedClosures
+
+    in if body == body'
+        then (body', mergedMap')
+        else keepOptimising body' mergedMap'
     -- in (removedUselessBody, mergedMap')
 
 helloRun :: Typeable a => String -> AL.Lang a -> IO ()

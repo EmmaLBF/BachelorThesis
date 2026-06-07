@@ -13,13 +13,10 @@ int v0(NodeInt* v1);
 
 // env defitions
 typedef struct {
-    int v2;
-    NodeInt* v3;
-} Env_v6;
+} Env_v0;
 
 typedef struct {
-    NodeInt* v1;
-} Env_v0;
+} Env_v6;
 
 // function implementations
 int v6(void* env6, void* v2_raw, void* v3_raw) {
@@ -30,11 +27,8 @@ int v6(void* env6, void* v2_raw, void* v3_raw) {
 
 int v0(NodeInt* v1) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
-  if (((v1) == NULL)) {
-    return 0;
-  } else {
-    return v6(env6, box_int((v1)->head), (void*)((v1)->tail));
-  }
+  if (((v1) == NULL)) return 0;
+  return v6(env6, box_int((v1)->head), (void*)((v1)->tail));
 }
 
 // main

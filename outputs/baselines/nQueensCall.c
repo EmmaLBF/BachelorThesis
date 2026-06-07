@@ -54,99 +54,90 @@ Node* v104(int v4);
 
 // env defitions
 typedef struct {
-    Node* v3;
-} Env_v38;
-
-typedef struct {
-    Node* v2;
-} Env_v39;
-
-typedef struct {
-    Node* v1;
 } Env_v0;
 
 typedef struct {
-    Node* v18;
+    int v4;
+} Env_v5;
+
+typedef struct {
+} Env_v8;
+
+typedef struct {
+} Env_v14;
+
+typedef struct {
+} Env_v19;
+
+typedef struct {
+} Env_v26;
+
+typedef struct {
+} Env_v38;
+
+typedef struct {
+} Env_v39;
+
+typedef struct {
     Node* v16;
     Node* v17;
 } Env_v45;
 
 typedef struct {
-    Node* v17;
     Node* v16;
 } Env_v46;
 
 typedef struct {
-    Node* v16;
     Node* v15;
 } Env_v48;
 
 typedef struct {
-    Node* v15;
-} Env_v14;
-
-typedef struct {
-    int v36;
     int v32;
     int v33;
     int v35;
 } Env_v50;
 
 typedef struct {
-    int v35;
     int v32;
     int v33;
     Pair_Int_Int *v34;
 } Env_v52;
 
 typedef struct {
-    Pair_Int_Int *v34;
     int v32;
     int v33;
 } Env_v54;
 
 typedef struct {
-    int v33;
     int v32;
 } Env_v55;
 
 typedef struct {
-    int v32;
     Pair_Int_Int *v31;
 } Env_v57;
 
 typedef struct {
-    Pair_Int_Int *v31;
 } Env_v59;
 
 typedef struct {
-    Node* v30;
     Pair_Int_Int *v27;
     Pair_Int_Int *v29;
 } Env_v65;
 
 typedef struct {
-    Pair_Int_Int *v29;
     Pair_Int_Int *v27;
 } Env_v66;
 
 typedef struct {
-    Node* v28;
     Pair_Int_Int *v27;
 } Env_v68;
 
 typedef struct {
-    Pair_Int_Int *v27;
-} Env_v26;
-
-typedef struct {
-    Node* v25;
     Node* v22;
     Pair_Int_Int *v24;
 } Env_v72;
 
 typedef struct {
-    Pair_Int_Int *v24;
     int v20;
     int v21;
     Node* v22;
@@ -154,68 +145,46 @@ typedef struct {
 } Env_v78;
 
 typedef struct {
-    int v23;
     int v20;
     int v21;
     Node* v22;
 } Env_v80;
 
 typedef struct {
-    Node* v22;
     int v20;
     int v21;
 } Env_v81;
 
 typedef struct {
-    int v21;
     int v20;
 } Env_v82;
 
 typedef struct {
-    int v20;
-} Env_v19;
-
-typedef struct {
-    Node* v13;
     int v9;
     int v10;
     Node* v12;
 } Env_v92;
 
 typedef struct {
-    Node* v12;
     int v9;
     int v10;
 } Env_v93;
 
 typedef struct {
-    Node* v11;
     int v9;
     int v10;
 } Env_v95;
 
 typedef struct {
-    int v10;
     int v9;
 } Env_v96;
 
 typedef struct {
-    int v9;
-} Env_v8;
-
-typedef struct {
-    Node* v7;
     int v4;
     int v6;
 } Env_v101;
 
 typedef struct {
-    int v6;
-    int v4;
-} Env_v5;
-
-typedef struct {
-    int v4;
 } Env_v104;
 
 // function implementations

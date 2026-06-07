@@ -14,19 +14,11 @@ int v14(int v5);
 
 // env defitions
 typedef struct {
-    int v3;
-    NodeInt* v4;
-    int (*v1)(int);
-} Env_v10;
-
-typedef struct {
-    int (*v1)(int);
-    NodeInt* v2;
 } Env_v0;
 
 typedef struct {
-    int v5;
-} Env_v14;
+    int (*v1)(int);
+} Env_v10;
 
 // function implementations
 NodeInt* v10(void* env10, void* v3_raw, void* v4_raw) {
@@ -38,11 +30,8 @@ NodeInt* v10(void* env10, void* v3_raw, void* v4_raw) {
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {
   Env_v10* env10 = malloc(sizeof(Env_v10));
   env10->v1 = v1;
-  if (((v2) == NULL)) {
-    return NULL;
-  } else {
-    return v10(env10, box_int((v2)->head), (void*)((v2)->tail));
-  }
+  if (((v2) == NULL)) return NULL;
+  return v10(env10, box_int((v2)->head), (void*)((v2)->tail));
 }
 
 int v14(int v5) {

@@ -796,7 +796,8 @@ mergeGlobalInfo a b = GlobalInfo
     (Map.unionWith (++) (callArgs a) (callArgs b))
 
 getGlobalInfo :: CStatement a -> GlobalInfo -> GlobalInfo
-getGlobalInfo (AllocEnv _ i _ _) m = m { usedEnvs = Set.insert i (usedEnvs m) }
+getGlobalInfo (AllocEnv _ i directPs _) m = 
+    m { usedEnvs = Set.insert i (usedEnvs m), globalUsedVars = foldr Set.insert (globalUsedVars m) (paramsToList directPs) }
 getGlobalInfo (Seq x y) m = getGlobalInfo y (getGlobalInfo x m)
 getGlobalInfo (If c x y) m = getGlobalInfo y (getGlobalInfo x (getGlobalInfoExpr c m))
 getGlobalInfo (While c x) m = getGlobalInfo x (getGlobalInfoExpr c m)
@@ -811,6 +812,7 @@ getGlobalInfo (Return x) m = getGlobalInfoExpr x m
 getGlobalInfo (DefVar t i x) m =
     let m' = case x of
                 Val (EnvV j) -> m { aliases = Map.insert i (CArg t (Val (EnvV j))) (aliases m)}
+                Val (ClosureV j) -> m { aliases = Map.insert i (CArg t (Val (ClosureV j))) (aliases m)}
                 HeadList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (HeadList t2 var)) (aliases m)}
                 TailList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (TailList t2 var)) (aliases m)}
                 expr@Var{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
@@ -942,8 +944,9 @@ getFunctionInfo (If c t e) r =
 getFunctionInfo (UpdateVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r)})
 getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
 getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
-getFunctionInfo (AllocEnv i parentId _ parentPs) r =
-    r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r) }
+getFunctionInfo (AllocEnv i parentId directPs parentPs) r =
+    r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r),
+    varUses = foldr (\pid acc -> Map.insertWith (+) pid 2 acc) (varUses r) (paramsToList directPs) }
 getFunctionInfo (AllocClosure i) r =
     r { envUses = Set.insert i (envUses r) }
 getFunctionInfo _ r = r
@@ -1286,7 +1289,7 @@ showCStmt indent m funs (DefFun ct ifun params body) =
 showCStmt indent m _ (DefVar ct i x) =
     "\n" ++ indentStr indent ++
         case x of
-            (Val (ClosureV i')) -> printDecl ("c" ++ show i') ct
+            (Val (ClosureV i')) -> printDecl ("c" ++ show i) ct
             (Val (EnvV _)) -> printDecl ("env" ++ show i) ct
             _ ->
                 case ct of

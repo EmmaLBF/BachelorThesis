@@ -16,28 +16,20 @@ int v14(int v5);
 
 // env defitions
 typedef struct {
-    NodeInt* v4;
+} Env_v0;
+
+typedef struct {
     int (*v1)(int);
     int v3;
 } Env_v9;
 
 typedef struct {
-    int v3;
     int (*v1)(int);
 } Env_v10;
 
 typedef struct {
-    NodeInt* v2;
     int (*v1)(int);
 } Env_v12;
-
-typedef struct {
-    int (*v1)(int);
-} Env_v0;
-
-typedef struct {
-    int v5;
-} Env_v14;
 
 // function implementations
 NodeInt* v9(void* env9, void* v4_raw) {

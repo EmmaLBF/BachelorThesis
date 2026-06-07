@@ -14,8 +14,6 @@ int v0(NodeInt* v1);
 // function implementations
 int v0(NodeInt* v1) {
   if (((v1) == NULL)) return 0;
-  int v2 = (v1)->head;
-  NodeInt* v3 = (v1)->tail;
   return ((v1)->head + v0((v1)->tail));
 }
 
