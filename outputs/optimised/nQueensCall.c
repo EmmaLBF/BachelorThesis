@@ -22,7 +22,7 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 // function defitions
 int v0(Node* v1);
 Node* v14(Node* v15, Node* v16);
-bool v54(void* env54, void* v34_raw);
+bool v54(Pair_Int_Int *v34);
 bool v26(Pair_Int_Int *v27, Node* v28);
 Node* v19(int v20, int v21, Node* v22, int v23);
 Node* v8(int v9, int v10, Node* v11);
@@ -35,20 +35,10 @@ typedef struct {
 
 typedef struct {
     int v32;
-    int v33;
-    int v35;
-} Env_v50;
+} Env_v55;
 
 typedef struct {
-    int v32;
-    int v33;
-    Pair_Int_Int *v34;
-} Env_v52;
-
-typedef struct {
-    int v32;
-    int v33;
-} Env_v54;
+} Env_v104;
 
 // function implementations
 int v0(Node* v1) {
@@ -61,13 +51,15 @@ Node* v14(Node* v15, Node* v16) {
   return cons((v15)->head, v14((v15)->tail, v16));
 }
 
-bool v54(void* env54, void* v34_raw) {
-  Pair_Int_Int *v34 = (Pair_Int_Int*)v34_raw;
-  return ((((Env_v50*)env54)->v33 == (v34)->snd) || (abs((((Env_v50*)env54)->v33 - (v34)->snd)) == abs((((Env_v50*)env54)->v32 - (v34)->fst))));
+bool v54(Pair_Int_Int *v34) {
+  return (((v27)->snd == (v34)->snd) || (abs(((v27)->snd - (v34)->snd)) == abs(((v27)->fst - (v34)->fst))));
 }
 
 bool v26(Pair_Int_Int *v27, Node* v28) {
   if (((v28) == NULL)) return true;
+  Env_v54* env54 = malloc(sizeof(Env_v54));
+  env54->v33 = (v27)->snd;
+  env54->v32 = (v27)->fst;
   Closure* c54 = malloc(sizeof(Closure));
   c54->env = env54;
   c54->fn = (void* (*)(void*, void*))v54;
@@ -88,7 +80,7 @@ Node* v19(int v20, int v21, Node* v22, int v23) {
 
 Node* v8(int v9, int v10, Node* v11) {
   if (((v11) == NULL)) return NULL;
-  return v14(v19(v9)(v10)((v11)->head)(0), v8(v9)(v10)((v11)->tail));
+  return v14(v19(v9, v10, (v11)->head, 0), v8(v9, v10, (v11)->tail));
 }
 
 Node* v5(void* env5, void* v6_raw, void* v7_raw) {
@@ -101,7 +93,9 @@ Node* v5(void* env5, void* v6_raw, void* v7_raw) {
 // main
 int main(void) {
   int v4 = 4;
-  printInt(v0(v5(env5)(0)(cons(NULL, NULL))));
+  Env_v5* env5 = malloc(sizeof(Env_v5));
+  env5->v4 = v4;
+  printInt(v0(v5(env5, box_int(0), (void*)(cons(NULL, NULL)))));
   return 0;
 }
 

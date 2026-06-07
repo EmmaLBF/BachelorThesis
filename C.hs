@@ -902,7 +902,7 @@ mergeFunctionInfo a b = FunctionInfo
 -- (vars, envs)
 getFunctionInfoExpr :: Bool -> CExpression a -> FunctionInfo -> FunctionInfo
 getFunctionInfoExpr _ (GetEnvField _ envId _) r =
-    r{ envUses = Set.insert envId (envUses r) }
+    r { envUses = Set.insert envId (envUses r) }
 getFunctionInfoExpr escapes (Var _ i) r =
     if escapes
     then r { escapedVars = Set.insert i (escapedVars r), varUses = Map.insertWith (+) i 1 (varUses r) }
@@ -961,7 +961,7 @@ getFunctionInfo (AllocEnv i parentId directPs parentPs) r =
     let r' = r { allocedEnvs = Set.insert i (allocedEnvs r), envUses = if null parentPs then envUses r else Set.insert parentId (envUses r) }
     in foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) r' directPs
 getFunctionInfo (AllocClosure i) r =
-    r { envUses = Set.insert i (envUses r) }
+    r { envUses = Set.insert i (envUses r), escapedEnvs = Set.insert i (escapedEnvs r)}
 getFunctionInfo _ r = r
 
 
@@ -1081,6 +1081,9 @@ genPairDeclaration (a, b) =
 
 
 -- SHOW
+
+showCArg :: CArg -> MergedMap -> String
+showCArg (CArg _ x) m = showCExpression x m
 
 -- convert haskell type to my CType
 fromTypeRep :: TypeRep -> CType
@@ -1237,7 +1240,7 @@ showCExpression (ApplyClosure targ f arg) m =
     let (func, args) = collectArgsApply (ApplyClosure targ f arg)
         applyCall expr argList =
             "(" ++ expr ++ ")->fn(" ++
-            intercalate ", " (("(" ++ expr ++ ")->env") : map show argList) ++ ")"
+            intercalate ", " (("(" ++ expr ++ ")->env") : map (`showCArg` m) argList) ++ ")"
         n = case func of
             Var _ i -> Map.findWithDefault 1 i m
             Val (ClosureV i) -> Map.findWithDefault 1 i m
@@ -1251,7 +1254,7 @@ showCExpression (CallExpr tf tx f arg) m =
         formatArgs [] = []
         formatArgs (CArg _ (Val (EnvV j)) : rest) = ("env" ++ show j) : map (\(CArg t' a) ->
                 boxForApply t' (showCExpression a m)) rest
-        formatArgs args' = map show args'
+        formatArgs args' = map (`showCArg` m) args'
     in case func of
         Var _ i -> case Map.lookup i m of
             Just n ->
@@ -1368,7 +1371,7 @@ showListStmt :: [CStatement a] -> String
 showListStmt = concatMap (showCStmt 0 Map.empty Map.empty)
 
 printIntArgMap :: Map.Map Int CArg -> String
-printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " ++ show arg) (Map.toList m)
+printIntArgMap m = intercalate ", " $ map (\(i, arg) -> "v" ++ show i ++ " -> " ++ showCArg arg Map.empty) (Map.toList m)
 
 -- MAIN
 
