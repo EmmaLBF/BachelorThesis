@@ -303,17 +303,17 @@ endsInIf _ = False
 -- Single inlining pass, finds list of functions that are safe to inline (called exactly once)
 -- It then tries to inline all of these functions
 -- It returns a list of the functions that were removed so I can get rid of them later
-inlinePass :: [CStatement a] -> CStatement a -> (CStatement a, [Int])
+inlinePass :: [CStatement a] -> CStatement a -> CStatement a
 inlinePass defs body =
     let globalInfo = getGlobalInfo body emptyGlobalInfo
         safeToInline = Map.keys $ Map.filter (== 1) $ Map.filterWithKey
             (\i _ -> case findFunDef i defs of
                 Just DefFun {} -> True
                 _ -> False) (functionCallsGlobal globalInfo)
-    in foldr (\i (b, removed) ->
+    in foldr (\i b ->
             let (b', didInline) = inlineOne i defs b
-            in if didInline then (b', i : removed) else (b, removed)
-        ) (body, []) safeToInline
+            in if didInline then b' else b
+        ) body safeToInline
 
 -- replace return statement inside both branches of an if statement
 -- so that we can then inline that if statement
@@ -429,23 +429,34 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
     goExpr x = (Skip, x)
 
 -- Keep inlining until nothing changes, bool indicates if anything was removed
-inlineUntilFixed :: CStatement a -> (CStatement a, Bool)
+inlineUntilFixed :: CStatement a -> CStatement a
 inlineUntilFixed body =
-    let (body', removed) = inlinePass (getDefs body) body
-    in if null removed
-       then (body', False)
-       else let body'' = removeDeadFuns removed body'
-                (body''', removed') = inlineUntilFixed body''
-            in (body''', not (null removed) || removed')
+    let body' = inlinePass (getDefs body) body
+    in if body == body'
+       then body'
+       else let globalInfo = getGlobalInfo body emptyGlobalInfo
+                globalInfo' = getGlobalInfo body' emptyGlobalInfo
+                body'' = removeDeadFuns globalInfo globalInfo' body'
+                body''' = inlineUntilFixed body''
+            in body'''
 
--- pass list of removed funs
-removeDeadFuns :: [Int] -> CStatement a -> CStatement a
-removeDeadFuns removedFuns def@(DefFun _ ifun _ _) =
-    if ifun `elem` removedFuns then Skip else def -- still used
-removeDeadFuns m (Seq x y) = Seq (removeDeadFuns m x) (removeDeadFuns m y)
-removeDeadFuns _ x = x
+-- pass list of called funs
+removeDeadFuns :: GlobalInfo -> GlobalInfo -> CStatement a -> CStatement a
+removeDeadFuns g g' def@(DefFun _ ifun _ _) =
+    let calls = Map.findWithDefault 0 ifun (functionCallsGlobal g')
+    in if calls == 0 then Skip else def
+removeDeadFuns m m' (Seq x y) = Seq (removeDeadFuns m m' x) (removeDeadFuns m m' y)
+removeDeadFuns _ _ x = x
 
 
+cleanSkip :: CStatement a -> CStatement a
+cleanSkip (Seq Skip y) = cleanSkip y
+cleanSkip (Seq y Skip) = cleanSkip y
+cleanSkip (Seq x y) = Seq (cleanSkip x) (cleanSkip y)
+cleanSkip (If cond x y) = If cond (cleanSkip x) (cleanSkip y)
+cleanSkip (While cond x) = While cond (cleanSkip x)
+cleanSkip (DefFun tret ifun params y) = DefFun tret ifun params (cleanSkip y)
+cleanSkip x = x
 
 -- the only ones that need cast are fst and snd because they return void*
 removeCast :: CExpression a -> CExpression b -> CExpression a
@@ -840,13 +851,12 @@ keepOptimising body mergedMap =
     let (body', removedClosures) = removeClosureAllocs body emptyFunctionInfo
         mergedMap' = foldr (\(i, _) m -> Map.insert i (Map.findWithDefault 1 i m + 1) m) mergedMap removedClosures
 
-        (inlinedBody, _) = inlineUntilFixed body' -- inline
+        inlinedBody = inlineUntilFixed body' -- inline
         (removedEnvParamBody, l) = runState (removeEnvParam inlinedBody inlinedBody emptyFunctionInfo) Set.empty
         removedEnvParamBody' = removeCallParamEnv removedEnvParamBody (-1) l
 
         -- remove aliases, local envs and vars that are used <= 1 times
         (elminatedBody, _) = eliminateAliases removedEnvParamBody'
-        -- escapeBody = removeSingleVars elminatedBody elminatedBody emptyFunctionInfo
         escapeBody' = removeEnvsAndVars elminatedBody elminatedBody emptyFunctionInfo
 
         -- remove useless logic and casts
@@ -875,9 +885,9 @@ helloRun progName progCode = do
 
     -- optimise
     let (optimisedBody, finalMergeMap) = keepOptimising cbody mergedMap
-    let removedBody = removeSingleVars optimisedBody optimisedBody emptyFunctionInfo
+    -- let removedBody = removeSingleVars optimisedBody optimisedBody emptyFunctionInfo
     -- let finalBody = demotePairs finalBody' (canBeByValue finalBody') (getFunsWithParams finalBody')
-    let finalBody = removedBody
+    let finalBody = cleanSkip optimisedBody
     let finalDefs = getDefs finalBody
 
     let pairTypes = execState (collectPairTypes finalBody) Set.empty

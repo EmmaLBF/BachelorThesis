@@ -778,18 +778,20 @@ data GlobalInfo = GlobalInfo
     { usedEnvs :: Set.Set Int   -- var ids that flow into heap
     , closureUses :: Map.Map Int Int -- id of closure -> number of times used
     , functionCallsGlobal :: Map.Map Int Int -- id of function called -> number of times called
+    , globalUsedVars :: Set.Set Int
     , aliases :: Map.Map Int CArg
     , callArgs :: Map.Map Int [[CArg]]
     } deriving (Show)
 
 emptyGlobalInfo :: GlobalInfo
-emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Map.empty Map.empty
+emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Set.empty Map.empty Map.empty
 
 mergeGlobalInfo :: GlobalInfo -> GlobalInfo -> GlobalInfo
 mergeGlobalInfo a b = GlobalInfo
     (Set.union (usedEnvs a) (usedEnvs b))
     (Map.unionWith (+) (closureUses a) (closureUses b))
     (Map.unionWith (+) (functionCallsGlobal a) (functionCallsGlobal b))
+    (Set.union (globalUsedVars a) (globalUsedVars b))
     (Map.union (aliases a) (aliases b))
     (Map.unionWith (++) (callArgs a) (callArgs b))
 
@@ -804,7 +806,7 @@ getGlobalInfo (DefFun _ _ params body) m =
                     CParamEnv i -> m { usedEnvs = Set.insert i (usedEnvs m) }
                     _ -> acc ) m params
     in getGlobalInfo body m'
-getGlobalInfo (BindExpr _ x _ y) m = getGlobalInfo y (getGlobalInfoExpr x m)
+getGlobalInfo (BindExpr _ x i y) m = getGlobalInfo y (getGlobalInfoExpr x (m {globalUsedVars = Set.insert i (globalUsedVars m)}))
 getGlobalInfo (Return x) m = getGlobalInfoExpr x m
 getGlobalInfo (DefVar t i x) m =
     let m' = case x of
@@ -815,12 +817,12 @@ getGlobalInfo (DefVar t i x) m =
                 expr@Fst{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
                 expr@Snd{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
                 _ -> m
-    in getGlobalInfoExpr x m'
-getGlobalInfo (UpdateVar _ _ x) m = getGlobalInfoExpr x m
+    in getGlobalInfoExpr x (m' {globalUsedVars = Set.insert i (globalUsedVars m')})
+getGlobalInfo (UpdateVar _ i x) m = getGlobalInfoExpr x (m {globalUsedVars = Set.insert i (globalUsedVars m)})
 getGlobalInfo _ m = m
 
 getGlobalInfoExpr :: CExpression a -> GlobalInfo -> GlobalInfo
-getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvs = Set.insert i (usedEnvs m) }
+getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvs = Set.insert i (usedEnvs m), globalUsedVars = Set.insert i (globalUsedVars m)}
 getGlobalInfoExpr (Val (ClosureV i)) m = m { closureUses = Map.insertWith (+) i 1 (closureUses m) }
 getGlobalInfoExpr (GetEnvField _ i _) m = m { usedEnvs = Set.insert i (usedEnvs m) }
 getGlobalInfoExpr (CallExpr tf tx f x) m =
@@ -1248,11 +1250,16 @@ showCExpression (CallExpr tf tx f arg) m =
 showCStmt :: Int -> MergedMap -> Map.Map Int String -> CStatement a -> String
 showCStmt indent m _ (UpdateVar _ i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m funs (If cond t f) =
-    "\n" ++ indentStr indent ++ "if (" ++ showCExpression cond m ++ ") {"
-    ++  showCStmt (indent + 1) m funs t
-    ++ "\n" ++ indentStr indent  ++ "} else {"
-    ++ showCStmt (indent + 1) m funs f
-    ++ "\n" ++ indentStr indent ++ "}"
+    case t of
+        Return{} -> 
+            "\n" ++ indentStr indent ++ "if (" ++ showCExpression cond m ++ ") " ++ dropWhile (== '\n') ( showCStmt 0 m funs t)
+            ++ showCStmt indent m funs f
+        _ -> 
+            "\n" ++ indentStr indent ++ "if (" ++ showCExpression cond m ++ ") {"
+            ++  showCStmt (indent + 1) m funs t
+            ++ "\n" ++ indentStr indent  ++ "} else {"
+            ++ showCStmt (indent + 1) m funs f
+            ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent m funs (While cond body) =
     "\n" ++ indentStr indent ++ "while " ++ showCExpression cond m ++ " {"
     ++ showCStmt (indent + 1) m funs body

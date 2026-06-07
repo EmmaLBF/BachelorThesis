@@ -13,11 +13,10 @@ int v0(NodeInt* v1);
 // closure defitions
 // function implementations
 int v0(NodeInt* v1) {
-  if (((v1) == NULL)) {
-    return 0;
-  } else {
-    return ((v1)->head + v0((v1)->tail));
-  }
+  if (((v1) == NULL)) return 0;
+  int v2 = (v1)->head;
+  NodeInt* v3 = (v1)->tail;
+  return ((v1)->head + v0((v1)->tail));
 }
 
 // main
