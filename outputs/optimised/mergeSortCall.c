@@ -33,7 +33,7 @@ Pair_NodeInt_NodeInt* makePair_NodeInt_NodeInt(NodeInt* fst, NodeInt* snd) {
 
 // function defitions
 NodeInt* v7(NodeInt* v8, NodeInt* v9);
-Pair_NodeInt_NodeInt* v17(Pair_Int_NodeInt *v18);
+Pair_NodeInt_NodeInt v17(Pair_Int_NodeInt v18);
 int v24(NodeInt* v25);
 NodeInt* v0(NodeInt* v1);
 
@@ -56,16 +56,16 @@ NodeInt* v7(NodeInt* v8, NodeInt* v9) {
   return v36;
 }
 
-Pair_NodeInt_NodeInt* v17(Pair_Int_NodeInt *v18) {
-  Pair_NodeInt_NodeInt *v51 = NULL;
-  if (((v18)->fst == 0)) {
-    v51 = makePair_NodeInt_NodeInt(NULL, (v18)->snd);
+Pair_NodeInt_NodeInt v17(Pair_Int_NodeInt v18) {
+  Pair_NodeInt_NodeInt v51 = { .fst = NULL, .snd = NULL};
+  if (((v18).fst == 0)) {
+    v51 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = (v18).snd };
   } else {
-    if ((((v18)->snd) == NULL)) {
-      v51 = makePair_NodeInt_NodeInt(NULL, NULL);
+    if ((((v18).snd) == NULL)) {
+      v51 = (Pair_NodeInt_NodeInt){ .fst = NULL, .snd = NULL };
     } else {
-      Pair_NodeInt_NodeInt *v23 = v17(makePair_Int_NodeInt(((v18)->fst - 1), ((v18)->snd)->tail));
-      v51 = makePair_NodeInt_NodeInt(consInt(((v18)->snd)->head, (v23)->fst), (v23)->snd);
+      Pair_NodeInt_NodeInt v23 = v17((Pair_Int_NodeInt){ .fst = ((v18).fst - 1), .snd = ((v18).snd)->tail });
+      v51 = (Pair_NodeInt_NodeInt){ .fst = consInt(((v18).snd)->head, (v23).fst), .snd = (v23).snd };
     }
   }
   return v51;
@@ -82,8 +82,8 @@ NodeInt* v0(NodeInt* v1) {
   if ((((v1)->tail) == NULL)) {
     v73 = consInt((v1)->head, NULL);
   } else {
-    Pair_NodeInt_NodeInt *v6 = v17(makePair_Int_NodeInt((v24(v1) / 2), v1));
-    v73 = v7(v0((v6)->fst), v0((v6)->snd));
+    Pair_NodeInt_NodeInt v6 = v17((Pair_Int_NodeInt){ .fst = (v24(v1) / 2), .snd = v1 });
+    v73 = v7(v0((v6).fst), v0((v6).snd));
   }
   return v73;
 }

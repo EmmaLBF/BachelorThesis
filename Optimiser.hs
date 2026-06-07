@@ -256,21 +256,20 @@ removeSingleVarsExpr x _ _ = x
 -- We call the fn stored in the closure directly with the env and its args
 -- i is the id of the closureAlloc were getting rid of
     -- if we find the application of that closure we need to rewrite it to a callexpr
+-- also we need to remove the cast for the apply
 rewriteClosureUseExpr :: Int -> Int -> CExpression b -> CExpression b
 rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) = 
     let (f', args) = collectArgsApply (ApplyClosure targ f arg)
     in case f' of
         Val (ClosureV i') | i == i' -> 
-            trace ("rewriting apply " ++ show i) $
-            let args' = map (\(CArg t x) -> CArg t ((rewriteClosureUseExpr i parentId x))) args
+            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr i parentId x)) args
                 envArg = CArg CTVoidPtr (Val (EnvV i))
             in rebuildCall CTVoidPtr (Var CTVoidPtr i) (envArg : args') -- call the closure function directly
         _ -> ApplyClosure targ (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId arg)
 rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) = 
     let (f', _) = collectArgsApply (ApplyClosure targ f arg)
     in case f' of
-        Val (ClosureV i') | i == i' -> 
-            rewriteClosureUseExpr i parentId (ApplyClosure targ f arg)
+        Val (ClosureV i') | i == i' -> rewriteClosureUseExpr i parentId (ApplyClosure targ f arg)
         _ -> CastExpr t (rewriteClosureUseExpr i parentId (ApplyClosure targ f arg))
 rewriteClosureUseExpr i parentId (Ternary tp c t e) = Ternary tp (rewriteClosureUseExpr i parentId c) (rewriteClosureUseExpr i parentId t) (rewriteClosureUseExpr i parentId e)
 rewriteClosureUseExpr i parentId (CallExpr tf tx f x) = CallExpr tf tx (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId x)
@@ -724,6 +723,31 @@ isPair _ = False
 
 
 
+getTypeExpr :: CExpression a -> CType
+getTypeExpr (HeadList t _) = t
+getTypeExpr (TailList t _) = t
+getTypeExpr (Var t _) = t
+getTypeExpr (Not _) = CTBool
+getTypeExpr (Abs _) = CTInt
+getTypeExpr (LIntOp _ _ _) = CTInt
+getTypeExpr (LCmpOp _ _ _) = CTBool
+getTypeExpr (LBoolOp _ _ _) = CTBool
+getTypeExpr (Ternary t _ _ _) = t
+getTypeExpr (Prod t _ _) = t
+getTypeExpr (Fst _ t _) = t
+getTypeExpr (Snd _ t _) = t
+getTypeExpr (EmptyList t) = t
+getTypeExpr (ConsList t _ _) = t
+getTypeExpr (IsEmpty _ _) = CTBool
+getTypeExpr (IndexList t _ _) = t
+getTypeExpr (ApplyClosure {}) = CTVoidPtr
+getTypeExpr (GetEnvField t _ _) = t
+getTypeExpr (CallExpr tf _ _ _) = tf
+getTypeExpr (CastExpr t _) = t
+getTypeExpr (Box t _) = t
+getTypeExpr (Unbox t _) = t
+getTypeExpr (Val _) = CTVoidPtr
+
 -- a function return type can be demoted if every use of the return value of said function
 -- is stored in a var that can also be demoted
 
@@ -798,6 +822,8 @@ getVarsThatHoldReturn _ _ = Set.empty
 
 
 -- put pairs on stack
+
+-- turns pair pointer into just pair if it can be demoted
 stripPairPtr :: Int -> CType -> Map.Map Int Bool -> CType
 stripPairPtr i t m =
     case Map.lookup i m of
@@ -807,6 +833,7 @@ stripPairPtr i t m =
                 x -> x
         _ -> t
 
+-- need to explicitly strip prod of its type because it does not know what variable its held in
 demotePairs :: CStatement a -> Map.Map Int Bool -> Map.Map Int [Int] -> CStatement a
 demotePairs (DefFun tret ifun params body) m funs = DefFun (stripPairPtr ifun tret m) ifun (demotePairsParams params) (demotePairs body m funs)
     where
@@ -819,7 +846,15 @@ demotePairs (DefVar t i (Prod tp x y)) m funs = DefVar (stripPairPtr i t m) i (P
 demotePairs (DefVar t i (Val UnitV)) m _ =
     let t' = stripPairPtr i t m
     in DefVar t' i (Val (defaultVal t'))
-demotePairs (DefVar t i x) m funs = DefVar (stripPairPtr i t m) i (demotePairsExpr x m funs)
+demotePairs (DefVar t i x) m funs = 
+    let t' = stripPairPtr i t m
+        x' = demotePairsExpr x m funs
+    in  if t == t' then DefVar t' i x'
+        else case getTypeExpr x' of
+            (CTPtr _) -> DefVar t' i (Unbox t' x')
+            CTNode -> DefVar t' i (Unbox t' x')
+            CTVoidPtr -> DefVar t' i (Unbox t' x')
+            _ -> DefVar t' i x'
 demotePairs (UpdateVar t i (Prod tp x y)) m funs = UpdateVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
 demotePairs (UpdateVar t i x) m funs = UpdateVar (stripPairPtr i t m) i (demotePairsExpr x m funs)
 demotePairs (If c x y) m funs = If (demotePairsExpr c m funs) (demotePairs x m funs) (demotePairs y m funs)
@@ -945,8 +980,8 @@ helloRun progName progCode = do
 
     -- optimise
     let optimisedBody = keepOptimising cbody
-    -- let finalBody = demotePairs finalBody' (canBeByValue finalBody') (getFunsWithParams finalBody')
-    let finalBody = cleanSkip optimisedBody
+    let finalBody' = demotePairs optimisedBody (canBeByValue optimisedBody) (getFunsWithParams optimisedBody)
+    let finalBody = cleanSkip finalBody'
     let finalDefs = getDefs finalBody
     let finalMergeMap = Map.map length (getFunsWithParams finalBody)
 

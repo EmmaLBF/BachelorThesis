@@ -1175,6 +1175,7 @@ box _      e = e
 unbox :: CType -> String -> String
 unbox CTInt  e = "*(int*)" ++ e
 unbox CTBool e = "*(bool*)" ++ e
+unbox (CTPair l r) e = "*(Pair_" ++ printPairType l ++ "_" ++ printPairType r ++ "*)" ++ e
 unbox t      e = "(" ++ printType t ++ ")" ++ e
 
 boxForApply :: CType -> String -> String
