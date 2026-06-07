@@ -261,22 +261,43 @@ rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) =
     let (f', args) = collectArgsApply (ApplyClosure targ f arg)
     in case f' of
         Val (ClosureV i') | i == i' -> 
-            let args' = map (\(CArg t x) -> CArg t (stripBox (rewriteClosureUseExpr i parentId x))) args
-            in rebuildCall CTVoidPtr (Var CTVoidPtr i) args' -- call the closure function directly
+            trace ("rewriting apply " ++ show i) $
+            let args' = map (\(CArg t x) -> CArg t ((rewriteClosureUseExpr i parentId x))) args
+                envArg = CArg CTVoidPtr (Val (EnvV i))
+            in rebuildCall CTVoidPtr (Var CTVoidPtr i) (envArg : args') -- call the closure function directly
         _ -> ApplyClosure targ (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId arg)
+rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) = 
+    let (f', _) = collectArgsApply (ApplyClosure targ f arg)
+    in case f' of
+        Val (ClosureV i') | i == i' -> 
+            rewriteClosureUseExpr i parentId (ApplyClosure targ f arg)
+        _ -> CastExpr t (rewriteClosureUseExpr i parentId (ApplyClosure targ f arg))
 rewriteClosureUseExpr i parentId (Ternary tp c t e) = Ternary tp (rewriteClosureUseExpr i parentId c) (rewriteClosureUseExpr i parentId t) (rewriteClosureUseExpr i parentId e)
 rewriteClosureUseExpr i parentId (CallExpr tf tx f x) = CallExpr tf tx (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId x)
 rewriteClosureUseExpr i parentId (CastExpr t x) = CastExpr t (rewriteClosureUseExpr i parentId x)
 rewriteClosureUseExpr i parentId (Box t x) = Box t (rewriteClosureUseExpr i parentId x)
 rewriteClosureUseExpr i parentId (Unbox t x) = Unbox t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Not x) = Not (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Abs x) = Abs (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Fst tp tr x) = Fst tp tr (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (Snd tp tr x) = Snd tp tr (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (IsEmpty t x) = IsEmpty t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (HeadList t x) = HeadList t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (TailList t x) = TailList t (rewriteClosureUseExpr i parentId x)
+rewriteClosureUseExpr i parentId (LIntOp op x y) = LIntOp op (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
+rewriteClosureUseExpr i parentId (LCmpOp op x y) = LCmpOp op (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
+rewriteClosureUseExpr i parentId (LBoolOp op x y) = LBoolOp op (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
+rewriteClosureUseExpr i parentId (ConsList t x y) = ConsList t (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
+rewriteClosureUseExpr i parentId (Prod t x y) = Prod t (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
+rewriteClosureUseExpr i parentId (IndexList t x y) = IndexList t (rewriteClosureUseExpr i parentId x) (rewriteClosureUseExpr i parentId y)
 rewriteClosureUseExpr _ _ x = x
 
 -- remove the alloc closures we don't need and the envs that have no direct params
 rewriteClosureUse :: Int -> Int -> CStatement b -> CStatement b
 rewriteClosureUse i parentId (Return x) = Return (rewriteClosureUseExpr i parentId x)
-rewriteClosureUse i _ (AllocClosure j) | i == j = Skip
-rewriteClosureUse i _ (AllocEnv j _ m _) | i == j && null m = Skip
 rewriteClosureUse i parentId (Seq x y) = Seq (rewriteClosureUse i parentId x) (rewriteClosureUse i parentId y)
+rewriteClosureUse i parentId (DefVar t i' x) = DefVar t i' (rewriteClosureUseExpr i parentId x)
+rewriteClosureUse i parentId (UpdateVar t i' x) = UpdateVar t i' (rewriteClosureUseExpr i parentId x)
 rewriteClosureUse i parentId (BindExpr t x j y) = BindExpr t (rewriteClosureUseExpr i parentId x) j (rewriteClosureUse i parentId y)
 rewriteClosureUse i parentId (If c t e) = If (rewriteClosureUseExpr i parentId c) (rewriteClosureUse i parentId t) (rewriteClosureUse i parentId e)
 rewriteClosureUse i parentId (While c x) = While (rewriteClosureUseExpr i parentId c) (rewriteClosureUse i parentId x)
@@ -380,7 +401,7 @@ inlineArgs (param, CArg _ arg) acc =
         (CParamEnv ip, Val (EnvV ip'))
             | ip' == ip -> acc -- do not redefine env vars which are already defined, we don't want Env66* env66 = env66;
             | otherwise -> Seq (DefVar (CTPtr CTVoid) ip arg) acc
-        _ -> error "mismatch arg and param"
+        (x, y) -> error ("mismatch arg and param" ++ show x ++ " | " ++ showCExpression y Map.empty)
 
 -- Replace all CallExpr (Var i) args with inlined body
 -- Replace ternary with if so that we can add the pre work
@@ -423,6 +444,7 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
                     (pf, f') = goExpr f
                 in (Seq pf px, CallExpr tf tx f' x')
     goExpr (Not x) = let (p, x') = goExpr x in (p, Not x')
+    goExpr (Abs x) = let (p, x') = goExpr x in (p, Abs x')
     goExpr (IsEmpty t x) = let (p, x') = goExpr x in (p, IsEmpty t x')
     goExpr (HeadList t x) = let (p, x') = goExpr x in (p, HeadList t x')
     goExpr (TailList t x) = let (p, x') = goExpr x in (p, TailList t x')
@@ -448,6 +470,10 @@ inlineCallsTo i params fbodyNoRet retExpr = goStmt
         let (px, x') = goExpr x
             (py, y') = goExpr y
         in (Seq px py, LCmpOp op x' y')
+    goExpr (LBoolOp op x y) =
+        let (px, x') = goExpr x
+            (py, y') = goExpr y
+        in (Seq px py, LBoolOp op x' y')
     goExpr (ApplyClosure tx f x) =
         let (pf, f') = goExpr f
             (px, x') = goExpr x
@@ -886,7 +912,8 @@ defaultVal _ = unsafeCoerce UnitV
 
 keepOptimising :: CStatement a -> CStatement a
 keepOptimising body =
-    let (inlinedBody, _) = inlineUntilFixed body -- inline
+    let (body', _) = removeClosureAllocs body emptyFunctionInfo
+        (inlinedBody, _) = inlineUntilFixed body' -- inline
         (removedEnvParamBody, l) = runState (removeEnvParam inlinedBody inlinedBody emptyFunctionInfo) Set.empty
         removedEnvParamBody' = removeCallParamEnv removedEnvParamBody (-1) l
 
@@ -896,11 +923,9 @@ keepOptimising body =
 
         -- remove useless logic and casts
         removedUselessBody = removeUselessStmt removedVars
-
-        (body', _) = removeClosureAllocs removedUselessBody emptyFunctionInfo
-    in if body == body'
-        then body'
-        else keepOptimising body'
+    in if body == removedUselessBody
+        then removedUselessBody
+        else keepOptimising removedUselessBody
 
 helloRun :: Typeable a => String -> AL.Lang a -> IO ()
 helloRun progName progCode = do

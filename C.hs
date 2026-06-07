@@ -940,7 +940,7 @@ getFunctionInfoExpr escapes (CallExpr tf tx f x) m =
     where
         processArg (Val (EnvV _)) m' = m'
         processArg arg m' = getFunctionInfoExpr True arg m'
-getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr escapes f (getFunctionInfoExpr escapes x m)
+getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr False f (getFunctionInfoExpr escapes x m)
 getFunctionInfoExpr escapes (IndexList _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
 getFunctionInfoExpr _ _ m = m
 

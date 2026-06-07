@@ -22,7 +22,6 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 // function defitions
 int v0(Node* v1);
 Node* v14(Node* v15, Node* v16);
-bool v54(Pair_Int_Int *v34);
 bool v26(Pair_Int_Int *v27, Node* v28);
 Node* v19(int v20, int v21, Node* v22, int v23);
 Node* v8(int v9, int v10, Node* v11);
@@ -32,10 +31,6 @@ Node* v5(void* env5, void* v6_raw, void* v7_raw);
 typedef struct {
     int v4;
 } Env_v5;
-
-typedef struct {
-    int v32;
-} Env_v55;
 
 typedef struct {
 } Env_v104;
@@ -51,19 +46,10 @@ Node* v14(Node* v15, Node* v16) {
   return cons((v15)->head, v14((v15)->tail, v16));
 }
 
-bool v54(Pair_Int_Int *v34) {
-  return (((v27)->snd == (v34)->snd) || (abs(((v27)->snd - (v34)->snd)) == abs(((v27)->fst - (v34)->fst))));
-}
-
 bool v26(Pair_Int_Int *v27, Node* v28) {
   if (((v28) == NULL)) return true;
-  Env_v54* env54 = malloc(sizeof(Env_v54));
-  env54->v33 = (v27)->snd;
-  env54->v32 = (v27)->fst;
-  Closure* c54 = malloc(sizeof(Closure));
-  c54->env = env54;
-  c54->fn = (void* (*)(void*, void*))v54;
-  return (!((Closure*)(c54)->fn((c54)->env, (v28)->head)) && v26(v27, (v28)->tail));
+  Pair_Int_Int *v34 = (v28)->head;
+  return (!((((v27)->snd == (v34)->snd) || (abs(((v27)->snd - (v34)->snd)) == abs(((v27)->fst - (v34)->fst))))) && v26(v27, (v28)->tail));
 }
 
 Node* v19(int v20, int v21, Node* v22, int v23) {
