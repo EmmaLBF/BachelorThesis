@@ -26,12 +26,12 @@ int v0(Pair_Int_Int v1);
 // function implementations
 int v0(Pair_Int_Int v1) {
   if (((v1).snd == 0)) return (v1).fst;
-  return v0(makePair_Int_Int((v1).snd, ((v1).fst % (v1).snd)));
+  return v0((Pair_Int_Int){ .fst = (v1).snd, .snd = ((v1).fst % (v1).snd) });
 }
 
 // main
 int main(void) {
-  printInt(v0(makePair_Int_Int(30, 10)));
+  printInt(v0((Pair_Int_Int){ .fst = 30, .snd = 10 }));
   return 0;
 }
 

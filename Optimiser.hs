@@ -894,7 +894,7 @@ demotePairsExpr (CallExpr tf tx f a) m funs =
                     demoteArgs [] _ = []
                     demoteArgs [CArg targ (Prod tp l r)] [idProd] =
                         case Map.lookup idProd m of
-                            Just True -> [CArg tp (Prod (stripPairPtr i tp m) (demotePairsExpr l m funs) (demotePairsExpr r m funs))]
+                            Just True -> [CArg tp (Prod (stripPairPtr idProd tp m) (demotePairsExpr l m funs) (demotePairsExpr r m funs))]
                             _ -> [CArg targ (Prod tp l r)]
                     demoteArgs [CArg targ x] _ = [CArg targ (demotePairsExpr x m funs)]
                     demoteArgs (i:is) (id':id'') = demoteArgs [i] [id'] ++ demoteArgs is id''
