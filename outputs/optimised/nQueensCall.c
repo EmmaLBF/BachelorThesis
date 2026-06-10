@@ -78,7 +78,7 @@ Node* v5(void* env5, void* v6_raw, void* v7_raw) {
 
 // main
 int main(void) {
-  int v4 = 4;
+  int v4 = 8;
   Env_v5* env5 = malloc(sizeof(Env_v5));
   env5->v4 = v4;
   printInt(v0(v5(env5, box_int(0), (void*)(cons(NULL, NULL)))));

@@ -32,7 +32,7 @@ Node* v14(Node* v15, Node* v16) {
 bool v26(Pair_Int_Int* v27, Node* v28) {
     if (v28 == NULL) return true;
     Pair_Int_Int v34 = *(Pair_Int_Int*)v28->head;
-    return !((v27->snd == v34.snd || (abs(v27->snd - v34.snd) == abs(v27->fst - v34.fst))) && (v26(v27, v28->tail)));
+    return (!(v27->snd == v34.snd || (abs(v27->snd - v34.snd) == abs(v27->fst - v34.fst))) && (v26(v27, v28->tail)));
 }
 
 // tryCols
@@ -57,7 +57,10 @@ Node* v5(int n, int v6, Node* v7) {
 }
 
 int main() {
-    int len = 4;
-    printInt(v0(v5(len, 0, cons(NULL, NULL))));
+  int v4 = 8;
+    printInt(v0(v5(v4, 0, cons(NULL, NULL))));
     return 0;
 }
+
+
+
