@@ -40,7 +40,7 @@ Node* v8(void* env8, void* v9_raw, void* v10_raw, void* v11_raw);
 Node* v5(void* env5, void* v6_raw, void* v7_raw);
 Node* v104(int v4);
 
-// env defitions
+// closure defitions
 typedef struct {
 } Env_v0;
 
@@ -128,11 +128,8 @@ int v39(void* env39, void* v2_raw, void* v3_raw) {
 
 int v0(Node* v1) {
   Env_v39* env39 = malloc(sizeof(Env_v39));
-  if (((v1) == NULL)) {
-    return 0;
-  } else {
-    return v39(env39, (void*)((v1)->head), (void*)((v1)->tail));
-  }
+  if (((v1) == NULL)) return 0;
+  return v39(env39, (void*)((v1)->head), (void*)((v1)->tail));
 }
 
 Node* v46(void* env46, void* v17_raw, void* v18_raw) {
@@ -147,11 +144,8 @@ Node* v14(void* env14, void* v15_raw, void* v16_raw) {
   Node* v16 = (Node*)v16_raw;
   Env_v46* env46 = malloc(sizeof(Env_v46));
   env46->v16 = v16;
-  if (((v15) == NULL)) {
-    return v16;
-  } else {
-    return v46(env46, (void*)((v15)->head), (void*)((v15)->tail));
-  }
+  if (((v15) == NULL)) return v16;
+  return v46(env46, (void*)((v15)->head), (void*)((v15)->tail));
 }
 
 bool v50(void* env50, void* v36_raw) {
@@ -218,11 +212,8 @@ bool v26(void* env26, void* v27_raw, void* v28_raw) {
   Node* v28 = (Node*)v28_raw;
   Env_v66* env66 = malloc(sizeof(Env_v66));
   env66->v27 = v27;
-  if (((v28) == NULL)) {
-    return true;
-  } else {
-    return v66(env66, (void*)((v28)->head), (void*)((v28)->tail));
-  }
+  if (((v28) == NULL)) return true;
+  return v66(env66, (void*)((v28)->head), (void*)((v28)->tail));
 }
 
 Node* v72(void* env72, void* v25_raw) {
@@ -254,11 +245,8 @@ Node* v19(void* env19, void* v20_raw, void* v21_raw, void* v22_raw, void* v23_ra
   env78->v21 = v21;
   env78->v22 = v22;
   env78->v23 = v23;
-  if ((v23 == v20)) {
-    return NULL;
-  } else {
-    return v78(env78, (void*)(makePair_Int_Int(v21, v23)));
-  }
+  if ((v23 == v20)) return NULL;
+  return v78(env78, (void*)(makePair_Int_Int(v21, v23)));
 }
 
 Node* v93(void* env93, void* v12_raw, void* v13_raw) {
@@ -277,22 +265,16 @@ Node* v8(void* env8, void* v9_raw, void* v10_raw, void* v11_raw) {
   Env_v93* env93 = malloc(sizeof(Env_v93));
   env93->v9 = v9;
   env93->v10 = v10;
-  if (((v11) == NULL)) {
-    return NULL;
-  } else {
-    return v93(env93, (void*)((v11)->head), (void*)((v11)->tail));
-  }
+  if (((v11) == NULL)) return NULL;
+  return v93(env93, (void*)((v11)->head), (void*)((v11)->tail));
 }
 
 Node* v5(void* env5, void* v6_raw, void* v7_raw) {
   int v6 = *(int*)v6_raw;
   Node* v7 = (Node*)v7_raw;
   Env_v8* env8 = malloc(sizeof(Env_v8));
-  if ((v6 == ((Env_v5*)env5)->v4)) {
-    return v7;
-  } else {
-    return v5(env5, box_int((v6 + 1)), (void*)(v8(env8, box_int(((Env_v5*)env5)->v4), box_int(v6), (void*)(v7))));
-  }
+  if ((v6 == ((Env_v5*)env5)->v4)) return v7;
+  return v5(env5, box_int((v6 + 1)), (void*)(v8(env8, box_int(((Env_v5*)env5)->v4), box_int(v6), (void*)(v7))));
 }
 
 Node* v104(int v4) {
@@ -303,7 +285,7 @@ Node* v104(int v4) {
 
 // main
 int main(void) {
-  printInt(v0(v104(8)));
+  printInt(v0(v104(4)));
   return 0;
 }
 

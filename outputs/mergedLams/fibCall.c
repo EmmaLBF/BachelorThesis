@@ -10,7 +10,7 @@
 // function defitions
 int v0(int v1);
 
-// env defitions
+// closure defitions
 // function implementations
 int v0(int v1) {
   if ((v1 < 2)) return v1;

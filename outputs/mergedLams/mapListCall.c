@@ -12,7 +12,7 @@ NodeInt* v10(void* env10, void* v3_raw, void* v4_raw);
 NodeInt* v0(int (*v1)(int), NodeInt* v2);
 int v14(int v5);
 
-// env defitions
+// closure defitions
 typedef struct {
 } Env_v0;
 

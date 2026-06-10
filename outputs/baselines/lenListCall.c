@@ -12,7 +12,7 @@ int v5(void* env5, void* v3_raw);
 Closure* v6(void* env6, void* v2_raw);
 int v0(NodeInt* v1);
 
-// env defitions
+// closure defitions
 typedef struct {
 } Env_v0;
 
@@ -39,12 +39,9 @@ Closure* v6(void* env6, void* v2_raw) {
 
 int v0(NodeInt* v1) {
   Env_v6* env6 = malloc(sizeof(Env_v6));
-  if (((v1) == NULL)) {
-    return 0;
-  } else {
-    Closure* c6 = v6(env6, box_int((v1)->head));
-    return (int)(intptr_t)(c6)->fn((c6)->env, (v1)->tail);
-  }
+  if (((v1) == NULL)) return 0;
+  Closure* c6 = v6(env6, box_int((v1)->head));
+  return (int)(intptr_t)(c6)->fn((c6)->env, (v1)->tail);
 }
 
 // main

@@ -50,7 +50,7 @@ NodeInt* v70(void* env70, void* v4_raw, void* v5_raw);
 NodeInt* v73(void* env73, void* v2_raw, void* v3_raw);
 NodeInt* v0(NodeInt* v1);
 
-// env defitions
+// closure defitions
 typedef struct {
 } Env_v0;
 
@@ -252,7 +252,7 @@ NodeInt* v0(NodeInt* v1) {
 
 // main
 int main(void) {
-  printListInt(v0(LIST(10000, 42)));
+  printListInt(v0(consInt(4, consInt(6, consInt(3, NULL)))));
   return 0;
 }
 
