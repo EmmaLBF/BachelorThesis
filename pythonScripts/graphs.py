@@ -17,8 +17,8 @@ import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 
-CSV = "benchmark_results_20260610_133452.csv"
-OUTDIR = "charts"
+CSV = "pythonScripts/benchmarks/20260610_180423.csv"
+OUTDIR = "./pythonScripts/charts"
 os.makedirs(OUTDIR, exist_ok=True)
 
 # Stable colour per version folder so the legend is learned once.
@@ -33,8 +33,15 @@ def colour_for(version):
 
 
 def short_version(folder):
-    """Turn 'outputs/optimised/' into 'optimised' for legends."""
-    return folder.strip("/").split("/")[-1]
+    if folder == "outputs/optimised/":
+        return "Optimised"
+    elif folder == "outputs/mergedLams/":
+        return "Merged Lambdas"
+    elif folder == "outputs/baselines/":
+        return "Basic"
+    elif folder == "cProgs/":
+        return "Baseline"
+    return "nothing"
 
 
 def parse_samples(cell):

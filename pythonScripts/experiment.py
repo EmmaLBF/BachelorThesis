@@ -265,41 +265,44 @@ def only_run(c_file, folder="outputs/"):
 # replacing the line at  len(lines) - distance_from_bottom.
 # ---------------------------------------------------------------------------
 
-PROGRAMS = [
+MERGESORT = [
     {
         "name": "mergeSortCall",
-        "folders": ["outputs/baselines/", "outputs/mergedLams/", "outputs/optimised/", "OtherCode/"],
-        "sizes": [100, 1000, 5000, 10000],
+        "folders": ["outputs/baselines/", "outputs/mergedLams/", "outputs/optimised/", "cProgs/"],
+        "sizes": [100, 1000, 5000, 10000, 30000],
         "distance_from_bottom": 4,
         "prefix": "  printListInt(v0(LIST(",
         "suffix": ", 42)));\n",
-    },
+    }
+]
+
+QUEENS = [
     {
         "name": "nQueensCall",
         "folders": ["outputs/baselines/", "outputs/mergedLams/"],
-        "sizes": [4, 5, 6, 7, 8],
+        "sizes": [2, 4, 6, 8, 10],
         "distance_from_bottom": 4,
         "prefix": "  printInt(v0(v104(",
         "suffix": ")));\n",
     },
     {
         "name": "nQueensCall",
-        "folders": ["outputs/optimised/", "OtherCode/"],
-        "sizes": [4, 5, 6, 7, 8],
+        "folders": ["outputs/optimised/", "cProgs/"],
+        "sizes": [2, 4, 6, 8, 10],
         "distance_from_bottom": 7,
         "prefix": "  int v4 = ",
         "suffix": ";\n",
-    },
+    }
 ]
 
-OUTPUT_CSV = f"benchmark_results_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+OUTPUT_CSV = f"pythonScripts/benchmarks/{time.strftime('%Y%m%d_%H%M%S')}.csv"
 
 if __name__ == "__main__":
     rows = []
     # A tiny adapter so run_trials can "write" rows into our list via .writerow.
     collector = type("RowCollector", (), {"writerow": staticmethod(rows.append)})()
 
-    for prog in PROGRAMS:
+    for prog in QUEENS:
         for folder in prog["folders"]:
             run_trials(
                 path_half=prog["name"],

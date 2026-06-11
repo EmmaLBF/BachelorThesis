@@ -57,7 +57,7 @@ Node* v5(int n, int v6, Node* v7) {
 }
 
 int main() {
-  int v4 = 8;
+  int v4 = 10;
     printInt(v0(v5(v4, 0, cons(NULL, NULL))));
     return 0;
 }
