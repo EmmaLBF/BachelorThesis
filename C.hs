@@ -83,8 +83,8 @@ translate (CL.Seq x y) = Seq (translate x) (translate y)
 translate (CL.BindExpr (x :: CL.CExpression a) i s) =
     BindExpr (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr x) i (translate s)
 translate (CL.If cond x y) = If (translateExpr cond) (translate x) (translate y)
-translate (CL.DefFun tret ifun (ip, tp) body) =
-    DefFun (fromTypeRep (typeRep tret)) ifun [CParam ip (fromTypeRep (typeRep tp))] (translate body)
+translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
+    DefFun (fromTypeRep (typeRep (Proxy :: Proxy b))) ifun [CParam ip (fromTypeRep (typeRep tp))] (translate body)
 
 ------ Pass to add box/unbox
 

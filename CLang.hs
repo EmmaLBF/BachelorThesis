@@ -22,6 +22,9 @@ data CParam where
 data CArg where
   CArg :: Typeable a => CExpression a -> CArg
 
+data CVal where
+  CVal :: Typeable a => CValue a -> CVal
+  
 type CParams = [CParam]
 
 data CValue a where
@@ -44,34 +47,30 @@ data CExpression a where
   CallExpr :: (Typeable a, Typeable b) => CExpression (a -> b) -> CExpression a -> CExpression b
   -- Tuples
   Prod :: (Typeable a, Typeable b) => CExpression a -> CExpression b -> CExpression (a, b)
-  Fst  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a
-  Snd  :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b
+  Fst :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression a
+  Snd :: (Typeable a, Typeable b) => CExpression (a, b) -> CExpression b
   -- Lists
-  EmptyList    :: Typeable a => CExpression [a]
-  ConsList   :: Typeable a => CExpression a -> CExpression [a] -> CExpression [a]
-  HeadList   :: Typeable a => CExpression [a] -> CExpression a
-  TailList   :: Typeable a => CExpression [a] -> CExpression [a]
-  IsEmpty  :: Typeable a => CExpression [a] -> CExpression Bool
-  IndexList  :: Typeable a => CExpression [a] -> CExpression Int -> CExpression a
+  EmptyList :: Typeable a => CExpression [a]
+  ConsList :: Typeable a => CExpression a -> CExpression [a] -> CExpression [a]
+  HeadList :: Typeable a => CExpression [a] -> CExpression a
+  TailList :: Typeable a => CExpression [a] -> CExpression [a]
+  IsEmpty :: Typeable a => CExpression [a] -> CExpression Bool
+  IndexList :: Typeable a => CExpression [a] -> CExpression Int -> CExpression a
 
 data CStatement a where
   Return :: (Typeable a) => CExpression a -> CStatement a
   BindExpr :: Typeable a => CExpression a -> Int -> CStatement b -> CStatement b
   Seq :: CStatement a -> CStatement a -> CStatement a
   If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-  DefFun    :: (Typeable a, Typeable b) => Proxy b -> Int -> (Int, Proxy a) -> CStatement b -> CStatement b
+  DefFun :: (Typeable a, Typeable b) => Int -> (Int, Proxy a) -> CStatement b -> CStatement b
   DefVar :: Typeable a => Int -> CExpression a -> CStatement b
   UpdateVar :: Typeable a => Int -> CExpression a -> CStatement b
   While :: CExpression Bool -> CStatement a -> CStatement a
   Skip :: CStatement a
 
-data Env where
-  Empty :: Env
-  Extend :: Typeable a => Int -> CValue a -> Env -> Env
-
 data ExecResult a where
-  Continue  :: Env -> ExecResult a
-  ReturnVal :: Typeable a => CValue a -> Env -> ExecResult a
+  Continue  :: Map.Map Int CVal -> ExecResult a
+  ReturnVal :: Typeable a => CValue a -> Map.Map Int CVal -> ExecResult a
 
 fresh :: State Int Int
 fresh = do
@@ -81,7 +80,7 @@ fresh = do
 
 -- Translate a sub-expression. Returns the statements that need to run
 -- first, and the expression to use afterwards.
-translateSub :: forall a. Typeable a => NL.NamedLang a -> State Int ([CStatement ()], CExpression a)
+translateSub :: Typeable a => NL.NamedLang a -> State Int ([CStatement b], CExpression a)
 translateSub (NL.Var n) = return ([], Var n)
 translateSub (NL.LInt n) = return ([], Val (IntV n))
 translateSub (NL.LBool b) = return ([], Val (BoolV b))
@@ -123,56 +122,52 @@ translateSub e = do -- catches all statement translation
   i <- fresh
   return ([unsafeCoerce (bindResult i stmt)], Var i)
 
-seqAll :: [CStatement ()] -> CStatement a -> CStatement a
-seqAll ss final = foldr (Seq . unsafeCoerce) final ss
-
 bindResult :: Int -> CStatement a -> CStatement a
-bindResult i (Return x) = BindExpr x i Skip
+bindResult i (Return x) = DefVar i x
 bindResult i (Seq x y) = Seq x (bindResult i y)
 bindResult i (If c t e) = If c (bindResult i t) (bindResult i e)
-bindResult i def@(DefFun (_ :: Proxy b) ifun (_, _ :: Proxy arg) _) =
+bindResult i def@(DefFun ifun (_, _ :: Proxy arg) (_ :: CStatement b)) =
   let var = Var ifun :: CExpression (arg -> b)
-  in Seq def (BindExpr var i Skip)
+  in Seq def (DefVar i var)
 bindResult _ s = s
 
 ensureReturn :: CStatement a -> CStatement a
 ensureReturn stmt = case stmt of
-  DefFun _ ifun1 _ _ -> Seq stmt (Return (Var ifun1))
+  DefFun ifun1 _ _ -> Seq stmt (Return (Var ifun1))
   Seq x y -> Seq x (ensureReturn y)
   _ -> stmt
 
-translate :: forall a. Typeable a => NL.NamedLang a -> State Int (CStatement a)
-translate (NL.Apply (f :: NL.NamedLang (arg -> a)) (x :: NL.NamedLang arg)) = do
+translate :: Typeable a => NL.NamedLang a -> State Int (CStatement a)
+translate (NL.Apply f x) = do
   (fs, fE) <- translateSub f
   (xs, xE) <- translateSub x
-  return $ seqAll (fs ++ xs) (Return (CallExpr fE xE))
+  return $ foldr Seq (Return (CallExpr fE xE)) (fs ++ xs)
 translate (NL.If cond t f) = do
   (cs, condE) <- translateSub cond
   ct <- translate t
   cf <- translate f
-  return $ seqAll cs (If condE ct cf)
-translate (NL.Lam arg i (f :: NL.NamedLang b)) = do
+  return $ foldr Seq (If condE ct cf) cs
+translate (NL.Lam arg i f) = do
   cf <- translate f
   ifun <- fresh
-  let body = case cf of
-              (DefFun _ ifun1 _ _) -> Seq cf (Return (Var ifun1))
-              _ -> cf
-  return (unsafeCoerce (DefFun (Proxy :: Proxy b) ifun (i, arg) body))
-translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 (f :: NL.NamedLang b)))) = do
+  return (unsafeCoerce (DefFun ifun (i, arg) (ensureReturn cf)))
+translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 f))) = do
   cf <- translate f
-  return (unsafeCoerce (DefFun (Proxy :: Proxy b) i (i1, targ1) (ensureReturn (unsafeCoerce cf))))
-translate (NL.CaseList l (nilCase :: NL.NamedLang a) (consCase :: NL.NamedLang (a1 -> [a1] -> a))) = do
+  return (unsafeCoerce (DefFun i (i1, targ1) (ensureReturn cf)))
+translate (NL.CaseList l nilCase consCase) = do
   (ns, nilE) <- translateSub nilCase
   consStmt <- translate consCase
   (ls, listE) <- translateSub l
   cId <- fresh
   let callExpr = CallExpr (CallExpr (Var cId) (HeadList listE)) (TailList listE)
-      caseBody = If (IsEmpty listE) (seqAll ns (Return nilE)) (Return callExpr)
-  return $ seqAll (unsafeCoerce (bindResult cId consStmt) : ls)
-         $ unsafeCoerce caseBody
+      caseBody = If (IsEmpty listE) (foldr Seq (Return nilE) ns) (Return callExpr)
+  return $ foldr Seq caseBody (unsafeCoerce (bindResult cId consStmt) : ls)
 translate x = do
   (xs, xE) <- translateSub x
-  return $ seqAll xs (Return xE)
+  return $ foldr Seq (Return xE) xs
+
+
+-- REPLACE BINDINGS
 
 replaceVarBinding :: CExpression a -> State (Map.Map Int CArg) (CExpression a)
 replaceVarBinding (Var i) = do
@@ -205,7 +200,7 @@ replaceVarBindingStmt (BindExpr x i y) = do
 replaceVarBindingStmt (Seq x y) = Seq <$> replaceVarBindingStmt x <*> replaceVarBindingStmt y
 replaceVarBindingStmt (If cond x y) = If <$> replaceVarBinding cond <*> replaceVarBindingStmt x <*> replaceVarBindingStmt y
 replaceVarBindingStmt (While cond x) = While <$> replaceVarBinding cond <*> replaceVarBindingStmt x
-replaceVarBindingStmt (DefFun tret ifun param body) = DefFun tret ifun param <$> replaceVarBindingStmt body
+replaceVarBindingStmt (DefFun ifun param body) = DefFun ifun param <$> replaceVarBindingStmt body
 replaceVarBindingStmt (Return x) = Return <$> replaceVarBinding x
 replaceVarBindingStmt (DefVar i x) = DefVar i <$> replaceVarBinding x
 replaceVarBindingStmt (UpdateVar i x) = UpdateVar i <$> replaceVarBinding x
@@ -218,10 +213,14 @@ collectBindings (BindExpr x i y) = do
   x' <- replaceVarBinding x
   modify (Map.insert i (CArg x'))
   return y
+collectBindings (DefVar i x) = do
+  x' <- replaceVarBinding x
+  modify (Map.insert i (CArg x'))
+  return Skip
 collectBindings (Seq x y) = Seq <$> collectBindings x <*> collectBindings y
 collectBindings (If cond x y) = If cond <$> collectBindings x <*> collectBindings y
 collectBindings (While cond x) = While cond <$> collectBindings x
-collectBindings (DefFun tret ifun param body) = DefFun tret ifun param <$> collectBindings body
+collectBindings (DefFun ifun param body) = DefFun ifun param <$> collectBindings body
 collectBindings x = return x
 
 optimizeBindings :: CStatement a -> CStatement a
@@ -241,16 +240,13 @@ unBool (BoolV x) = x
 unList :: CValue [a] -> [CValue a]
 unList (ListV x) = x
 
-lookupEnv :: forall a. Typeable a => Int -> Env -> Maybe (CValue a)
-lookupEnv _ Empty = Nothing
-lookupEnv i1 (Extend i2 x remainder)
-  | i1 == i2 =
-      case cast x of
-        Just v -> v
-        Nothing -> Just (unsafeCoerce x)
-  | otherwise = lookupEnv i1 remainder
+lookupEnv :: forall a. Typeable a => Int -> Map.Map Int CVal -> Maybe (CValue a)
+lookupEnv i1 m =
+  case Map.lookup i1 m of
+    Just (CVal x) -> unsafeCoerce Just x
+    _ -> Nothing
 
-evalExpr :: forall a. Typeable a => CExpression a -> Env -> CValue a
+evalExpr :: forall a. Typeable a => CExpression a -> Map.Map Int CVal -> CValue a
 evalExpr (Val x) _ = x
 evalExpr (Var i) m =
   case lookupEnv i m of
@@ -290,10 +286,10 @@ evalExpr (IndexList l i) m =
       IntV idx = evalExpr i m
   in vs !! idx
 
-evalStmt :: CStatement a -> Env -> ExecResult a
-evalStmt (BindExpr x i y) m = evalStmt y (Extend i (evalExpr x m) m)
-evalStmt (DefVar i x) m = Continue (Extend i (evalExpr x m) m)
-evalStmt (UpdateVar i x) m = Continue (Extend i (evalExpr x m) m)
+evalStmt :: CStatement c -> Map.Map Int CVal -> ExecResult c
+evalStmt (BindExpr x i y) m = evalStmt y (Map.insert i (CVal (evalExpr x m)) m)
+evalStmt (DefVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
+evalStmt (UpdateVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (Return x) m = ReturnVal (evalExpr x m) m
 evalStmt Skip m = Continue m
 evalStmt (Seq x y) m =
@@ -308,15 +304,15 @@ evalStmt (While cond body) env =
       ReturnVal v env' -> ReturnVal v env'
       Continue env' -> evalStmt (While cond body) env'
   else Continue env
-evalStmt (DefFun (_ :: Proxy b) ifun (iparam, _ :: Proxy a) body) m =
+evalStmt (DefFun ifun (iparam, _ :: Proxy a) (body :: CStatement b)) m =
   let fn :: CValue a -> CValue b
-      fn arg = case evalStmt body (Extend iparam arg m') of
+      fn arg = case evalStmt body (Map.insert iparam (CVal arg) m') of
                 ReturnVal v _ -> v
                 Continue _ -> error "function does not return anything"
-      m' = Extend ifun (FunV fn) m
+      m' = Map.insert ifun (CVal (FunV fn)) m
   in Continue m'
 
-eval :: Typeable a => CStatement a -> Env -> CValue a
+eval :: Typeable a => CStatement a -> Map.Map Int CVal -> CValue a
 eval x m = case evalStmt x m of
   Continue _ -> error "Eval did not return anything"
   ReturnVal v _ -> v
@@ -370,8 +366,8 @@ showCStmt indent (BindExpr x i y) =
     ++ showCStmt (indent + 1) y
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
-showCStmt indent (DefFun tret ifun (i, targ) body) =
-    "\n" ++ indentStr indent ++ show (DType.typeRep tret) ++ " function" ++ show ifun ++ " (" ++ show (DType.typeRep targ) ++ " v" ++ show i ++ ") {"
+showCStmt indent (DefFun ifun (i, targ) (body :: CStatement b)) =
+    "\n" ++ indentStr indent ++ show (DType.typeRep (Proxy :: Proxy b)) ++ " function" ++ show ifun ++ " (" ++ show (DType.typeRep targ) ++ " v" ++ show i ++ ") {"
     ++ showCStmt (indent + 1) body
     ++ "\n" ++ indentStr indent ++ "}"
 showCStmt indent (DefVar i f) =  "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression f ++ ";"
@@ -402,13 +398,13 @@ main :: IO ()
 main = do
     let (nl, fresh') = runState (NL.translate AL.mergeSortCall) 0
         cl = evalState (translate nl) fresh'
-        ev = eval cl Empty
+        ev = eval cl Map.empty
     print nl
     putStrLn "--- Translating ---"
     putStrLn $ showCStmt 0 cl
     putStrLn "--- Opt ---"
     let opt = optimizeBindings cl
     putStrLn $ showCStmt 0 opt
-    let _ = eval opt Empty
+    let _ = eval opt Map.empty
     putStrLn "\n--- Evaluating ---"
     putStrLn $ showCValue ev

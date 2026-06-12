@@ -12,8 +12,7 @@ import qualified Data.Map as Map
 --  The Language (GADT, typed via phantom param)
 -- ─────────────────────────────────────────────
 
-data BinOp = Plus | Min | Times | Div | Mod
-  deriving Show
+data BinOp = Plus | Min | Times | Div | Mod deriving Show
 
 data CmpOp = Eq | Lt | Gt
   deriving Show
