@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Utils where
 
@@ -14,7 +14,6 @@ fresh = do
   n <- get
   modify (+1)
   return n
-
 
 -- TYPE HELPERS
 
@@ -130,3 +129,93 @@ paramsToListEnv (CParamEnv i : rest) = i : paramsToList rest
 merge :: (CParamMap, CParamMap) -> (CParamMap, CParamMap) -> (CParamMap, CParamMap)
 merge (xfree, xbound) (yfree, ybound) = (Map.union xfree yfree, Map.union xbound ybound)
 
+getEnvParams :: CParams -> [Int]
+getEnvParams [] = []
+getEnvParams [CParamEnv i] = [i]
+getEnvParams [_] = []
+getEnvParams (i:is) = getEnvParams [i] ++ getEnvParams is
+
+-- for easier traversal
+
+data SomeExpr = forall a. Some (CExpression a)
+
+mapChildrenExpr :: (forall b. CExpression b -> CExpression b) -> CExpression a -> CExpression a
+mapChildrenExpr f (Not x) = Not (f x)
+mapChildrenExpr f (Abs x) = Abs (f x)
+mapChildrenExpr f (Fst tr tp x) = Fst tr tp (f x)
+mapChildrenExpr f (Snd tr tp x) = Snd tr tp (f x)
+mapChildrenExpr f (HeadList t x) = HeadList t (f x)
+mapChildrenExpr f (TailList t x) = TailList t (f x)
+mapChildrenExpr f (IsEmpty t x) = IsEmpty t (f x)
+mapChildrenExpr f (Box t x) = Box t (f x)
+mapChildrenExpr f (Unbox t x) = Unbox t (f x)
+mapChildrenExpr f (CastExpr t x) = CastExpr t (f x)
+mapChildrenExpr f (LIntOp op x y) = LIntOp op (f x) (f y)
+mapChildrenExpr f (LCmpOp op x y) = LCmpOp op (f x) (f y)
+mapChildrenExpr f (LBoolOp op x y) = LBoolOp op (f x) (f y)
+mapChildrenExpr f (Prod t x y) = Prod t (f x) (f y)
+mapChildrenExpr f (ConsList t x y) = ConsList t (f x) (f y)
+mapChildrenExpr f (IndexList t x y) = IndexList t (f x) (f y)
+mapChildrenExpr f (ApplyClosure t x y) = ApplyClosure t (f x) (f y)
+mapChildrenExpr f (CallExpr tf tx x y) = CallExpr tf tx (f x) (f y)
+mapChildrenExpr f (Ternary t c x y) = Ternary t (f c) (f x) (f y)
+mapChildrenExpr _ x = x
+
+childrenExpr :: CExpression a -> [SomeExpr]
+childrenExpr (Not x) = [Some x]
+childrenExpr (Abs x) = [Some x]
+childrenExpr (Box _ x) = [Some x]
+childrenExpr (Unbox _ x) = [Some x]
+childrenExpr (Fst _ _ x) = [Some x]
+childrenExpr (Snd _ _ x) = [Some x]
+childrenExpr (IsEmpty _ x) = [Some x]
+childrenExpr (HeadList _ x) = [Some x]
+childrenExpr (TailList _ x) = [Some x]
+childrenExpr (CastExpr _ x) = [Some x]
+childrenExpr (Prod _ x y) = [Some x, Some y]
+childrenExpr (CallExpr _ _ x y) = [Some x, Some y]
+childrenExpr (LIntOp _ x y) = [Some x, Some y]
+childrenExpr (LCmpOp _ x y) = [Some x, Some y]
+childrenExpr (LBoolOp _ x y) = [Some x, Some y]
+childrenExpr (ConsList _ x y) = [Some x, Some y]
+childrenExpr (IndexList _ x y) = [Some x, Some y]
+childrenExpr (Ternary _ c t e) = [Some c, Some t, Some e]
+childrenExpr _ = []
+
+data SomeStmt = forall a. SomeStmt (CStatement a)
+
+mapChildrenStmt :: (forall b. CStatement b -> CStatement b)
+                -> (forall b. CExpression b -> CExpression b)
+                -> CStatement a -> CStatement a
+mapChildrenStmt fs _  (Seq x y)          = Seq (fs x) (fs y)
+mapChildrenStmt fs fe (If c x y)         = If (fe c) (fs x) (fs y)
+mapChildrenStmt fs fe (While c x)        = While (fe c) (fs x)
+mapChildrenStmt fs _  (DefFun t i p b)   = DefFun t i p (fs b)
+mapChildrenStmt fs fe (BindExpr t x i y) = BindExpr t (fe x) i (fs y)
+mapChildrenStmt _  fe (DefVar t i x)     = DefVar t i (fe x)
+mapChildrenStmt _  fe (UpdateVar t i x)  = UpdateVar t i (fe x)
+mapChildrenStmt _  fe (Return x)         = Return (fe x)
+mapChildrenStmt _  fe (AllocEnv e p d pp) =
+    AllocEnv e p (Map.map (\(CArg t x) -> CArg t (fe x)) d)
+                 (Map.map (\(CArg t x) -> CArg t (fe x)) pp)
+mapChildrenStmt _  _  s = s
+
+-- child statements only
+childrenStmt :: CStatement a -> [SomeStmt]
+childrenStmt (Seq x y)         = [SomeStmt x, SomeStmt y]
+childrenStmt (If _ x y)        = [SomeStmt x, SomeStmt y]
+childrenStmt (While _ x)       = [SomeStmt x]
+childrenStmt (DefFun _ _ _ b)  = [SomeStmt b]
+childrenStmt (BindExpr _ _ _ y) = [SomeStmt y]
+childrenStmt _                 = []
+
+-- child expressions held directly by a statement
+childExprsStmt :: CStatement a -> [SomeExpr]
+childExprsStmt (If c _ _)        = [Some c]
+childExprsStmt (While c _)       = [Some c]
+childExprsStmt (BindExpr _ x _ _) = [Some x]
+childExprsStmt (DefVar _ _ x)    = [Some x]
+childExprsStmt (UpdateVar _ _ x) = [Some x]
+childExprsStmt (Return x)        = [Some x]
+childExprsStmt (AllocEnv _ _ d pp) = [Some x | CArg _ x <- Map.elems d ++ Map.elems pp]
+childExprsStmt _                 = []

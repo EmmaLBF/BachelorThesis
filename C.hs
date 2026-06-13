@@ -1,6 +1,5 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module C where
 
@@ -15,7 +14,6 @@ import qualified CLang as CL
 import Data.Dynamic
 import Control.Monad.State
 import Data.Typeable
-import Debug.Trace
 import Unsafe.Coerce
 import Data.List
 import qualified Data.Set as Set
@@ -65,11 +63,11 @@ translateExpr (CL.Var i) = Var (fromTypeRep (typeRep (Proxy :: Proxy a))) i
 translateExpr (CL.ConsList (h :: CL.CExpression b) t) = ConsList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr h) (translateExpr t)
 translateExpr (CL.CallExpr (f :: CL.CExpression func) (x :: CL.CExpression arg)) = CallExpr (fromTypeRep (typeRep (Proxy :: Proxy func)))
     (fromTypeRep (typeRep (Proxy :: Proxy arg))) (translateExpr f) (translateExpr x)
+translateExpr (CL.Ternary c t f) = Ternary (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr c) (translateExpr t) (translateExpr f)
 translateExpr (CL.IndexList (l :: CL.CExpression [b]) i) = IndexList (fromTypeRep (typeRep (Proxy :: Proxy b))) (translateExpr l) (translateExpr i)
 translateExpr (CL.LIntOp op e1 e2) = LIntOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.LCmpOp op e1 e2) = LCmpOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.LBoolOp op e1 e2) = LBoolOp op (translateExpr e1) (translateExpr e2)
-translateExpr (CL.Ternary c t f) = Ternary (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr c) (translateExpr t) (translateExpr f)
 
 translate :: CL.CStatement a -> CStatement a
 translate CL.Skip = Skip
@@ -89,35 +87,11 @@ translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
 ------ Pass to add box/unbox
 
 addBoxing :: CStatement a -> CStatement a
-addBoxing (DefFun tret ifun params body) = DefFun tret ifun params (addBoxing body)
-addBoxing (Seq x y) = Seq (addBoxing x) (addBoxing y)
-addBoxing (Return x) = Return (addBoxingExpr x)
-addBoxing (BindExpr t x i y) = BindExpr t (addBoxingExpr x) i (addBoxing y)
-addBoxing (If c x y) = If (addBoxingExpr c) (addBoxing x) (addBoxing y)
-addBoxing (While c x) = While (addBoxingExpr c) (addBoxing x)
-addBoxing (DefVar t i x) = DefVar t i (addBoxingExpr x)
-addBoxing (UpdateVar t i x) = UpdateVar t i (addBoxingExpr x)
-addBoxing x = x
+addBoxing = mapChildrenStmt addBoxing addBoxingExpr
 
 addBoxingExpr :: CExpression a -> CExpression a
-addBoxingExpr (HeadList t x) = HeadList t (addBoxingExpr x)
-addBoxingExpr (Fst tp tr x) = Fst tp tr (addBoxingExpr x)
-addBoxingExpr (Snd tp tr x) = Snd tp tr (addBoxingExpr x)
-addBoxingExpr (ConsList t x y) = ConsList t (addBoxingExpr x) (addBoxingExpr y)
 addBoxingExpr (ApplyClosure tx f x) = ApplyClosure tx (addBoxingExpr f) (Box tx (addBoxingExpr x))
-addBoxingExpr (LIntOp op x y) = LIntOp op (addBoxingExpr x) (addBoxingExpr y)
-addBoxingExpr (LCmpOp op x y) = LCmpOp op (addBoxingExpr x) (addBoxingExpr y)
-addBoxingExpr (LBoolOp op x y) = LBoolOp op (addBoxingExpr x) (addBoxingExpr y)
-addBoxingExpr (Ternary tp c t e) = Ternary tp (addBoxingExpr c) (addBoxingExpr t) (addBoxingExpr e)
-addBoxingExpr (Not x) = Not (addBoxingExpr x)
-addBoxingExpr (Abs x) = Abs (addBoxingExpr x)
-addBoxingExpr (IsEmpty t x) = IsEmpty t (addBoxingExpr x)
-addBoxingExpr (CastExpr t x) = CastExpr t (addBoxingExpr x)
-addBoxingExpr (CallExpr tf tx f x) = CallExpr tf tx (addBoxingExpr f) (addBoxingExpr x)
-addBoxingExpr (TailList t x) = TailList t (addBoxingExpr x)
-addBoxingExpr (IndexList t i x) = IndexList t i (addBoxingExpr x)
-addBoxingExpr (Prod t x y) = Prod t (addBoxingExpr x) (addBoxingExpr y)
-addBoxingExpr x = x
+addBoxingExpr e = mapChildrenExpr addBoxingExpr e
 
 -- LAMBDA LIFTING
 
@@ -125,47 +99,29 @@ addBoxingExpr x = x
 
 -- free, bound
 freeVarsExpr :: CExpression a -> (CParamMap, CParamMap)
-freeVarsExpr (Not x) = freeVarsExpr x
-freeVarsExpr (Abs x) = freeVarsExpr x
-freeVarsExpr (Fst _ _ x) = freeVarsExpr x
-freeVarsExpr (Snd _ _ x) = freeVarsExpr x
-freeVarsExpr (Box _ x) = freeVarsExpr x
-freeVarsExpr (Unbox _ x) = freeVarsExpr x
-freeVarsExpr (IsEmpty _ l) = freeVarsExpr l
-freeVarsExpr (TailList _ l) = freeVarsExpr l
-freeVarsExpr (HeadList _ l) = freeVarsExpr l
-freeVarsExpr (IndexList _ l _) = freeVarsExpr l
-freeVarsExpr (Prod _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (LIntOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (LCmpOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (LBoolOp _ x y) = merge (freeVarsExpr x) (freeVarsExpr y)
-freeVarsExpr (CallExpr _ _ f x) = merge (freeVarsExpr f) (freeVarsExpr x)
-freeVarsExpr (ConsList _ l x) = merge (freeVarsExpr l) (freeVarsExpr x)
 freeVarsExpr (Var t i) = (Map.singleton i (CParam i t), Map.empty)
-freeVarsExpr (Ternary _ cond thn els) = merge (merge (freeVarsExpr cond) (freeVarsExpr thn)) (freeVarsExpr els)
-freeVarsExpr _ = (Map.empty, Map.empty)
+freeVarsExpr e = foldr merge (Map.empty, Map.empty) [freeVarsExpr c | Some c <- childrenExpr e]
 
 freeVarsStmt :: CStatement a -> (CParamMap, CParamMap)
 freeVarsStmt (BindExpr t x i y) =
     let (mfree, mbound) = merge (freeVarsExpr x) (freeVarsStmt y)
     in (mfree, Map.insert i (CParam i t) mbound)
-freeVarsStmt (Seq x y) = merge (freeVarsStmt x) (freeVarsStmt y)
-freeVarsStmt (If cond x y) = merge (freeVarsExpr cond) (merge (freeVarsStmt x) (freeVarsStmt y))
-freeVarsStmt (While cond x) = merge (freeVarsExpr cond) (freeVarsStmt x)
-freeVarsStmt (DefFun _ ifun params body) =
-    let (bfree, bbound) = freeVarsStmt body
-        boundKeys = (Map.fromList . Prelude.map (\p -> (paramId p, p))) params
-        locallyBound = Map.insert ifun undefined boundKeys
-        actualFree = Map.difference bfree locallyBound
-    in (actualFree, Map.insert ifun undefined (Map.union bbound boundKeys))
 freeVarsStmt (UpdateVar t i x) =
     let (xfree, xbound) = freeVarsExpr x
     in (Map.union (Map.singleton i (CParam i t)) xfree, xbound)
 freeVarsStmt (DefVar t i x) =
     let (xfree, xbound) = freeVarsExpr x
     in (xfree, Map.insert i (CParam i t) xbound)
-freeVarsStmt (Return x) = freeVarsExpr x
-freeVarsStmt _ = (Map.empty, Map.empty)
+freeVarsStmt (DefFun _ ifun params body) =
+    let (bfree, bbound) = freeVarsStmt body
+        boundKeys = (Map.fromList . Prelude.map (\p -> (paramId p, p))) params
+        locallyBound = Map.insert ifun undefined boundKeys
+        actualFree = Map.difference bfree locallyBound
+    in (actualFree, Map.insert ifun undefined (Map.union bbound boundKeys))
+freeVarsStmt s =
+    foldr merge (Map.empty, Map.empty)
+        ([freeVarsStmt c | SomeStmt c <- childrenStmt s]
+         ++ [freeVarsExpr e | Some e <- childExprsStmt s])
 
 freeVars :: CStatement a -> CParamMap
 freeVars s =
@@ -184,11 +140,7 @@ findReturn _ = Nothing
 
 replaceReturnClosure :: CStatement a -> Int -> CStatement a
 replaceReturnClosure (Return _) i = Return (Val (ClosureV i))
-replaceReturnClosure (BindExpr t x c y) i = BindExpr t x c (replaceReturnClosure y i)
-replaceReturnClosure (Seq x y) i = Seq (replaceReturnClosure x i) (replaceReturnClosure y i)
-replaceReturnClosure (If c x y) i = If c (replaceReturnClosure x i) (replaceReturnClosure y i)
-replaceReturnClosure (While c y) i = While c (replaceReturnClosure y i)
-replaceReturnClosure x _ = x
+replaceReturnClosure s i = mapChildrenStmt (`replaceReturnClosure` i) id s
 
 rebuildCall :: CType -> CExpression a -> [CArg] -> CExpression a
 rebuildCall tf = foldl (\acc (CArg ta a) -> CallExpr tf ta (unsafeCoerce acc) a)
@@ -211,10 +163,7 @@ removeDefFun :: CStatement a -> Int -> CStatement a
 removeDefFun (DefFun tret ifun' params body) ifun
     | ifun == ifun' = Skip
     | otherwise = DefFun tret ifun' params (removeDefFun body ifun)
-removeDefFun (Seq x y) ifun = Seq (removeDefFun x ifun) (removeDefFun y ifun)
-removeDefFun (If c x y) ifun = If c (removeDefFun x ifun) (removeDefFun y ifun)
-removeDefFun (While c x) ifun = While c (removeDefFun x ifun)
-removeDefFun x _ = x
+removeDefFun s ifun = mapChildrenStmt (`removeDefFun` ifun) id s
 
 --------- HOISTING
 
@@ -263,34 +212,17 @@ replaceParentVarAccessExpr (Var t i) currFun m =
     case Map.lookup currFun m of
         Just funSet | i `elem` paramsToList (Set.toList funSet) -> GetEnvField t currFun i
         _ -> Var t i
-replaceParentVarAccessExpr (LIntOp op x y) currFun m = LIntOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (LCmpOp op x y) currFun m = LCmpOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (LBoolOp op x y) currFun m = LBoolOp op (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (ConsList t x y) currFun m = ConsList t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (CallExpr tx ty x y) currFun m = CallExpr tx ty (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (Not x) currFun m = Not (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (Abs x) currFun m = Abs (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (TailList t x) currFun m = TailList t (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (HeadList t x) currFun m = HeadList t (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (IsEmpty t x) currFun m = IsEmpty t (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (Fst t1 t2 x) currFun m = Fst t1 t2 (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (Snd t1 t2 x) currFun m = Snd t1 t2 (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccessExpr (IndexList t x y) currFun m = IndexList t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr (Prod t x y) currFun m = Prod t (replaceParentVarAccessExpr x currFun m) (replaceParentVarAccessExpr y currFun m)
-replaceParentVarAccessExpr x _ _ = x
+replaceParentVarAccessExpr e currFun m = mapChildrenExpr (\x -> replaceParentVarAccessExpr x currFun m) e
 
 replaceParentVarAccess :: CStatement a -> Int -> ParentParams -> CStatement a
-replaceParentVarAccess (UpdateVar t i x) currFun m = UpdateVar t i (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccess (DefVar t i x) currFun m = DefVar t i (replaceParentVarAccessExpr x currFun m)
-replaceParentVarAccess (Seq x y) currFun m = Seq (replaceParentVarAccess x currFun m) (replaceParentVarAccess y currFun m)
-replaceParentVarAccess (If c x y) currFun m = If (replaceParentVarAccessExpr c currFun m) (replaceParentVarAccess x currFun m) (replaceParentVarAccess y currFun m)
-replaceParentVarAccess (While c y) currFun m = While (replaceParentVarAccessExpr c currFun m) (replaceParentVarAccess y currFun m)
-replaceParentVarAccess (BindExpr t c i y) currFun m = BindExpr t (replaceParentVarAccessExpr c currFun m) i (replaceParentVarAccess y currFun m)
 replaceParentVarAccess (DefFun t ifun p body) _ m = DefFun t ifun p (replaceParentVarAccess body ifun m)
-replaceParentVarAccess (Return c) currFun m = Return (replaceParentVarAccessExpr c currFun m)
-replaceParentVarAccess x _ _ = x
+replaceParentVarAccess s currFun m =
+    mapChildrenStmt
+        (\x -> replaceParentVarAccess x currFun m)
+        (\e -> replaceParentVarAccessExpr e currFun m) s
 
 
+-- follow the id of the current function in the parent map so see if the first int is the parent of the second
 isParentOf :: Int -> Int -> Map.Map Int Int -> Bool
 isParentOf child parent parentMap =
     case Map.lookup child parentMap of
@@ -346,56 +278,22 @@ makeClosureFactories (Seq x y) m parents closures =
     in (Seq x' y', Map.union c c')
 makeClosureFactories x _ _ closures = (x, closures)
 
+
 -- add env parameters to call sites of hoisted functions
 -- if we call a function that is in our lifted set we need to make an env to its call list
 addEnvParameterExpr :: CExpression a -> ParentParams -> CExpression a
-addEnvParameterExpr (CallExpr tf tx f x) m =
-    let (f', args) = CDefs.collectArgs (CallExpr tf tx f x)
-    in case f' of
-        (Var _ i) ->
-            case Map.lookup i m of
-                Just _ -> rebuildCall tf f' (CArg CTVoidPtr (Val (EnvV i)) : map (\(CArg t arg)-> CArg t (addEnvParameterExpr arg m)) args)
-                _ -> CallExpr tf tx (addEnvParameterExpr f m) (addEnvParameterExpr x m)
-        _ -> CallExpr tf tx (addEnvParameterExpr f m) (addEnvParameterExpr x m)
-addEnvParameterExpr (LIntOp op x y) m = LIntOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (LCmpOp op x y) m = LCmpOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (LBoolOp op x y) m = LBoolOp op (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (ConsList t x y) m = ConsList t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (Not x) m = Not (addEnvParameterExpr x m)
-addEnvParameterExpr (Abs x) m = Abs (addEnvParameterExpr x m)
-addEnvParameterExpr (Box t x) m = Box t (addEnvParameterExpr x m)
-addEnvParameterExpr (Unbox t x) m = Unbox t (addEnvParameterExpr x m)
-addEnvParameterExpr (CastExpr t x) m = CastExpr t (addEnvParameterExpr x m)
-addEnvParameterExpr (TailList t x) m = TailList t (addEnvParameterExpr x m)
-addEnvParameterExpr (HeadList t x) m = HeadList t (addEnvParameterExpr x m)
-addEnvParameterExpr (IsEmpty t x) m = IsEmpty t (addEnvParameterExpr x m)
-addEnvParameterExpr (Fst t1 t2 x) m = Fst t1 t2 (addEnvParameterExpr x m)
-addEnvParameterExpr (Snd t1 t2 x) m = Snd t1 t2 (addEnvParameterExpr x m)
-addEnvParameterExpr (IndexList t x y) m = IndexList t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (Prod t x y) m = Prod t (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (Ternary t c x y) m = Ternary t (addEnvParameterExpr c m) (addEnvParameterExpr x m) (addEnvParameterExpr y m)
-addEnvParameterExpr (Val x) _ = Val x
-addEnvParameterExpr (EmptyList x) _ = EmptyList x
-addEnvParameterExpr (Var t x) _ = Var t x
-addEnvParameterExpr (GetEnvField t x i) _ = GetEnvField t x i
-addEnvParameterExpr x _ = x
+addEnvParameterExpr e@(CallExpr tf _ _ _) m =
+    let (f', args) = CDefs.collectArgs e
+        fId = case f' of
+                (Var _ i) -> i
+                _ -> -1
+    in case Map.lookup fId m of
+        Just _ -> rebuildCall tf f' (CArg CTVoidPtr (Val (EnvV fId)) : map (\(CArg t arg)-> CArg t (addEnvParameterExpr arg m)) args)
+        _ -> mapChildrenExpr (`addEnvParameterExpr` m) e
+addEnvParameterExpr e m = mapChildrenExpr (`addEnvParameterExpr` m) e
 
 addEnvParameter :: CStatement a -> ParentParams -> CStatement a
-addEnvParameter (UpdateVar t i x) m = UpdateVar t i (addEnvParameterExpr x m)
-addEnvParameter (DefVar t i x) m = DefVar t i (addEnvParameterExpr x m)
-addEnvParameter (Seq x y) m = Seq (addEnvParameter x m) (addEnvParameter y m)
-addEnvParameter (If c x y) m = If (addEnvParameterExpr c m) (addEnvParameter x m) (addEnvParameter y m)
-addEnvParameter (While c y) m = While (addEnvParameterExpr c m) (addEnvParameter y m)
-addEnvParameter (BindExpr t c i y) m = BindExpr t (addEnvParameterExpr c m) i (addEnvParameter y m)
-addEnvParameter (DefFun t ifun p body) m = DefFun t ifun p (addEnvParameter body m)
-addEnvParameter (Return c) m = Return (addEnvParameterExpr c m)
-addEnvParameter x _ = x
-
-getEnvParams :: CParams -> [Int]
-getEnvParams [] = []
-getEnvParams [CParamEnv i] = [i]
-getEnvParams [_] = []
-getEnvParams (i:is) = getEnvParams [i] ++ getEnvParams is
+addEnvParameter s m = mapChildrenStmt (`addEnvParameter` m) (`addEnvParameterExpr` m) s
 
 -- add env  allocations for all the functions we call in the body of this function
 -- we can call a function several times so we shouldn't redefine the same env (only depends on our param)
@@ -406,10 +304,10 @@ addEnvAllocs :: CStatement a -> CStatement a -> ParentParams -> CStatement a
 addEnvAllocs (DefFun tret ifun params body) stmt liftedFuns =
     let funInfo = getFunctionInfo body emptyFunctionInfo
         closureFunDefs = getClosureDefs stmt
-        usedFunVars = Set.fromList (intersect (Map.keys (varUses funInfo)) closureFunDefs)
+        usedFunVars = Set.fromList (Map.keys (varUses funInfo) `intersect` closureFunDefs)
         calledFuns = Set.fromList (Map.keys (functionCalls funInfo))
         allUsedFuns = Set.toList (Set.union calledFuns usedFunVars) \\ (Set.toList (allocedEnvs funInfo) ++ getEnvParams params)
-        allocs = foldr Seq Skip (map allocFun allUsedFuns)
+        allocs = foldr (Seq . allocFun) Skip allUsedFuns
     in DefFun tret ifun params (Seq allocs body)
     where
         allocFun :: Int -> CStatement a
@@ -646,7 +544,7 @@ splitTopLevel (Seq l@DefEnvStruct{} y) =
     in (Seq l funs, body)
 splitTopLevel (Seq Skip y) = splitTopLevel y
 splitTopLevel (Seq x y) =
-    let (funs, body)   = splitTopLevel x
+    let (funs, body) = splitTopLevel x
         (funs', body') = splitTopLevel y
     in (Seq funs funs', Seq body body')
 splitTopLevel Skip = (Skip, Skip)

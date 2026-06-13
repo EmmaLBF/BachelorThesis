@@ -30,11 +30,7 @@ inlinePass defs body =
 -- using id of inlined function as fresh var to hold result
 replaceReturn :: Int -> CType -> CStatement a -> CStatement a
 replaceReturn i t (Return x) = UpdateVar t i x
-replaceReturn i t (Seq x y) = Seq x (replaceReturn i t y)
-replaceReturn i t (BindExpr t' x j y) = BindExpr t' x j (replaceReturn i t y)
-replaceReturn i t (If c x y) = If c (replaceReturn i t x) (replaceReturn i t y)
-replaceReturn i t (While c x) = While c (replaceReturn i t x)
-replaceReturn _ _ x = x
+replaceReturn i t s = mapChildrenStmt (replaceReturn i t) id s
 
 -- Inline all calls to function i throughout body
 -- if the function body ends in if we need to handle two returns

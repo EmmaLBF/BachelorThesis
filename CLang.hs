@@ -1,6 +1,5 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module CLang where
 import Data.Dynamic
@@ -304,8 +303,8 @@ evalStmt (While cond body) env =
       ReturnVal v env' -> ReturnVal v env'
       Continue env' -> evalStmt (While cond body) env'
   else Continue env
-evalStmt (DefFun ifun (iparam, _ :: Proxy a) (body :: CStatement b)) m =
-  let fn :: CValue a -> CValue b
+evalStmt (DefFun ifun (iparam, _ :: Proxy d) (body :: CStatement c)) m =
+  let fn :: CValue d -> CValue c
       fn arg = case evalStmt body (Map.insert iparam (CVal arg) m') of
                 ReturnVal v _ -> v
                 Continue _ -> error "function does not return anything"
@@ -396,7 +395,7 @@ showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" 
 
 main :: IO ()
 main = do
-    let (nl, fresh') = runState (NL.translate AL.mergeSortCall) 0
+    let (nl, fresh') = runState (NL.translate AL.lenListCall) 0
         cl = evalState (translate nl) fresh'
         ev = eval cl Map.empty
     print nl

@@ -44,6 +44,7 @@ data CType
 data CArg where
   CArg :: CType -> CExpression a -> CArg
 
+type CArgMap = Map.Map Int CArg
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -96,7 +97,7 @@ data CStatement a where
     Skip :: CStatement a
     DefEnvStruct :: Int -> CParams -> CStatement a  -- same, but fields are concrete types
     AllocClosure :: Int -> CStatement a -- closureId
-    AllocEnv :: Int -> Int -> Map.Map Int CArg -> Map.Map Int CArg -> CStatement a -- envId parentId directParams parentParams
+    AllocEnv :: Int -> Int -> CArgMap -> CArgMap -> CStatement a -- envId parentId directParams parentParams
 
 
 instance Eq (CExpression a) where
@@ -401,6 +402,7 @@ showCStmt indent m (AllocEnv envId _ directParams parentParams) =
     ++ showDirect (Map.toList directParams)
     ++ showDirect (Map.toList parentParams)
   where
+    showDirect :: [(Int, CArg)] -> String
     showDirect [] = ""
     showDirect [(ip, CArg _ x)] =
         "\n" ++ indentStr indent ++ "env" ++ show envId ++ "->v" ++ show ip ++ " = " ++ showCExpression x m ++ ";"
