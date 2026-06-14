@@ -134,7 +134,9 @@ def timing_stats(path_out, reps=TIMING_REPS, warmup=WARMUP_REPS):
     out = {
         "Time_median(s)": statistics.median(times),
         "Time_min(s)": min(times),
+        "Time_max(s)": max(times),
         "Time_stdev(s)": statistics.stdev(times) if len(times) > 1 else 0.0,
+        "Time_samples(s)": ";".join(f"{t:.9f}" for t in times)
     }
 
     # Peak resident memory from one /usr/bin/time -v run (deterministic-ish).
@@ -269,7 +271,7 @@ MERGESORT = [
     {
         "name": "mergeSortCall",
         "folders": ["outputs/baselines/", "outputs/mergedLams/", "outputs/optimised/", "cProgs/"],
-        "sizes": [100, 1000, 5000, 10000, 30000],
+        "sizes": [100, 1000, 5000, 10000, 15000, 20000, 25000, 30000],
         "distance_from_bottom": 4,
         "prefix": "  printListInt(v0(LIST(",
         "suffix": ", 42)));\n",
@@ -280,7 +282,7 @@ QUEENS = [
     {
         "name": "nQueensCall",
         "folders": ["outputs/baselines/", "outputs/mergedLams/"],
-        "sizes": [2, 4, 6, 8, 10],
+        "sizes": [2, 3, 4, 5, 6, 7, 8, 9, 10],
         "distance_from_bottom": 4,
         "prefix": "  printInt(v0(v104(",
         "suffix": ")));\n",
@@ -295,7 +297,7 @@ QUEENS = [
     }
 ]
 
-OUTPUT_CSV = f"pythonScripts/benchmarks/{time.strftime('%Y%m%d_%H%M%S')}.csv"
+OUTPUT_CSV = f"pythonScripts/benchmarks/QUEENS_{time.strftime('%Y%m%d_%H%M%S')}.csv"
 
 if __name__ == "__main__":
     rows = []

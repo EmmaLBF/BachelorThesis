@@ -14,6 +14,7 @@ import qualified CLang as CL
 import Data.Dynamic
 import Control.Monad.State
 import Data.Typeable
+
 import Unsafe.Coerce
 import Data.List
 import qualified Data.Set as Set
@@ -95,39 +96,6 @@ addBoxingExpr e = mapChildrenExpr addBoxingExpr e
 
 -- LAMBDA LIFTING
 
---------- FREE VARS
-
--- free, bound
-freeVarsExpr :: CExpression a -> (CParamMap, CParamMap)
-freeVarsExpr (Var t i) = (Map.singleton i (CParam i t), Map.empty)
-freeVarsExpr e = foldr merge (Map.empty, Map.empty) [freeVarsExpr c | Some c <- childrenExpr e]
-
-freeVarsStmt :: CStatement a -> (CParamMap, CParamMap)
-freeVarsStmt (BindExpr t x i y) =
-    let (mfree, mbound) = merge (freeVarsExpr x) (freeVarsStmt y)
-    in (mfree, Map.insert i (CParam i t) mbound)
-freeVarsStmt (UpdateVar t i x) =
-    let (xfree, xbound) = freeVarsExpr x
-    in (Map.union (Map.singleton i (CParam i t)) xfree, xbound)
-freeVarsStmt (DefVar t i x) =
-    let (xfree, xbound) = freeVarsExpr x
-    in (xfree, Map.insert i (CParam i t) xbound)
-freeVarsStmt (DefFun _ ifun params body) =
-    let (bfree, bbound) = freeVarsStmt body
-        boundKeys = (Map.fromList . Prelude.map (\p -> (paramId p, p))) params
-        locallyBound = Map.insert ifun undefined boundKeys
-        actualFree = Map.difference bfree locallyBound
-    in (actualFree, Map.insert ifun undefined (Map.union bbound boundKeys))
-freeVarsStmt s =
-    foldr merge (Map.empty, Map.empty)
-        ([freeVarsStmt c | SomeStmt c <- childrenStmt s]
-         ++ [freeVarsExpr e | Some e <- childExprsStmt s])
-
-freeVars :: CStatement a -> CParamMap
-freeVars s =
-    let (free, bound) = freeVarsStmt s
-    in Map.difference free bound
-
 --------- HOISTING HELPERS
 
 findReturn :: CStatement a -> Maybe (CExpression a)
@@ -173,7 +141,7 @@ removeDefFun s ifun = mapChildrenStmt (`removeDefFun` ifun) id s
 -- this only lifts one def at a time
 
 -- also returns map of which function is which parent
-liftDefs :: CStatement a -> State (ParentParams, Map.Map Int Int) (CStatement a)
+liftDefs :: CStatement a -> State (FreeVars, Map.Map Int Int) (CStatement a)
 liftDefs stmt@(DefFun tret ifun params body) =
     let defToRemove = findFirstDefFun body -- find a def nested inside the current one
     in case defToRemove of
@@ -184,8 +152,8 @@ liftDefs stmt@(DefFun tret ifun params body) =
                 usedInNested = Map.keysSet (varUses (getFunctionInfo body' emptyFunctionInfo)) -- vars that are used in the nested body
             modify $ \(m, n) ->
                 let parentVars = Set.union (Set.fromList params) (Map.findWithDefault Set.empty ifun m)
-                    neededVars = Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars
-                in (Map.insert ifun' neededVars m, Map.insert ifun' ifun n) -- add all of its needed params to the map
+                    freeVars = Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars
+                in (Map.insert ifun' freeVars m, Map.insert ifun' ifun n) -- add all of its needed params to the map
             return (Seq newDef (DefFun tret ifun params removedDefBody))
         _ -> error "not def"
 liftDefs (Seq x y) = do
@@ -197,7 +165,7 @@ liftDefs (Seq x y) = do
         else Seq x <$> liftDefs y
 liftDefs x = return x
 
-lambdaLift :: CStatement a -> State (ParentParams, Map.Map Int Int) (CStatement a)
+lambdaLift :: CStatement a -> State (FreeVars, Map.Map Int Int) (CStatement a)
 lambdaLift stmt = do
     (m, _) <- get
     stmt' <- liftDefs stmt
@@ -207,14 +175,14 @@ lambdaLift stmt = do
 
 -- all of the parent function(s)'s paramteters need to be accessed through the env
 -- instead of directly through var
-replaceParentVarAccessExpr :: CExpression a -> Int -> ParentParams -> CExpression a
+replaceParentVarAccessExpr :: CExpression a -> Int -> FreeVars -> CExpression a
 replaceParentVarAccessExpr (Var t i) currFun m =
     case Map.lookup currFun m of
         Just funSet | i `elem` paramsToList (Set.toList funSet) -> GetEnvField t currFun i
         _ -> Var t i
 replaceParentVarAccessExpr e currFun m = mapChildrenExpr (\x -> replaceParentVarAccessExpr x currFun m) e
 
-replaceParentVarAccess :: CStatement a -> Int -> ParentParams -> CStatement a
+replaceParentVarAccess :: CStatement a -> Int -> FreeVars -> CStatement a
 replaceParentVarAccess (DefFun t ifun p body) _ m = DefFun t ifun p (replaceParentVarAccess body ifun m)
 replaceParentVarAccess s currFun m =
     mapChildrenStmt
@@ -250,7 +218,7 @@ paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (para
 -- returns map of funid to the fun it makes a closure for
 -- returns set of ids of parameter vars that also become closures (can't be in the same set as the functions because they are closures not functions that return closures
     -- so they can;t have the call statement)
-makeClosureFactories :: CStatement a -> ParentParams -> Map.Map Int Int -> ClosureFuns -> (CStatement a, ClosureFuns)
+makeClosureFactories :: CStatement a -> FreeVars -> Map.Map Int Int -> ClosureFuns -> (CStatement a, ClosureFuns)
 makeClosureFactories (DefFun tret ifun params body) m parents closures =
     let funRet = findReturn body
         retId = case funRet of
@@ -263,10 +231,10 @@ makeClosureFactories (DefFun tret ifun params body) m parents closures =
     in  if tret == CTClosure
         then (DefFun tret ifun params body, closures) -- for the looping so that it eventually terminates
         else case Map.lookup retId m of
-                Just funSet -- returns a lifted function (must be made a closure to capture env)
+                Just freeVars -- returns a lifted function (must be made a closure to capture env)
                     | isParentOf retId ifun parents -> -- curr fun is parent
-                        let parentParams = Set.toList funSet \\ params
-                            directParams = Set.toList (Set.intersection (Set.fromList params) funSet)
+                        let parentParams = Set.toList freeVars \\ params
+                            directParams = Set.toList (Set.intersection (Set.fromList params) freeVars)
                             allocEnv = AllocEnv retId ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun)
                             allocCls = if not returnsClosure then AllocClosure retId else Skip -- if its retun is alsready a closure we don't need to reallocate it
                             newBody = Seq allocEnv (Seq allocCls (replaceReturnClosure body retId))
@@ -281,7 +249,7 @@ makeClosureFactories x _ _ closures = (x, closures)
 
 -- add env parameters to call sites of hoisted functions
 -- if we call a function that is in our lifted set we need to make an env to its call list
-addEnvParameterExpr :: CExpression a -> ParentParams -> CExpression a
+addEnvParameterExpr :: CExpression a -> FreeVars -> CExpression a
 addEnvParameterExpr e@(CallExpr tf _ _ _) m =
     let (f', args) = CDefs.collectArgs e
         fId = case f' of
@@ -292,32 +260,32 @@ addEnvParameterExpr e@(CallExpr tf _ _ _) m =
         _ -> mapChildrenExpr (`addEnvParameterExpr` m) e
 addEnvParameterExpr e m = mapChildrenExpr (`addEnvParameterExpr` m) e
 
-addEnvParameter :: CStatement a -> ParentParams -> CStatement a
+addEnvParameter :: CStatement a -> FreeVars -> CStatement a
 addEnvParameter s m = mapChildrenStmt (`addEnvParameter` m) (`addEnvParameterExpr` m) s
+
+allocateEnvironment :: Int -> Int -> FreeVars -> CParams -> CStatement a
+allocateEnvironment i ifun freeVarsMap params =
+    case Map.lookup i freeVarsMap of
+        Just freeVars ->
+            let freeVars' = (Set.toList freeVars \\ params)
+                directParams = Set.toList freeVars \\ freeVars'
+            in  AllocEnv i ifun (paramsToArgVars directParams) (paramsToArgGetEnv freeVars' ifun)
+        _ -> Skip
 
 -- add env  allocations for all the functions we call in the body of this function
 -- we can call a function several times so we shouldn't redefine the same env (only depends on our param)
 -- all functions that were lifted need an env alloc
 -- env alloc only needs the current param if this function its its parent
     -- don't add duplicates, so not if its already alloced, or in the current params
-addEnvAllocs :: CStatement a -> CStatement a -> ParentParams -> CStatement a
-addEnvAllocs (DefFun tret ifun params body) stmt liftedFuns =
+addEnvAllocs :: CStatement a -> CStatement a -> FreeVars -> CStatement a
+addEnvAllocs (DefFun tret ifun params body) stmt freeVarsMap =
     let funInfo = getFunctionInfo body emptyFunctionInfo
         closureFunDefs = getClosureDefs stmt
         usedFunVars = Set.fromList (Map.keys (varUses funInfo) `intersect` closureFunDefs)
         calledFuns = Set.fromList (Map.keys (functionCalls funInfo))
         allUsedFuns = Set.toList (Set.union calledFuns usedFunVars) \\ (Set.toList (allocedEnvs funInfo) ++ getEnvParams params)
-        allocs = foldr (Seq . allocFun) Skip allUsedFuns
+        allocs = foldr (Seq . (\i -> allocateEnvironment i ifun freeVarsMap params)) Skip allUsedFuns
     in DefFun tret ifun params (Seq allocs body)
-    where
-        allocFun :: Int -> CStatement a
-        allocFun i =
-            case Map.lookup i liftedFuns of
-                Just parentParams ->
-                    let parentParams' = (Set.toList parentParams \\ params)
-                        directParams = Set.toList parentParams \\ parentParams'
-                    in AllocEnv i ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams' ifun)
-                _ -> Skip
 addEnvAllocs (Seq x y) stmt liftedFuns =
     Seq (addEnvAllocs x stmt liftedFuns) (addEnvAllocs y stmt liftedFuns)
 addEnvAllocs x _ _ = x
@@ -491,16 +459,14 @@ applyClosures x _ _ _ = return x
 -- keep looping make closure factories
 -- after we made the first ones and applied closures some funs return closures now
 -- so we need to handle them until nothing changes
-applyClosuresPasses :: CStatement a -> ParentParams -> Map.Map Int Int -> Int -> CStatement a
-applyClosuresPasses body parentParamsMap parents freshCounter =
-    let (body', closureFuns) = makeClosureFactories body parentParamsMap parents Map.empty
+applyClosuresPasses :: CStatement a -> FreeVars -> Map.Map Int Int -> Int -> CStatement a
+applyClosuresPasses body freeVarsMap parents freshCounter =
+    let (body', closureFuns) = makeClosureFactories body freeVarsMap parents Map.empty
     in  if Map.null closureFuns then body'
         else
             let body''' = evalState (applyClosures body' body' closureFuns Set.empty) freshCounter
-            in applyClosuresPasses body''' parentParamsMap parents freshCounter
+            in applyClosuresPasses body''' freeVarsMap parents freshCounter
 
-
--- OPTIMISATIONS
 
 -- Generate Structs + Pair Defs
 
@@ -559,26 +525,26 @@ translateALToC progCode =
         c = translate clOpt
     in (c, fresh'')
 
-runLiftAndMerge :: Bool -> CStatement a -> Int -> (CStatement a, ParentParams)
+runLiftAndMerge :: Bool -> CStatement a -> Int -> (CStatement a, FreeVars)
 runLiftAndMerge canMerge body freshInt =
-    let (body', (parentParamsMap, parentMap)) =
+    let (body', (freeVarsMap, parentMap)) =
             if canMerge then
                 let merged = mergeLambdas body body
                 in runState (lambdaLift merged) (Map.empty, Map.empty)
             else runState (lambdaLift body) (Map.empty, Map.empty)
-        body'' = addEnvParameter body' parentParamsMap
-        body''' = applyClosuresPasses body'' parentParamsMap parentMap freshInt
-        body'''' = addEnvAllocs body''' body''' parentParamsMap
+        body'' = addEnvParameter body' freeVarsMap
+        body''' = applyClosuresPasses body'' freeVarsMap parentMap freshInt
+        body'''' = addEnvAllocs body''' body''' freeVarsMap
         body''''' = addBoxing body''''
-    in (body''''', parentParamsMap)
+    in (body''''', freeVarsMap)
 
-printCode :: Typeable a => CStatement a -> ParentParams -> String
-printCode finalBody parentParams =
+printCode :: Typeable a => CStatement a -> FreeVars -> String
+printCode finalBody freeVars =
     let finalDefs = getDefs finalBody
         finalMergeMap = Map.map length (getFunsWithParams finalBody)
         globalInfo = getGlobalInfo finalBody emptyGlobalInfo
 
-        envStructs = foldr (Seq . (`generateEnvStructs` parentParams)) Skip (Set.toList (usedEnvs globalInfo))
+        envStructs = foldr (Seq . (`generateEnvStructs` freeVars)) Skip (Set.toList (usedEnvs globalInfo))
         
         imports =   "\n#include <stdbool.h>" ++
                     "\n#include <stdio.h>" ++

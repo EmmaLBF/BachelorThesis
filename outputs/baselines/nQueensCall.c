@@ -491,7 +491,7 @@ Node* v104(int v4) {
 
 // main
 int main(void) {
-  printInt(v0(v104(4)));
+  printInt(v0(v104(10)));
   return 0;
 }
 

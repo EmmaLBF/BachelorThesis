@@ -17,7 +17,8 @@ import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 
-CSV = "pythonScripts/benchmarks/20260610_180423.csv"
+CSV_MERGE = "pythonScripts/benchmarks/MERGESORT_20260614_135120.csv"
+CSV_QUEENS = "pythonScripts/benchmarks/QUEENS_20260614_142213.csv"
 OUTDIR = "./pythonScripts/charts"
 os.makedirs(OUTDIR, exist_ok=True)
 
@@ -54,11 +55,10 @@ def parse_samples(cell):
 # Line plots vs n  (one figure per program per metric)
 # ---------------------------------------------------------------------------
 
-def line_plot(df, program, metric, ylabel, logy=False, errcol=None):
+def line_plot(df, program, metric, ylabel, ax, logy=False, errcol=None):
     sub = df[df["program"] == program]
     if sub.empty or metric not in sub.columns:
         return
-    fig, ax = plt.subplots(figsize=(7, 4.5))
     for folder, g in sub.groupby("folder"):
         g = g.sort_values("n")
         ver = short_version(folder)
@@ -73,13 +73,7 @@ def line_plot(df, program, metric, ylabel, logy=False, errcol=None):
     if logy:
         ax.set_yscale("log")
     ax.set_title(f"{program}: {ylabel} vs n")
-    ax.legend(title="version")
     ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    path = os.path.join(OUTDIR, f"{program}_{metric.replace('(', '').replace(')', '').replace('/', '_')}.png")
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    print("wrote", path)
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +113,7 @@ def timing_boxplot(df, program):
 # Grouped bar chart for a fixed-size metric across programs
 # ---------------------------------------------------------------------------
 
-def grouped_bar(df, metric, ylabel):
+def grouped_bar(df, ax, metric, ylabel):
     if metric not in df.columns:
         return
     # one value per (program, version): take the row at the largest n
@@ -131,30 +125,26 @@ def grouped_bar(df, metric, ylabel):
         return
     pivot = pd.DataFrame(rows, columns=["program", "version", "value"])
     programs = sorted(pivot["program"].unique())
-    versions = list(dict.fromkeys(pivot["version"]))
+    # versions = list(dict.fromkeys(pivot["version"]))
+    versions = ["Baseline", "Optimised", "Merged Lambdas", "Basic"]
     width = 0.8 / max(len(versions), 1)
 
-    fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(programs)), 4.5))
     for i, ver in enumerate(versions):
         vals = [pivot[(pivot.program == p) & (pivot.version == ver)]["value"].mean()
                 for p in programs]
         xs = [j + i * width for j in range(len(programs))]
         ax.bar(xs, vals, width, label=ver, color=colour_for(ver), alpha=0.8)
     ax.set_xticks([j + width * (len(versions) - 1) / 2 for j in range(len(programs))])
-    ax.set_xticklabels(programs, rotation=30, ha="right")
+    ax.set_xticklabels(programs)
     ax.set_ylabel(ylabel)
     ax.set_title(f"{ylabel} by program and version")
-    ax.legend(title="version")
-    ax.grid(True, axis="y", alpha=0.3)
-    fig.tight_layout()
-    path = os.path.join(OUTDIR, f"bar_{metric.replace('(', '').replace(')', '').replace('/', '_')}.png")
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    print("wrote", path)
+    
 
 
 def main():
-    df = pd.read_csv(CSV)
+    df_merge = pd.read_csv(CSV_MERGE)
+    df_queens = pd.read_csv(CSV_QUEENS)
+    df = pd.concat([df_merge, df_queens], ignore_index=True)
     # numeric coercion for safety
     for col in ["n", "InstructionCount", "Allocs", "Frees", "BytesAlloced",
                 "Time_median(s)", "Time_stdev(s)", "BinarySize(bytes)", "SymbolCount"]:
@@ -163,18 +153,29 @@ def main():
 
     programs = df["program"].unique()
     for p in programs:
-        # Deterministic headline metrics (clean lines)
-        line_plot(df, p, "InstructionCount", "instruction count", logy=True)
-        line_plot(df, p, "Allocs", "allocations", logy=True)
-        # Timing with variance shown
-        line_plot(df, p, "Time_median(s)", "median time (s)",
+        fig, ax = plt.subplots(1, 3, figsize=(15, 4))
+        line_plot(df, p, "Time_median(s)", "median time (s)",ax[0],
                   logy=True, errcol="Time_stdev(s)")
+        line_plot(df, p, "InstructionCount", "instruction count", ax[1], logy=True)
+        line_plot(df, p, "Allocs", "allocations", ax[2], logy=True)
+        ax[0].legend(title="version")
+        fig.tight_layout()
+        path = os.path.join(OUTDIR, f"{p}_plots.png")
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
         # Distribution of raw timing samples
         timing_boxplot(df, p)
 
     # Fixed-size comparisons across programs
-    grouped_bar(df, "BinarySize(bytes)", "binary size (bytes)")
-    grouped_bar(df, "SymbolCount", "symbol count")
+    fig, ax = plt.subplots(1, 2, figsize=(15, 4))
+    # fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(programs)), 4.5))
+    grouped_bar(df, ax[0], "BinarySize(bytes)", "binary size (bytes)")
+    grouped_bar(df, ax[1], "SymbolCount", "symbol count")
+    ax[0].legend(title="version")
+    fig.tight_layout()
+    path = os.path.join(OUTDIR, f"bars.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 if __name__ == "__main__":

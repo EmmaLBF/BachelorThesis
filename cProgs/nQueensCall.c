@@ -18,14 +18,22 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 
 // lenList
 int v0(Node* v1) {
-    if (v1 == NULL) return 0;
-    return 1 + v0(v1->tail);
+    int len = 0;
+    while (v1) {
+        len++;
+        v1 = v1->tail;
+    }
+    return len;
 }
 
 // appendList
 Node* v14(Node* v15, Node* v16) {
-    if (v15 == NULL) return v16;
-    return cons(v15->head,  v14(v15->tail, v16));
+    Node* acc = v16;
+    while (v15) {
+        acc = cons(v15->head, acc);
+        v15 = v15->tail;
+    }
+    return acc;
 }
 
 // queenSafe
@@ -52,8 +60,11 @@ Node* v8(int n, int v10, Node* v11) {
 
 // nQueens
 Node* v5(int n, int v6, Node* v7) {
-    if (v6 == n) return v7;
-    return (v5(n, (v6 + 1), (v8(n, v6, v7))));
+    while (v6 != n) {
+        v6++;
+        v7 = v8(n, v6, v7);
+    }
+    return v7;
 }
 
 int main() {

@@ -114,7 +114,7 @@ type ClosureParams = Set.Set Int -- set of params which are closures
 -- maps a function id to the number of new parameters it has (for later printing calls/apply corretcly)
 type MergedMap = Map.Map Int Int
 -- maps a function id to the set of Cparams of all of the functions it is nested in
-type ParentParams = Map.Map Int (Set.Set CParam)
+type FreeVars = Map.Map Int (Set.Set CParam)
 
 data GlobalInfo = GlobalInfo
     { usedEnvs :: Set.Set Int   -- var ids that flow into heap
