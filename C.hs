@@ -211,6 +211,31 @@ paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t p
 paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg CTVoidPtr (GetEnvField CTVoidPtr parent i))
 paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
 
+
+
+-- if any params are passed closures when called then they need to become closures
+-- give list of deffun params, length of whole params list, and list of call args
+makeClosureParams :: [CParam] -> Int -> [[CArg]] -> ([CParam], Set.Set Int)
+makeClosureParams [] _ _ = ([], Set.empty)
+makeClosureParams (CParam i t : ps) len argLists =
+    let (ps', s) = makeClosureParams ps len argLists
+        pos = len - length ps - 1
+    in  if any (`isClosureArg` pos) argLists
+        then (CParam i CTClosure : ps', Set.insert i s)
+        else (CParam i t : ps', s)
+makeClosureParams (p:ps) len argLists =
+    let (ps', s) = makeClosureParams ps len argLists
+    in (p:ps', s)
+
+-- checks if arg at position i is a closure
+isClosureArg :: [CArg] -> Int -> Bool
+isClosureArg args i
+    | i < length args = case args !! i of
+        CArg _ (Val (ClosureV _)) -> True
+        CArg CTClosure _ -> True
+        _ -> False
+    | otherwise = False
+
 -- functions which immediately return another function need to return closures instead
 -- if the function just returns a var, lookup the var in the map
     -- if its parent parameters contain the current params, the current function is its parent
@@ -218,9 +243,11 @@ paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (para
 -- returns map of funid to the fun it makes a closure for
 -- returns set of ids of parameter vars that also become closures (can't be in the same set as the functions because they are closures not functions that return closures
     -- so they can;t have the call statement)
-makeClosureFactories :: CStatement a -> FreeVars -> Map.Map Int Int -> ClosureFuns -> (CStatement a, ClosureFuns)
-makeClosureFactories (DefFun tret ifun params body) m parents closures =
-    let funRet = findReturn body
+makeClosureFactories ::  CStatement a -> CStatement a -> FreeVars -> Map.Map Int Int -> ClosureFuns -> (CStatement a, ClosureFuns, ClosureParams)
+makeClosureFactories (DefFun tret ifun params body) stmt m parents closures =
+    let globalInfo = getGlobalInfo stmt emptyGlobalInfo
+        funCallArgs = Map.findWithDefault [] ifun (callArgs globalInfo)
+        funRet = findReturn body
         retId = case funRet of
             Just (Var _ i) -> i
             Just (Val (ClosureV i)) -> i
@@ -228,8 +255,9 @@ makeClosureFactories (DefFun tret ifun params body) m parents closures =
         returnsClosure = case funRet of
             Just (Val (ClosureV _)) -> True
             _ -> False
+        (params', closureParams) = makeClosureParams params (length params) funCallArgs
     in  if tret == CTClosure
-        then (DefFun tret ifun params body, closures) -- for the looping so that it eventually terminates
+        then (DefFun tret ifun params body, closures, closureParams) -- for the looping so that it eventually terminates
         else case Map.lookup retId m of
                 Just freeVars -- returns a lifted function (must be made a closure to capture env)
                     | isParentOf retId ifun parents -> -- curr fun is parent
@@ -238,13 +266,13 @@ makeClosureFactories (DefFun tret ifun params body) m parents closures =
                             allocEnv = AllocEnv retId ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun)
                             allocCls = if not returnsClosure then AllocClosure retId else Skip -- if its retun is alsready a closure we don't need to reallocate it
                             newBody = Seq allocEnv (Seq allocCls (replaceReturnClosure body retId))
-                        in (DefFun CTClosure ifun params newBody, Map.insert ifun retId closures)
-                _ -> (DefFun tret ifun params body, closures)
-makeClosureFactories (Seq x y) m parents closures =
-    let (x', c) = makeClosureFactories x m parents closures
-        (y', c') = makeClosureFactories y m parents closures
-    in (Seq x' y', Map.union c c')
-makeClosureFactories x _ _ closures = (x, closures)
+                        in (DefFun CTClosure ifun params' newBody, Map.insert ifun retId closures, closureParams)
+                _ -> (DefFun tret ifun params' body, closures, closureParams)
+makeClosureFactories (Seq x y) stmt m parents closures =
+    let (x', c, p) = makeClosureFactories x stmt m parents closures
+        (y', c', p') = makeClosureFactories y stmt m parents closures
+    in (Seq x' y', Map.union c c', Set.union p p')
+makeClosureFactories x _ _ _ closures = (x, closures, Set.empty)
 
 
 -- add env parameters to call sites of hoisted functions
@@ -461,10 +489,10 @@ applyClosures x _ _ _ = return x
 -- so we need to handle them until nothing changes
 applyClosuresPasses :: CStatement a -> FreeVars -> Map.Map Int Int -> Int -> CStatement a
 applyClosuresPasses body freeVarsMap parents freshCounter =
-    let (body', closureFuns) = makeClosureFactories body freeVarsMap parents Map.empty
+    let (body', closureFuns, closureParams) = makeClosureFactories body body freeVarsMap parents Map.empty
     in  if Map.null closureFuns then body'
         else
-            let body''' = evalState (applyClosures body' body' closureFuns Set.empty) freshCounter
+            let body''' = evalState (applyClosures body' body' closureFuns closureParams) freshCounter
             in applyClosuresPasses body''' freeVarsMap parents freshCounter
 
 

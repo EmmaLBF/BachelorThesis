@@ -48,6 +48,13 @@ translate (AL.Snd x) = Snd <$> translate x
 translate (AL.Not x) = Not <$> translate x
 translate (AL.Abs x) = Abs <$> translate x
 translate (AL.Prod x y) = Prod <$> translate x <*> translate y
+translate (AL.Apply x@(AL.Lam f) y) = do
+  c <- fresh
+  s <- get
+  let probed = evalState (translate (f (AL.Var c))) s
+  if countVarUses c probed == 1
+      then translate (f y) -- beta reduction step if its only used once, otherwise we duplicate work
+      else Apply <$> translate x <*> translate y
 translate (AL.Apply x y) = Apply <$> translate x <*> translate y
 translate (AL.ConsList x y) = ConsList <$> translate x <*> translate y
 translate (AL.LCmpOp op x y) = LCmpOp op <$> translate x <*> translate y
@@ -77,3 +84,20 @@ instance Show (NamedLang a) where
       EmptyList -> "[]"
       ConsList x l -> show x ++ ":" ++ show l
       CaseList l nilCase consCase -> "case " ++ show l ++ " of\n  [] -> " ++ show nilCase ++ "\n  (h:t) ->" ++ show consCase
+
+countVarUses :: Int -> NamedLang a -> Int
+countVarUses i (Var j) | i == j = 1
+countVarUses i (Fst p) = countVarUses i p
+countVarUses i (Snd p) = countVarUses i p
+countVarUses i (Not p) = countVarUses i p
+countVarUses i (Abs p) = countVarUses i p
+countVarUses i (Lam _ _ p) = countVarUses i p
+countVarUses i (Prod x y) = countVarUses i x + countVarUses i y 
+countVarUses i (Apply x y) = countVarUses i x + countVarUses i y
+countVarUses i (ConsList x y) = countVarUses i x + countVarUses i y
+countVarUses i (LIntOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (LCmpOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (LBoolOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (If x y z) = countVarUses i x + countVarUses i y + countVarUses i z
+countVarUses i (CaseList x y z) = countVarUses i x + countVarUses i y + countVarUses i z
+countVarUses _ _ = 0

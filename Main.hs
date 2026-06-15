@@ -24,7 +24,8 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 
 keepOptimising :: CStatement a -> CStatement a
 keepOptimising body =
-    let removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
+    let 
+        removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
         inlinedBody = inlineUntilFixed removeClosuresBody -- inline
         removedEnvParamBody = envParamRemovalPass inlinedBody -- remove env params
         elminatedEnvsAliasesBody = eliminateAliases removedEnvParamBody -- remove aliases and local envs
@@ -64,7 +65,7 @@ main :: IO ()
 main = do
     let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
-    let progsQueen = [("nQueensCall", AL.nQueensCall)]
+    let progsQueen = [("nQueensCall1", AL.nQueensCall1), ("nQueensCall", AL.nQueensCall)]
 
     -- basic
     mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False False) progsInt

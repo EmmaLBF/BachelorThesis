@@ -484,13 +484,22 @@ nQueens =
 nQueensCall :: Lang Int
 nQueensCall = lenList `app` (nQueens `app` int 4)
 
--- Test just extendAll without the solve loop
-testExtendAll :: Lang Int
-testExtendAll = lenList `app` (extendAll `app` int 4 `app` int 0 `app` (cons nil nil))
+-- Drive: extend row by row, starting from one empty partial.
+nQueens1 :: Lang (Int -> [[(Int, Int)]])
+nQueens1 = 
+  lam $ \n ->
+    let_ (Fix $ lam $ \f -> 
+            lam $ \row -> 
+              lam $ \partials ->
+                If (row ==: n)
+                  partials
+                  (f `app` (row +: int 1)
+                    `app` (extendAll `app` n `app` row `app` partials)))
+        $ \solveRows ->
+    solveRows `app` int 0 `app` cons nil nil
 
--- Test just tryCols directly
-testTryCols :: Lang Int
-testTryCols = lenList `app` ( tryCols `app` int 4 `app` int 0 `app` nil `app` int 0)
+nQueensCall1 :: Lang Int
+nQueensCall1 = lenList `app` (nQueens1 `app` int 4)
 
 main :: IO ()
 main = do

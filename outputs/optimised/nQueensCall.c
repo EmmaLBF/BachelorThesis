@@ -21,19 +21,19 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 
 // function defitions
 int v0(Node* v1);
-Node* v14(Node* v15, Node* v16);
-bool v26(Pair_Int_Int *v27, Node* v28);
-Node* v19(int v20, int v21, Node* v22, int v23);
-Node* v8(int v9, int v10, Node* v11);
-Node* v5(void* env5, void* v6_raw, void* v7_raw);
+Node* v15(Node* v16, Node* v17);
+bool v29(Pair_Int_Int *v30, Node* v31);
+Node* v20(int v21, int v22, Node* v23, int v24);
+Node* v9(int v10, int v11, Node* v12);
+Node* v6(void* env6, void* v7_raw, void* v8_raw);
 
 // closure defitions
 typedef struct {
-    int v4;
-} Env_v5;
+    int v5;
+} Env_v6;
 
 typedef struct {
-} Env_v104;
+} Env_v106;
 
 // function implementations
 int v0(Node* v1) {
@@ -41,47 +41,47 @@ int v0(Node* v1) {
   return (1 + v0((v1)->tail));
 }
 
-Node* v14(Node* v15, Node* v16) {
-  if (((v15) == NULL)) return v16;
-  return cons((v15)->head, v14((v15)->tail, v16));
+Node* v15(Node* v16, Node* v17) {
+  if (((v16) == NULL)) return v17;
+  return cons((v16)->head, v15((v16)->tail, v17));
 }
 
-bool v26(Pair_Int_Int *v27, Node* v28) {
-  if (((v28) == NULL)) return true;
-  Pair_Int_Int v34 = *(Pair_Int_Int*)((v28)->head);
-  return (!((((v27)->snd == (v34).snd) || (abs(((v27)->snd - (v34).snd)) == abs(((v27)->fst - (v34).fst))))) && v26(v27, (v28)->tail));
+bool v29(Pair_Int_Int *v30, Node* v31) {
+  if (((v31) == NULL)) return true;
+  Pair_Int_Int v39 = *(Pair_Int_Int*)((v31)->head);
+  return (!((((v30)->snd == (v39).snd) || (abs(((v30)->snd - (v39).snd)) == abs(((v30)->fst - (v39).fst))))) && v29(v30, (v31)->tail));
 }
 
-Node* v19(int v20, int v21, Node* v22, int v23) {
-  if ((v23 == v20)) return NULL;
-  Pair_Int_Int *v24 = makePair_Int_Int(v21, v23);
-  Node* v72 = NULL;
-  if (v26(v24, v22)) {
-    v72 = cons(cons(v24, v22), v19(v20, v21, v22, (v23 + 1)));
+Node* v20(int v21, int v22, Node* v23, int v24) {
+  if ((v24 == v21)) return NULL;
+  Pair_Int_Int *v26 = makePair_Int_Int(v22, v24);
+  Node* v74 = NULL;
+  if (v29(v26, v23)) {
+    v74 = cons(cons(v26, v23), v20(v21, v22, v23, (v24 + 1)));
   } else {
-    v72 = v19(v20, v21, v22, (v23 + 1));
+    v74 = v20(v21, v22, v23, (v24 + 1));
   }
-  return v72;
+  return v74;
 }
 
-Node* v8(int v9, int v10, Node* v11) {
-  if (((v11) == NULL)) return NULL;
-  return v14(v19(v9, v10, (v11)->head, 0), v8(v9, v10, (v11)->tail));
+Node* v9(int v10, int v11, Node* v12) {
+  if (((v12) == NULL)) return NULL;
+  return v15(v20(v10, v11, (v12)->head, 0), v9(v10, v11, (v12)->tail));
 }
 
-Node* v5(void* env5, void* v6_raw, void* v7_raw) {
-  int v6 = *(int*)v6_raw;
-  Node* v7 = (Node*)v7_raw;
-  if ((v6 == ((Env_v5*)env5)->v4)) return v7;
-  return v5(env5, box_int((v6 + 1)), (void*)(v8(((Env_v5*)env5)->v4, v6, v7)));
+Node* v6(void* env6, void* v7_raw, void* v8_raw) {
+  int v7 = *(int*)v7_raw;
+  Node* v8 = (Node*)v8_raw;
+  if ((v7 == ((Env_v6*)env6)->v5)) return v8;
+  return v6(env6, box_int((v7 + 1)), (void*)(v9(((Env_v6*)env6)->v5, v7, v8)));
 }
 
 // main
 int main(void) {
-  int v4 = 10;
-  Env_v5* env5 = malloc(sizeof(Env_v5));
-  env5->v4 = v4;
-  printInt(v0(v5(env5, box_int(0), (void*)(cons(NULL, NULL)))));
+  int v5 = 4;
+  Env_v6* env6 = malloc(sizeof(Env_v6));
+  env6->v5 = v5;
+  printInt(v0(v6(env6, box_int(0), (void*)(cons(NULL, NULL)))));
   return 0;
 }
 

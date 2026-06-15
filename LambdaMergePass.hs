@@ -4,14 +4,16 @@
 module LambdaMergePass where
 
 import CDefs
+import Utils
 
 -- for a function (int), given the amount of params, check that every call site has at least that many applications
 checkCallExpr :: Int -> Int -> CExpression a -> Bool
-checkCallExpr fun params expr =
+checkCallExpr fun params expr@CallExpr{} =
     let (f, args) = CDefs.collectArgs expr
     in case f of
         Var _ i | i == fun -> length args >= params
-        _ -> True
+        _ -> all (\(CArg _ x) -> case x of (Var _ i) | i == fun -> False; _ -> True) args
+checkCallExpr fun params e = and [checkCallExpr fun params c | Some c <- childrenExpr e]
 
 checkCallStmt :: Int -> Int -> CStatement a -> Bool
 checkCallStmt fun params stmt = case stmt of

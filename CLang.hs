@@ -395,7 +395,7 @@ showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" 
 
 main :: IO ()
 main = do
-    let (nl, fresh') = runState (NL.translate AL.nQueensCall) 0
+    let (nl, fresh') = runState (NL.translate AL.nQueensCall1) 0
         cl = evalState (translate nl) fresh'
         ev = eval cl Map.empty
     print nl

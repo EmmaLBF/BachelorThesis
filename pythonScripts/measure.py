@@ -129,7 +129,7 @@ def only_run(c_file):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall", "nQueensCall"]
+progs = ["fibCall", "gcdLangCall", "sumListCall", "lenListCall", "mapListCall", "mergeSortCall", "nQueensCall", "nQueensCall1"]
 trials = [3, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond):
