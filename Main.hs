@@ -24,8 +24,7 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 
 keepOptimising :: CStatement a -> CStatement a
 keepOptimising body =
-    let 
-        removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
+    let removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
         inlinedBody = inlineUntilFixed removeClosuresBody -- inline
         removedEnvParamBody = envParamRemovalPass inlinedBody -- remove env params
         elminatedEnvsAliasesBody = eliminateAliases removedEnvParamBody -- remove aliases and local envs

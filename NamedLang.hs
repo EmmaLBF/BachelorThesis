@@ -48,6 +48,7 @@ translate (AL.Snd x) = Snd <$> translate x
 translate (AL.Not x) = Not <$> translate x
 translate (AL.Abs x) = Abs <$> translate x
 translate (AL.Prod x y) = Prod <$> translate x <*> translate y
+translate (AL.Apply (AL.Lam f) y@(AL.Lam _)) = translate (f y)
 translate (AL.Apply x@(AL.Lam f) y) = do
   c <- fresh
   s <- get
