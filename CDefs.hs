@@ -9,7 +9,6 @@ import qualified AbsLang as AL
 import qualified CLang as CL
 
 import Data.Typeable
-import Unsafe.Coerce
 import Data.List
 import qualified Data.Set as Set
 import qualified Data.Map as Map
@@ -42,7 +41,7 @@ data CType
     deriving (Show, Eq, Ord)
 
 data CArg where
-  CArg :: CType -> CExpression a -> CArg
+  CArg :: CType -> CExpression -> CArg
 
 type CArgMap = Map.Map Int CArg
 
@@ -56,53 +55,53 @@ data CValue a where
     ClosureV :: Int -> CValue a
     EnvV :: Int -> CValue a
 
-data CExpression a where
-    Val :: CValue a -> CExpression a
-    Not :: CExpression Bool -> CExpression Bool
-    Abs :: CExpression Int -> CExpression Int
-    Var :: CType -> Int -> CExpression a
-    LIntOp :: AL.BinOp -> CExpression Int -> CExpression Int -> CExpression Int
-    LCmpOp :: AL.CmpOp -> CExpression Int -> CExpression Int -> CExpression Bool
-    LBoolOp :: AL.BoolOp -> CExpression Bool -> CExpression Bool -> CExpression Bool
-    Ternary :: CType -> CExpression Bool -> CExpression a -> CExpression a -> CExpression a
+data CExpression where
+    Val :: CValue a -> CExpression
+    Not :: CExpression -> CExpression
+    Abs :: CExpression -> CExpression
+    Var :: CType -> Int -> CExpression
+    LIntOp :: AL.BinOp -> CExpression -> CExpression -> CExpression
+    LCmpOp :: AL.CmpOp -> CExpression -> CExpression -> CExpression
+    LBoolOp :: AL.BoolOp -> CExpression -> CExpression -> CExpression
+    Ternary :: CType -> CExpression -> CExpression -> CExpression -> CExpression
     -- Tuples
-    Prod :: CType -> CExpression a -> CExpression b -> CExpression (a, b)
-    Fst :: CType -> CType -> CExpression (a, b) -> CExpression a -- holds type of res (a) and whole pair (a,b)
-    Snd :: CType -> CType -> CExpression (a, b) -> CExpression b
+    Prod :: CType -> CExpression -> CExpression -> CExpression
+    Fst :: CType -> CType -> CExpression -> CExpression -- holds type of res (a) and whole pair (a,b)
+    Snd :: CType -> CType -> CExpression -> CExpression
     -- Lists
-    EmptyList :: CType -> CExpression [a]
-    ConsList :: CType -> CExpression a -> CExpression [a] -> CExpression [a]
-    HeadList :: CType -> CExpression [a] -> CExpression a
-    TailList :: CType -> CExpression [a] -> CExpression [a]
-    IsEmpty :: CType -> CExpression [a] -> CExpression Bool
-    IndexList :: CType -> CExpression [a] -> CExpression Int -> CExpression a
+    EmptyList :: CType -> CExpression
+    ConsList :: CType -> CExpression -> CExpression -> CExpression
+    HeadList :: CType -> CExpression -> CExpression
+    TailList :: CType -> CExpression -> CExpression
+    IsEmpty :: CType -> CExpression -> CExpression
+    IndexList :: CType -> CExpression -> CExpression -> CExpression
     -- Lambda
-    ApplyClosure :: CType -> CExpression a -> CExpression b -> CExpression c  -- apply(f, arg), type of arg passed
-    GetEnvField :: CType -> Int -> Int -> CExpression a  -- ((Env_vN*)env)->vM, with type for cast
-    CallExpr :: CType -> CType -> CExpression (a -> b) -> CExpression a -> CExpression b
+    ApplyClosure :: CType -> CExpression -> CExpression -> CExpression  -- apply(f, arg), type of arg passed
+    GetEnvField :: CType -> Int -> Int -> CExpression  -- ((Env_vN*)env)->vM, with type for cast
+    CallExpr :: CType -> CType -> CExpression -> CExpression -> CExpression
     -- Casting
-    CastExpr :: CType -> CExpression a -> CExpression b
-    Box :: CType -> CExpression a -> CExpression b
-    Unbox :: CType -> CExpression a -> CExpression b
+    CastExpr :: CType -> CExpression -> CExpression
+    Box :: CType -> CExpression -> CExpression
+    Unbox :: CType -> CExpression -> CExpression
 
-data CStatement a where
-    Return :: CExpression a -> CStatement a
-    BindExpr :: CType -> CExpression a -> Int -> CStatement b -> CStatement b
-    Seq :: CStatement a -> CStatement a -> CStatement a
-    If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
-    DefFun :: CType -> Int -> CParams -> CStatement b -> CStatement b
-    DefVar :: CType -> Int -> CExpression a -> CStatement b
-    UpdateVar :: CType -> Int -> CExpression a -> CStatement b
-    While :: CExpression Bool -> CStatement a -> CStatement a
-    Skip :: CStatement a
-    DefEnvStruct :: Int -> CParams -> CStatement a  -- same, but fields are concrete types
-    AllocClosure :: Int -> CStatement a -- closureId
-    AllocEnv :: Int -> Int -> CArgMap -> CArgMap -> CStatement a -- envId parentId directParams parentParams
+data CStatement where
+    Return :: CExpression -> CStatement
+    BindExpr :: CType -> CExpression -> Int -> CStatement -> CStatement
+    Seq :: CStatement -> CStatement -> CStatement
+    If :: CExpression -> CStatement -> CStatement -> CStatement
+    DefFun :: CType -> Int -> CParams -> CStatement -> CStatement
+    DefVar :: CType -> Int -> CExpression -> CStatement
+    UpdateVar :: CType -> Int -> CExpression -> CStatement
+    While :: CExpression -> CStatement -> CStatement
+    Skip :: CStatement
+    DefEnvStruct :: Int -> CParams -> CStatement -- same, but fields are concrete types
+    AllocClosure :: Int -> CStatement -- closureId
+    AllocEnv :: Int -> Int -> CArgMap -> CArgMap -> CStatement -- envId parentId directParams parentParams
 
 
-instance Eq (CExpression a) where
+instance Eq CExpression where
     l == r = showCExpression l Map.empty == showCExpression r Map.empty
-instance Eq (CStatement a) where
+instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
 instance Show CArg where
     show (CArg _ x) = showCExpression x Map.empty
@@ -142,15 +141,15 @@ data FunctionInfo = FunctionInfo
 
 -- HELPERS
 
-collectArgs :: CExpression a -> (CExpression a, [CArg])
+collectArgs :: CExpression -> (CExpression, [CArg])
 collectArgs (CallExpr _ tx f x) =
-    let (f', as) = collectArgs (unsafeCoerce f)
+    let (f', as) = collectArgs f
     in (f', as ++ [CArg tx x])
 collectArgs e = (e, [])
 
-collectArgsApply :: CExpression a -> (CExpression a, [CArg])
+collectArgsApply :: CExpression -> (CExpression, [CArg])
 collectArgsApply (ApplyClosure tx f x) =
-    let (f', as) = collectArgsApply (unsafeCoerce f)
+    let (f', as) = collectArgsApply f
     in (f', as ++ [CArg tx x])
 collectArgsApply e = (e, [])
 
@@ -275,7 +274,7 @@ showListLibFunType CTInt = "Int"
 showListLibFunType CTBool = "Bool"
 showListLibFunType _ = ""
 
-showCExpression :: CExpression a -> MergedMap -> String
+showCExpression :: CExpression -> MergedMap -> String
 showCExpression (EmptyList _) _ = "NULL"
 showCExpression (Val v) _ = showCValue v
 showCExpression (Var _ i) _ = "v" ++ show i
@@ -340,7 +339,7 @@ showCExpression (CallExpr tf tx f arg) m =
             Nothing -> foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")") (showCExpression func m) args
         _ -> foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")") (showCExpression func m) args
 
-showCStmt :: Int -> MergedMap -> CStatement a -> String
+showCStmt :: Int -> MergedMap -> CStatement -> String
 showCStmt indent m (UpdateVar _ i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m (If cond t f) =
     case t of
@@ -409,7 +408,7 @@ showCStmt indent m (AllocEnv envId _ directParams parentParams) =
     showDirect (i : rest) = showDirect [i] ++ showDirect rest
 showCStmt _ _ Skip = ""
 
-showFunDefs :: [CStatement a] -> String
+showFunDefs :: [CStatement] -> String
 showFunDefs [] = ""
 showFunDefs [DefFun tret ifun params _] = "\n" ++ showProxFunc ("v" ++ show ifun) params tret ++ ";"
 showFunDefs (i:is) = showFunDefs[i] ++ showFunDefs is

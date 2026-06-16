@@ -29,7 +29,7 @@ mergeGlobalInfo a b = GlobalInfo
     (Map.unionWith (++) (callArgs a) (callArgs b))
     (Set.union (pairTypes a) (pairTypes b))
 
-getGlobalInfo :: CStatement a -> GlobalInfo -> GlobalInfo
+getGlobalInfo :: CStatement -> GlobalInfo -> GlobalInfo
 getGlobalInfo (AllocEnv _ i directPs _) m =
     let m' = m { usedEnvs = Set.insert i (usedEnvs m) }
     in foldr (\(CArg _ x) acc -> getGlobalInfoExpr x acc) m' directPs
@@ -59,7 +59,7 @@ getGlobalInfo (DefVar t i x) m =
 getGlobalInfo (UpdateVar t i x) m = getGlobalInfoExpr x (m {globalUsedVars = Set.insert i (globalUsedVars m), pairTypes = addPairType t (pairTypes m)})
 getGlobalInfo _ m = m
 
-getGlobalInfoExpr :: CExpression a -> GlobalInfo -> GlobalInfo
+getGlobalInfoExpr :: CExpression -> GlobalInfo -> GlobalInfo
 getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvs = Set.insert i (usedEnvs m), globalUsedVars = Set.insert i (globalUsedVars m)}
 getGlobalInfoExpr (Val (ClosureV i)) m = m { closureUses = Map.insertWith (+) i 1 (closureUses m) }
 getGlobalInfoExpr (GetEnvField t i _) m = m { usedEnvs = Set.insert i (usedEnvs m), pairTypes = addPairType t (pairTypes m) }
@@ -109,7 +109,7 @@ mergeFunctionInfo a b = FunctionInfo
     (Map.unionWith (+) (functionCalls a) (functionCalls b))
     (Set.union (escapedClos a) (escapedClos b))
 
-getFunctionInfoExpr :: Bool -> CExpression a -> FunctionInfo -> FunctionInfo
+getFunctionInfoExpr :: Bool -> CExpression -> FunctionInfo -> FunctionInfo
 getFunctionInfoExpr _ (GetEnvField _ envId _) r =
     r { envUses = Set.insert envId (envUses r) }
 getFunctionInfoExpr escapes (Var _ i) r =
@@ -153,7 +153,7 @@ getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr False f
 getFunctionInfoExpr escapes (IndexList _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
 getFunctionInfoExpr _ _ m = m
 
-getFunctionInfo :: CStatement a -> FunctionInfo -> FunctionInfo
+getFunctionInfo :: CStatement -> FunctionInfo -> FunctionInfo
 getFunctionInfo (DefFun _ ifun params body) r =
     let r' = getFunctionInfo body (r { funId = ifun, funParams = params})
     in r' { funId = ifun, funParams = params}

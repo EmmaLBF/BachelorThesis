@@ -22,7 +22,7 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 ./outputs/mergeSortCall_output
 -}
 
-keepOptimising :: CStatement a -> CStatement a
+keepOptimising :: CStatement -> CStatement
 keepOptimising body =
     let removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
         inlinedBody = inlineUntilFixed removeClosuresBody -- inline
@@ -34,7 +34,7 @@ keepOptimising body =
         then removedUselessBody
         else keepOptimising removedUselessBody
 
-optimiseRun :: CStatement a -> Bool -> CStatement a
+optimiseRun :: CStatement -> Bool -> CStatement
 optimiseRun body canPair =
     let optimisedBody = keepOptimising body
     in if canPair

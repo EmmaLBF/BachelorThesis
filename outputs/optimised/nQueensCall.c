@@ -37,43 +37,61 @@ typedef struct {
 
 // function implementations
 int v0(Node* v1) {
-  if (((v1) == NULL)) return 0;
-  return (1 + v0((v1)->tail));
+  if (((v1) == NULL)) {
+    return 0;
+  } else {
+    return (1 + v0((v1)->tail));
+  }
 }
 
 Node* v15(Node* v16, Node* v17) {
-  if (((v16) == NULL)) return v17;
-  return cons((v16)->head, v15((v16)->tail, v17));
+  if (((v16) == NULL)) {
+    return v17;
+  } else {
+    return cons((v16)->head, v15((v16)->tail, v17));
+  }
 }
 
 bool v29(Pair_Int_Int *v30, Node* v31) {
-  if (((v31) == NULL)) return true;
-  Pair_Int_Int v39 = *(Pair_Int_Int*)((v31)->head);
-  return (!((((v30)->snd == (v39).snd) || (abs(((v30)->snd - (v39).snd)) == abs(((v30)->fst - (v39).fst))))) && v29(v30, (v31)->tail));
+  if (((v31) == NULL)) {
+    return true;
+  } else {
+    Pair_Int_Int v39 = *(Pair_Int_Int*)((v31)->head);
+    return (!((((v30)->snd == (v39).snd) || (abs(((v30)->snd - (v39).snd)) == abs(((v30)->fst - (v39).fst))))) && v29(v30, (v31)->tail));
+  }
 }
 
 Node* v20(int v21, int v22, Node* v23, int v24) {
-  if ((v24 == v21)) return NULL;
-  Pair_Int_Int *v26 = makePair_Int_Int(v22, v24);
-  Node* v74 = NULL;
-  if (v29(v26, v23)) {
-    v74 = cons(cons(v26, v23), v20(v21, v22, v23, (v24 + 1)));
+  if ((v24 == v21)) {
+    return NULL;
   } else {
-    v74 = v20(v21, v22, v23, (v24 + 1));
+    Pair_Int_Int *v26 = makePair_Int_Int(v22, v24);
+    Node* v74 = NULL;
+    if (v29(v26, v23)) {
+      v74 = cons(cons(v26, v23), v20(v21, v22, v23, (v24 + 1)));
+    } else {
+      v74 = v20(v21, v22, v23, (v24 + 1));
+    }
+    return v74;
   }
-  return v74;
 }
 
 Node* v9(int v10, int v11, Node* v12) {
-  if (((v12) == NULL)) return NULL;
-  return v15(v20(v10, v11, (v12)->head, 0), v9(v10, v11, (v12)->tail));
+  if (((v12) == NULL)) {
+    return NULL;
+  } else {
+    return v15(v20(v10, v11, (v12)->head, 0), v9(v10, v11, (v12)->tail));
+  }
 }
 
 Node* v6(void* env6, void* v7_raw, void* v8_raw) {
   int v7 = *(int*)v7_raw;
   Node* v8 = (Node*)v8_raw;
-  if ((v7 == ((Env_v6*)env6)->v5)) return v8;
-  return v6(env6, box_int((v7 + 1)), (void*)(v9(((Env_v6*)env6)->v5, v7, v8)));
+  if ((v7 == ((Env_v6*)env6)->v5)) {
+    return v8;
+  } else {
+    return v6(env6, box_int((v7 + 1)), (void*)(v9(((Env_v6*)env6)->v5, v7, v8)));
+  }
 }
 
 // main

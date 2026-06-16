@@ -22,7 +22,7 @@ isPair (CTPair _ _) = True
 isPair (CTPtr (CTPair _ _)) = True
 isPair _ = False
 
-getTypeExpr :: CExpression a -> CType
+getTypeExpr :: CExpression -> CType
 getTypeExpr (HeadList t _) = t
 getTypeExpr (TailList t _) = t
 getTypeExpr (Var t _) = t
@@ -47,10 +47,10 @@ getTypeExpr (Box t _) = t
 getTypeExpr (Unbox t _) = t
 getTypeExpr (Val _) = CTVoidPtr
 
-stripWrap :: CExpression a -> CExpression a
-stripWrap (Unbox _ r) = unsafeCoerce (stripWrap r)
-stripWrap (CastExpr _ r) = unsafeCoerce (stripWrap r)
-stripWrap (Box _ r) = unsafeCoerce (stripWrap r)
+stripWrap :: CExpression -> CExpression
+stripWrap (Unbox _ r) = stripWrap r
+stripWrap (CastExpr _ r) = stripWrap r
+stripWrap (Box _ r) = stripWrap r
 stripWrap r = r
 
 -- get a default value to init the new var before the if statement
@@ -66,7 +66,7 @@ defaultVal _ = unsafeCoerce UnitV
 -- FUNDEF HELPERS
 
 -- returns the deffun of fun i from the list of defs
-findFunDef :: Int -> [CStatement a] -> Maybe (CStatement a)
+findFunDef :: Int -> [CStatement] -> Maybe CStatement
 findFunDef _ [] = Nothing
 findFunDef i (def@(DefFun _ ifun _ _) : rest) =
     if i == ifun then Just def
@@ -74,12 +74,12 @@ findFunDef i (def@(DefFun _ ifun _ _) : rest) =
 findFunDef _ _ = error "not valid def"
 
 -- collects a list of defs from the whole ast
-getDefs :: CStatement a -> [CStatement a]
+getDefs :: CStatement -> [CStatement]
 getDefs stmt@DefFun{} = [stmt]
 getDefs (Seq x y) = getDefs x ++ getDefs y
 getDefs _ = []
 
-getClosureDefs :: CStatement a -> [Int]
+getClosureDefs :: CStatement -> [Int]
 getClosureDefs (DefFun tret ifun _ _) =
     case tret of
         CTClosure -> [ifun]
@@ -87,7 +87,7 @@ getClosureDefs (DefFun tret ifun _ _) =
 getClosureDefs (Seq x y) = getClosureDefs x ++ getClosureDefs y
 getClosureDefs _ = []
 
-getFunType :: CStatement a -> Int -> Maybe CType
+getFunType :: CStatement -> Int -> Maybe CType
 getFunType (DefFun tret ifun _ _) i | ifun == i = Just tret
 getFunType (Seq x y) i =
     case getFunType x i of
@@ -96,14 +96,14 @@ getFunType (Seq x y) i =
 getFunType _ _ = Nothing
 
 -- collects a map of each fun id with the ids of its params from the whole ast
-getFunsWithParams :: CStatement a -> Map.Map Int [Int]
+getFunsWithParams :: CStatement -> Map.Map Int [Int]
 getFunsWithParams (DefFun _ ifun params _) =
     Map.insert ifun (paramsToListEnv params) Map.empty
 getFunsWithParams (Seq x y) = Map.union (getFunsWithParams x) (getFunsWithParams y)
 getFunsWithParams _ = Map.empty
 
 -- returns true if a function body ends in an if
-endsInIf :: CStatement a -> Bool
+endsInIf :: CStatement -> Bool
 endsInIf If {} = True
 endsInIf (Seq _ y) = endsInIf y
 endsInIf (BindExpr _ _ _ y) = endsInIf y
@@ -137,9 +137,7 @@ getEnvParams (i:is) = getEnvParams [i] ++ getEnvParams is
 
 -- for easier traversal
 
-data SomeExpr = forall a. Some (CExpression a)
-
-mapChildrenExpr :: (forall b. CExpression b -> CExpression b) -> CExpression a -> CExpression a
+mapChildrenExpr :: (CExpression -> CExpression) -> CExpression -> CExpression
 mapChildrenExpr f (Not x) = Not (f x)
 mapChildrenExpr f (Abs x) = Abs (f x)
 mapChildrenExpr f (Fst tr tp x) = Fst tr tp (f x)
@@ -161,32 +159,30 @@ mapChildrenExpr f (CallExpr tf tx x y) = CallExpr tf tx (f x) (f y)
 mapChildrenExpr f (Ternary t c x y) = Ternary t (f c) (f x) (f y)
 mapChildrenExpr _ x = x
 
-childrenExpr :: CExpression a -> [SomeExpr]
-childrenExpr (Not x) = [Some x]
-childrenExpr (Abs x) = [Some x]
-childrenExpr (Box _ x) = [Some x]
-childrenExpr (Unbox _ x) = [Some x]
-childrenExpr (Fst _ _ x) = [Some x]
-childrenExpr (Snd _ _ x) = [Some x]
-childrenExpr (IsEmpty _ x) = [Some x]
-childrenExpr (HeadList _ x) = [Some x]
-childrenExpr (TailList _ x) = [Some x]
-childrenExpr (CastExpr _ x) = [Some x]
-childrenExpr (Prod _ x y) = [Some x, Some y]
-childrenExpr (CallExpr _ _ x y) = [Some x, Some y]
-childrenExpr (LIntOp _ x y) = [Some x, Some y]
-childrenExpr (LCmpOp _ x y) = [Some x, Some y]
-childrenExpr (LBoolOp _ x y) = [Some x, Some y]
-childrenExpr (ConsList _ x y) = [Some x, Some y]
-childrenExpr (IndexList _ x y) = [Some x, Some y]
-childrenExpr (Ternary _ c t e) = [Some c, Some t, Some e]
+childrenExpr :: CExpression -> [CExpression]
+childrenExpr (Not x) = [x]
+childrenExpr (Abs x) = [x]
+childrenExpr (Box _ x) = [x]
+childrenExpr (Unbox _ x) = [x]
+childrenExpr (Fst _ _ x) = [ x]
+childrenExpr (Snd _ _ x) = [ x]
+childrenExpr (IsEmpty _ x) = [ x]
+childrenExpr (HeadList _ x) = [ x]
+childrenExpr (TailList _ x) = [ x]
+childrenExpr (CastExpr _ x) = [ x]
+childrenExpr (Prod _ x y) = [ x,  y]
+childrenExpr (CallExpr _ _ x y) = [ x,  y]
+childrenExpr (LIntOp _ x y) = [ x,  y]
+childrenExpr (LCmpOp _ x y) = [ x,  y]
+childrenExpr (LBoolOp _ x y) = [ x,  y]
+childrenExpr (ConsList _ x y) = [ x,  y]
+childrenExpr (IndexList _ x y) = [ x,  y]
+childrenExpr (Ternary _ c t e) = [ c,  t,  e]
 childrenExpr _ = []
 
-data SomeStmt = forall a. SomeStmt (CStatement a)
-
-mapChildrenStmt :: (forall b. CStatement b -> CStatement b)
-                -> (forall b. CExpression b -> CExpression b)
-                -> CStatement a -> CStatement a
+mapChildrenStmt :: (CStatement -> CStatement)
+                -> (CExpression -> CExpression)
+                -> CStatement -> CStatement
 mapChildrenStmt fs _  (Seq x y)          = Seq (fs x) (fs y)
 mapChildrenStmt fs fe (If c x y)         = If (fe c) (fs x) (fs y)
 mapChildrenStmt fs fe (While c x)        = While (fe c) (fs x)
@@ -201,21 +197,39 @@ mapChildrenStmt _  fe (AllocEnv e p d pp) =
 mapChildrenStmt _  _  s = s
 
 -- child statements only
-childrenStmt :: CStatement a -> [SomeStmt]
-childrenStmt (Seq x y)         = [SomeStmt x, SomeStmt y]
-childrenStmt (If _ x y)        = [SomeStmt x, SomeStmt y]
-childrenStmt (While _ x)       = [SomeStmt x]
-childrenStmt (DefFun _ _ _ b)  = [SomeStmt b]
-childrenStmt (BindExpr _ _ _ y) = [SomeStmt y]
+childrenStmt :: CStatement -> [CStatement]
+childrenStmt (Seq x y)         = [x, y]
+childrenStmt (If _ x y)        = [x, y]
+childrenStmt (While _ x)       = [x]
+childrenStmt (DefFun _ _ _ b)  = [b]
+childrenStmt (BindExpr _ _ _ y) = [y]
 childrenStmt _                 = []
 
 -- child expressions held directly by a statement
-childExprsStmt :: CStatement a -> [SomeExpr]
-childExprsStmt (If c _ _)        = [Some c]
-childExprsStmt (While c _)       = [Some c]
-childExprsStmt (BindExpr _ x _ _) = [Some x]
-childExprsStmt (DefVar _ _ x)    = [Some x]
-childExprsStmt (UpdateVar _ _ x) = [Some x]
-childExprsStmt (Return x)        = [Some x]
-childExprsStmt (AllocEnv _ _ d pp) = [Some x | CArg _ x <- Map.elems d ++ Map.elems pp]
+childExprsStmt :: CStatement -> [CExpression]
+childExprsStmt (If c _ _)        = [ c]
+childExprsStmt (While c _)       = [ c]
+childExprsStmt (BindExpr _ x _ _) = [ x]
+childExprsStmt (DefVar _ _ x)    = [ x]
+childExprsStmt (UpdateVar _ _ x) = [ x]
+childExprsStmt (Return x)        = [ x]
+childExprsStmt (AllocEnv _ _ d pp) = [ x | CArg _ x <- Map.elems d ++ Map.elems pp]
 childExprsStmt _                 = []
+
+mapChildrenStmtM :: Monad m
+             => (CStatement -> m CStatement)
+             -> (CExpression -> m CExpression)
+             -> CStatement -> m CStatement
+mapChildrenStmtM fs fe stmt = case stmt of
+    Seq x y -> Seq <$> fs x <*> fs y
+    If c x y -> If <$> fe c <*> fs x <*> fs y
+    While c x -> While <$> fe c <*> fs x
+    DefFun t i p b -> DefFun t i p <$> fs b
+    BindExpr t e i y -> BindExpr t <$> fe e <*> pure i <*> fs y
+    DefVar t i x -> DefVar t i <$> fe x
+    UpdateVar t i x -> UpdateVar t i <$> fe x
+    Return x -> Return <$> fe x
+    AllocEnv e p d pp -> AllocEnv e p
+                           <$> traverse (\(CArg t x) -> CArg t <$> fe x) d
+                           <*> traverse (\(CArg t x) -> CArg t <$> fe x) pp
+    s -> return s

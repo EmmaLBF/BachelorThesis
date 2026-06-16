@@ -9,30 +9,29 @@ import Utils
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad.State
-import Unsafe.Coerce (unsafeCoerce)
 
 
 -- ***** REMOVE ENV PARAM FROM FUNCTIONS ***** 
 
-removeCallParamEnv :: CStatement a -> Int -> Set.Set Int -> CStatement a
+removeCallParamEnv :: CStatement -> Int -> Set.Set Int -> CStatement
 removeCallParamEnv (DefFun t i p body) _ s = DefFun t i p (removeCallParamEnv body i s)
 removeCallParamEnv s ifun m = mapChildrenStmt (\x -> removeCallParamEnv x ifun m) (\e -> removeCallParamEnvExpr e ifun m) s
 
-removeCallParamEnvExpr :: CExpression a -> Int -> Set.Set Int -> CExpression a
+removeCallParamEnvExpr :: CExpression -> Int -> Set.Set Int -> CExpression
 removeCallParamEnvExpr (GetEnvField t envId varId) ifun s
     | envId == ifun && ifun `elem` s = Var t varId
 removeCallParamEnvExpr (CallExpr tf tx f x) ifun s =
     let (f', args) = collectArgs (CallExpr tf tx f x)
         fId = case f' of Var _ i -> i; _ -> -1
     in  if fId `elem` s
-        then 
+        then
             let args' = case args of (CArg _ (Val (EnvV _)) : rest) -> rest; _ -> args
             in rebuildCall tf f' (map (\(CArg t arg) -> CArg t (removeCallParamEnvExpr arg ifun s)) args')
         else CallExpr tf tx (removeCallParamEnvExpr f ifun s) (removeCallParamEnvExpr x ifun s)
 removeCallParamEnvExpr e ifun s = mapChildrenExpr (\x -> removeCallParamEnvExpr x ifun s) e
 
 -- removes first env params for functions where it is not used
-removeEnvParam :: CStatement a -> CStatement b -> FunctionInfo -> State (Set.Set Int) (CStatement a)
+removeEnvParam :: CStatement -> CStatement -> FunctionInfo -> State (Set.Set Int) CStatement
 removeEnvParam (DefFun t ifun params body) stmt _ =
     let r' = getFunctionInfo (DefFun t ifun params body) emptyFunctionInfo
         p' = [p | p <- params, case p of CParamEnv i -> Set.member i (envUses r'); _ -> True]
@@ -43,7 +42,7 @@ removeEnvParam (DefFun t ifun params body) stmt _ =
 removeEnvParam (Seq x y) stmt r = Seq <$> removeEnvParam x stmt r <*> removeEnvParam y stmt r
 removeEnvParam x _ _ = return x
 
-envParamRemovalPass :: CStatement a -> CStatement a
+envParamRemovalPass :: CStatement -> CStatement
 envParamRemovalPass body =
     let (removedEnvParamBody, l) = runState (removeEnvParam body body emptyFunctionInfo) Set.empty
     in removeCallParamEnv removedEnvParamBody (-1) l
@@ -51,7 +50,7 @@ envParamRemovalPass body =
 -- ***** REMOVE LOCAL ENVS ***** 
 
 -- removes envs that are only used locally (no alloc needed)
-removeEnvs :: CStatement a -> CStatement a
+removeEnvs :: CStatement -> CStatement
 removeEnvs (DefFun t i p body) =
     let removed = collectUnusedEnvAllocs body emptyFunctionInfo
     in DefFun t i p (rewriteRemovedEnvs removed body)
@@ -60,19 +59,19 @@ removeEnvs x = x
 
 -- PASS 1: remove the AllocEnv statements that aren't needed, collect their ids
     -- can only be removed if it does not escape anywhere
-collectUnusedEnvAllocs :: CStatement a -> FunctionInfo -> Set.Set Int
+collectUnusedEnvAllocs :: CStatement -> FunctionInfo -> Set.Set Int
 collectUnusedEnvAllocs (AllocEnv envId _ _ _) r | envId `notElem` escapedEnvs r = Set.singleton envId
 collectUnusedEnvAllocs s@(DefFun _ _ _ body) _ =
     collectUnusedEnvAllocs body (getFunctionInfo s emptyFunctionInfo)
 collectUnusedEnvAllocs s r =
-    foldr Set.union Set.empty ([collectUnusedEnvAllocs c r | SomeStmt c <- childrenStmt s])
+    foldr Set.union Set.empty ([collectUnusedEnvAllocs c r | c <- childrenStmt s])
 
 -- PASS 2: rewrites get-env-field accesses to the envs that were removed, and removes alloc statements
-rewriteRemovedEnvs :: Set.Set Int -> CStatement a -> CStatement a
+rewriteRemovedEnvs :: Set.Set Int -> CStatement -> CStatement
 rewriteRemovedEnvs r (AllocEnv envId _ _ _) | envId `elem` r = Skip
 rewriteRemovedEnvs r s = mapChildrenStmt (rewriteRemovedEnvs r) (rewriteRemovedEnvsExpr r) s
 
-rewriteRemovedEnvsExpr :: Set.Set Int -> CExpression a -> CExpression a
+rewriteRemovedEnvsExpr :: Set.Set Int -> CExpression -> CExpression
 rewriteRemovedEnvsExpr removed (GetEnvField t envId varId)
     | Set.member envId removed = rewriteRemovedEnvsExpr removed (Var t varId)
     | otherwise = GetEnvField t envId varId
@@ -85,7 +84,7 @@ usedAtMostOnce i m = case Map.lookup i m of
     Just n | n <= 1 -> True
     _ -> False
 
-removeSingleVars :: CStatement a -> CStatement b -> FunctionInfo -> CStatement a
+removeSingleVars :: CStatement -> CStatement -> FunctionInfo -> CStatement
 removeSingleVars (BindExpr _ _ i y) stmt r | usedAtMostOnce i (varUses r) = removeSingleVars y stmt r
 removeSingleVars (DefVar _ i _) _ r | usedAtMostOnce i (varUses r) = Skip
 removeSingleVars (UpdateVar _ i _) _ r | usedAtMostOnce i (varUses r)  = Skip
@@ -94,14 +93,14 @@ removeSingleVars s@(DefFun t i p body) stmt _ =
 removeSingleVars s stmt r =
     mapChildrenStmt (\x -> removeSingleVars x stmt r) (\e -> removeSingleVarsExpr e stmt r) s
 
-removeSingleVarsExpr :: CExpression a -> CStatement b -> FunctionInfo -> CExpression a
+removeSingleVarsExpr :: CExpression -> CStatement -> FunctionInfo -> CExpression
 removeSingleVarsExpr (Var t i) stmt r | usedAtMostOnce i (varUses r) =
     case Map.lookup i (varDefs r) of
-        (Just (CArg _ x)) -> removeSingleVarsExpr (unsafeCoerce x) stmt r
+        (Just (CArg _ x)) -> removeSingleVarsExpr x stmt r
         _ -> Var t i
 removeSingleVarsExpr (Val (ClosureV i)) stmt r | usedAtMostOnce i (varUses r) =
     case Map.lookup i (varDefs r) of
-        Just (CArg _ x) -> removeSingleVarsExpr (unsafeCoerce x) stmt r
+        Just (CArg _ x) -> removeSingleVarsExpr x stmt r
         _ -> Val (ClosureV i)
 removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x stmt r) e
 
@@ -114,16 +113,16 @@ removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x st
 -- i is the id of the closureAlloc were getting rid of
     -- if we find the application of that closure we need to rewrite it to a callexpr
 -- also we need to remove the cast for the apply
-rewriteClosureUseExpr :: Int -> Int -> CExpression b -> CExpression b
-rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) = 
+rewriteClosureUseExpr :: Int -> Int -> CExpression -> CExpression
+rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) =
     let (f', args) = collectArgsApply (ApplyClosure targ f arg)
     in case f' of
-        Val (ClosureV i') | i == i' -> 
+        Val (ClosureV i') | i == i' ->
             let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr i parentId x)) args
                 envArg = CArg CTVoidPtr (Val (EnvV i))
             in rebuildCall CTVoidPtr (Var CTVoidPtr i) (envArg : args') -- call the closure function directly
         _ -> ApplyClosure targ (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId arg)
-rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) = 
+rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) =
     let (f', _) = collectArgsApply (ApplyClosure targ f arg)
     in case f' of
         Val (ClosureV i') | i == i' -> rewriteClosureUseExpr i parentId (ApplyClosure targ f arg)
@@ -131,43 +130,38 @@ rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) =
 rewriteClosureUseExpr i parentId e = mapChildrenExpr (rewriteClosureUseExpr i parentId) e
 
 -- remove the alloc closures we don't need and the envs that have no direct params
-rewriteClosureUse :: Int -> Int -> CStatement b -> CStatement b
+rewriteClosureUse :: Int -> Int -> CStatement -> CStatement
 rewriteClosureUse i parentId = mapChildrenStmt (rewriteClosureUse i parentId) (rewriteClosureUseExpr i parentId)
 
 -- top level pass, if we alloc a closure that never escapes the function we can keep it on the stack
 -- collects a list of closures that are local to the function they are in
     -- it then removes all of these from the body of that function
-removeClosureAllocs :: CStatement a -> FunctionInfo -> State [(Int, Int)] (CStatement a)
+removeClosureAllocs :: CStatement -> FunctionInfo -> State [(Int, Int)] CStatement
 removeClosureAllocs (AllocClosure i) g
-    | i `elem` escapedClos g = return $ AllocClosure i
-    | otherwise = Skip <$ modify ((i, i) :)
-removeClosureAllocs (Seq x y) g = Seq <$> removeClosureAllocs x g <*> removeClosureAllocs y g
-removeClosureAllocs (If cond x y) g = If cond <$> removeClosureAllocs x g <*> removeClosureAllocs y g
-removeClosureAllocs (While cond x) g = While cond <$> removeClosureAllocs x g 
+    | i `notElem` escapedClos g = Skip <$ modify ((i, i) :)
 removeClosureAllocs (DefFun tret ifun ps x) _ =
     let (x', r) = runState (removeClosureAllocs x (getFunctionInfo x emptyFunctionInfo)) []
         x'' = foldr (uncurry rewriteClosureUse) x' r
     in return $ DefFun tret ifun ps x''
-removeClosureAllocs (BindExpr t x i y) g = BindExpr t x i <$> removeClosureAllocs y g 
-removeClosureAllocs x _ = return x
+removeClosureAllocs x g = mapChildrenStmtM (`removeClosureAllocs` g) pure x
 
 
 -- CLEAN IR (REMOVE SKIPS)
 
-cleanSkip :: CStatement a -> CStatement a
+cleanSkip :: CStatement -> CStatement
 cleanSkip (Seq Skip y) = cleanSkip y
 cleanSkip (Seq y Skip) = cleanSkip y
 cleanSkip s = mapChildrenStmt cleanSkip id s
 
 -- the only ones that need cast are fst and snd because they return void*
-removeCast :: CExpression a -> CExpression b -> CExpression a
+removeCast :: CExpression -> CExpression -> CExpression
 removeCast fallback x = case x of
     Fst{} -> fallback
     Snd{} -> fallback
-    expr -> unsafeCoerce expr
+    expr -> expr
 
 -- REMOVE USELESS LOGIC AND CASTS (i.e. making a list out of the head and tail of another list)
-removeUselessExpr :: CExpression a -> CExpression a
+removeUselessExpr :: CExpression -> CExpression
 removeUselessExpr (CastExpr t x) = removeCast (CastExpr t x) (removeUselessExpr x)
 removeUselessExpr (Unbox t x) = removeCast (Unbox t x) (removeUselessExpr x)
 removeUselessExpr (ConsList t x y) =
@@ -176,12 +170,12 @@ removeUselessExpr (ConsList t x y) =
         _ -> ConsList t (removeUselessExpr x) (removeUselessExpr y)
 removeUselessExpr e = mapChildrenExpr removeUselessExpr e
 
-removeUselessStmt :: CStatement a -> CStatement a
+removeUselessStmt :: CStatement -> CStatement
 removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
 
 -- REMOVING ALIASES AND LOCAL ENVS
 
-eliminateAliases :: CStatement a -> CStatement a
+eliminateAliases :: CStatement -> CStatement
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
         stmt' = removeEnvs (replaceAliases stmt (aliases info))
@@ -190,13 +184,13 @@ eliminateAliases stmt =
         else eliminateAliases stmt'
 
 -- replaces all var defs of form v2 = v3 or v2 = env5
-replaceAliases :: CStatement a -> Map.Map Int CArg -> CStatement a
+replaceAliases :: CStatement -> Map.Map Int CArg -> CStatement
 replaceAliases s m = mapChildrenStmt (`replaceAliases` m) (`replaceAliasesExpr` m) s
 
-replaceAliasesExpr :: CExpression a -> Map.Map Int CArg -> CExpression a
+replaceAliasesExpr :: CExpression -> CArgMap -> CExpression
 replaceAliasesExpr (Var t i) m =
     case Map.lookup i m of
-        Just (CArg _ n) -> replaceAliasesExpr (unsafeCoerce n) m
+        Just (CArg _ n) -> replaceAliasesExpr n m
         Nothing -> Var t i
 replaceAliasesExpr (GetEnvField t structId fieldId) m =
     case Map.lookup structId m of

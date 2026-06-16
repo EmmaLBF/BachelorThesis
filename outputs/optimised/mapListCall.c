@@ -14,8 +14,11 @@ int v14(int v5);
 // closure defitions
 // function implementations
 NodeInt* v0(int (*v1)(int), NodeInt* v2) {
-  if (((v2) == NULL)) return NULL;
-  return consInt(v1((v2)->head), v0(v1, (v2)->tail));
+  if (((v2) == NULL)) {
+    return NULL;
+  } else {
+    return consInt(v1((v2)->head), v0(v1, (v2)->tail));
+  }
 }
 
 int v14(int v5) {
