@@ -8,6 +8,7 @@ import AST
 import CDefs
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Control.Monad.State
 
 
 -- STACK ALLOCATE PAIRS
@@ -160,3 +161,44 @@ demotePairsExpr (CallExpr tf tx f a) m funs =
                     demoteArgs (b:is) (id':id'') = demoteArgs [b] [id'] ++ demoteArgs is id''
             _ -> CallExpr tf tx (demotePairsExpr f m funs) (demotePairsExpr a m funs)
 demotePairsExpr e m funs = mapChildrenExpr (\x -> demotePairsExpr x m funs) e
+
+
+
+-- closure id, parent id, aplly to rewrite
+-- turn the application of a heap allocated closure into the call of a stack allocated one
+-- We call the fn stored in the closure directly with the env and its args
+-- i is the id of the closureAlloc were getting rid of
+    -- if we find the application of that closure we need to rewrite it to a callexpr
+-- also we need to remove the cast for the apply
+rewriteClosureUseExpr :: Int -> CExpression -> CExpression
+rewriteClosureUseExpr i (ApplyClosure targ f arg) =
+    let (f', args) = collectArgsApply (ApplyClosure targ f arg)
+    in case f' of
+        Val (ClosureV i') | i == i' ->
+            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr i x)) args
+                envArg = CArg CTVoidPtr (Val (EnvV i))
+            in rebuildCall CTVoidPtr (Var CTVoidPtr i) (envArg : args') -- call the closure function directly
+        _ -> ApplyClosure targ (rewriteClosureUseExpr i f) (rewriteClosureUseExpr i arg)
+rewriteClosureUseExpr i (CastExpr t x@ApplyClosure{}) =
+    let (f', _) = collectArgsApply x
+    in case f' of
+        Val (ClosureV i') | i == i' -> rewriteClosureUseExpr i x -- get rid of cast
+        _ -> CastExpr t (rewriteClosureUseExpr i x)
+rewriteClosureUseExpr i e = mapChildrenExpr (rewriteClosureUseExpr i) e
+
+-- remove the alloc closures we don't need and the envs that have no direct params
+rewriteClosureUse :: Int -> CStatement -> CStatement
+rewriteClosureUse i = mapChildrenStmt (rewriteClosureUse i) (rewriteClosureUseExpr i)
+
+-- top level pass, if we alloc a closure that never escapes the function we can keep it on the stack
+-- collects a list of closures that are local to the function they are in
+    -- it then removes all of these from the body of that function
+demoteClosures :: CStatement -> FunctionInfo -> State [Int] CStatement
+demoteClosures (AllocClosure i) g
+    | i `notElem` escapedClos g = Skip <$ modify (i :)
+demoteClosures (DefFun tret ifun ps x) _ =
+    let (x', r) = runState (demoteClosures x (getFunctionInfo x emptyFunctionInfo)) []
+        x'' = foldr rewriteClosureUse x' r
+    in return $ DefFun tret ifun ps x''
+demoteClosures x g = mapChildrenStmtM (`demoteClosures` g) pure x
+

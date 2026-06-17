@@ -42,10 +42,11 @@ removeEnvParam (DefFun t ifun params body) stmt _ =
 removeEnvParam (Seq x y) stmt r = Seq <$> removeEnvParam x stmt r <*> removeEnvParam y stmt r
 removeEnvParam x _ _ = return x
 
-envParamRemovalPass :: CStatement -> CStatement
-envParamRemovalPass body =
+envRemovalPass :: CStatement -> CStatement
+envRemovalPass body =
     let (removedEnvParamBody, l) = runState (removeEnvParam body body emptyFunctionInfo) Set.empty
-    in removeCallParamEnv removedEnvParamBody (-1) l
+        paramRemoved = removeCallParamEnv removedEnvParamBody (-1) l
+    in removeEnvs paramRemoved
 
 -- ***** REMOVE LOCAL ENVS ***** 
 
@@ -77,7 +78,8 @@ rewriteRemovedEnvsExpr removed (GetEnvField t envId varId)
     | otherwise = GetEnvField t envId varId
 rewriteRemovedEnvsExpr removed e = mapChildrenExpr (rewriteRemovedEnvsExpr removed) e
 
--- *****  REMOVE VARS (THAT ARE USED <= 1 TIMES)
+
+-- ***** REMOVE VARS (THAT ARE USED <= 1 TIMES) ***** 
 
 usedAtMostOnce :: Int -> Map.Map Int Int -> Bool
 usedAtMostOnce i m = case Map.lookup i m of
@@ -107,43 +109,7 @@ removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x st
 
 -- ***** REMOVE CLOSURES ***** 
 
--- closure id, parent id, aplly to rewrite
--- turn the application of a heap allocated closure into the call of a stack allocated one
--- We call the fn stored in the closure directly with the env and its args
--- i is the id of the closureAlloc were getting rid of
-    -- if we find the application of that closure we need to rewrite it to a callexpr
--- also we need to remove the cast for the apply
-rewriteClosureUseExpr :: Int -> Int -> CExpression -> CExpression
-rewriteClosureUseExpr i parentId (ApplyClosure targ f arg) =
-    let (f', args) = collectArgsApply (ApplyClosure targ f arg)
-    in case f' of
-        Val (ClosureV i') | i == i' ->
-            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr i parentId x)) args
-                envArg = CArg CTVoidPtr (Val (EnvV i))
-            in rebuildCall CTVoidPtr (Var CTVoidPtr i) (envArg : args') -- call the closure function directly
-        _ -> ApplyClosure targ (rewriteClosureUseExpr i parentId f) (rewriteClosureUseExpr i parentId arg)
-rewriteClosureUseExpr i parentId (CastExpr t (ApplyClosure targ f arg)) =
-    let (f', _) = collectArgsApply (ApplyClosure targ f arg)
-    in case f' of
-        Val (ClosureV i') | i == i' -> rewriteClosureUseExpr i parentId (ApplyClosure targ f arg)
-        _ -> CastExpr t (rewriteClosureUseExpr i parentId (ApplyClosure targ f arg))
-rewriteClosureUseExpr i parentId e = mapChildrenExpr (rewriteClosureUseExpr i parentId) e
 
--- remove the alloc closures we don't need and the envs that have no direct params
-rewriteClosureUse :: Int -> Int -> CStatement -> CStatement
-rewriteClosureUse i parentId = mapChildrenStmt (rewriteClosureUse i parentId) (rewriteClosureUseExpr i parentId)
-
--- top level pass, if we alloc a closure that never escapes the function we can keep it on the stack
--- collects a list of closures that are local to the function they are in
-    -- it then removes all of these from the body of that function
-removeClosureAllocs :: CStatement -> FunctionInfo -> State [(Int, Int)] CStatement
-removeClosureAllocs (AllocClosure i) g
-    | i `notElem` escapedClos g = Skip <$ modify ((i, i) :)
-removeClosureAllocs (DefFun tret ifun ps x) _ =
-    let (x', r) = runState (removeClosureAllocs x (getFunctionInfo x emptyFunctionInfo)) []
-        x'' = foldr (uncurry rewriteClosureUse) x' r
-    in return $ DefFun tret ifun ps x''
-removeClosureAllocs x g = mapChildrenStmtM (`removeClosureAllocs` g) pure x
 
 
 -- CLEAN IR (REMOVE SKIPS)
@@ -173,12 +139,12 @@ removeUselessExpr e = mapChildrenExpr removeUselessExpr e
 removeUselessStmt :: CStatement -> CStatement
 removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
 
--- REMOVING ALIASES AND LOCAL ENVS
+-- REMOVING ALIASES
 
 eliminateAliases :: CStatement -> CStatement
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
-        stmt' = removeEnvs (replaceAliases stmt (aliases info))
+        stmt' = replaceAliases stmt (aliases info)
     in  if stmt == stmt'
         then stmt'
         else eliminateAliases stmt'

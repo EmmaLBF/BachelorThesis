@@ -97,13 +97,13 @@ addBoxingExpr e = mapChildrenExpr addBoxingExpr e
 
 --------- HOISTING HELPERS
 
-findReturn :: CStatement -> Maybe CExpression
-findReturn (Return x) = Just x
+findReturn :: CStatement -> CExpression
+findReturn (Return x) = x
 findReturn (BindExpr _ _ _ y) = findReturn y
 findReturn (Seq _ y) = findReturn y
 findReturn (If _ x _) = findReturn x
 findReturn (While _ x) = findReturn x
-findReturn _ = Nothing
+findReturn _ = error "no return"
 
 replaceReturnClosure :: CStatement -> Int -> CStatement
 replaceReturnClosure (Return _) i = Return (Val (ClosureV i))
@@ -224,11 +224,11 @@ makeClosureFactories (DefFun tret ifun params body) _ _
 makeClosureFactories (DefFun tret ifun params body) m parents =
     let funRet = findReturn body
         retId = case funRet of
-            Just (Var _ i) -> i
-            Just (Val (ClosureV i)) -> i
+            (Var _ i) -> i
+            (Val (ClosureV i)) -> i
             _ -> (-1)
         returnsClosure = case funRet of
-            Just (Val (ClosureV _)) -> True
+            (Val (ClosureV _)) -> True
             _ -> False
     in  case Map.lookup retId m of
             Just freeVars -- returns a lifted function (must be made a closure to capture env)
@@ -536,7 +536,7 @@ printCode finalBody freeVars =
                     "\n#include <stdint.h>" ++
                     "\n#include \"../listLib.c\"\n"
         (funPart, mainBody) = splitTopLevel finalBody
-        retExpr = fromMaybe (error "no return") (findReturn mainBody)
+        retExpr = findReturn mainBody
         mainBodyWithoutRet = removeFirstReturn mainBody
         retImpl = showCExpression retExpr finalMergeMap
         mainBodyImpl = showCStmt 1 finalMergeMap mainBodyWithoutRet

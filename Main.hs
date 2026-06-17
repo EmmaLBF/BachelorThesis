@@ -12,8 +12,8 @@ import System.IO
 
 import Utils ( getFunsWithParams )
 import AST ( emptyFunctionInfo )
-import InlinePass ( inlineUntilFixed )
-import DemotePairsPass ( canBeByValue, demotePairs )
+import InlinePass
+import DemotePairsPass ( canBeByValue, demotePairs, demoteClosures )
 import DeadCodePass
 import Control.Monad.State ( evalState )
 
@@ -24,32 +24,28 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 
 keepOptimising :: CStatement -> CStatement
 keepOptimising body =
-    let removeClosuresBody = evalState (removeClosureAllocs body emptyFunctionInfo) [] -- remove closures
-        inlinedBody = inlineUntilFixed removeClosuresBody -- inline
-        removedEnvParamBody = envParamRemovalPass inlinedBody -- remove env params
-        elminatedEnvsAliasesBody = eliminateAliases removedEnvParamBody -- remove aliases and local envs
-        removedVarsBody = removeSingleVars elminatedEnvsAliasesBody elminatedEnvsAliasesBody emptyFunctionInfo -- remove vars that are used <= 1 times
-        removedUselessBody = removeUselessStmt removedVarsBody -- remove useless logic and casts
-    in  if body == removedUselessBody
-        then removedUselessBody
-        else keepOptimising removedUselessBody
+    let body1 = evalState (demoteClosures body emptyFunctionInfo) []
+        body2 = inlinePass body1
+        body3 = envRemovalPass body2
+        body4 = eliminateAliases body3
+        body5 = removeSingleVars body4 body4 emptyFunctionInfo
+        body6 = removeUselessStmt body5
+    in  if body == body6 then body6 else keepOptimising body6
 
-optimiseRun :: CStatement -> Bool -> CStatement
-optimiseRun body canPair =
-    let optimisedBody = keepOptimising body
-    in if canPair
-        then demotePairs optimisedBody (canBeByValue optimisedBody) (getFunsWithParams optimisedBody)
-        else optimisedBody
+optimiseRun :: CStatement -> CStatement
+optimiseRun body =
+    let body' = keepOptimising body
+    in demotePairs body' (canBeByValue body') (getFunsWithParams body')
 
 -- takes name of file, program to run and three bools:
 -- should lambdas be merged, should the main opt loop be run, should pairs be demoted
-run :: Typeable a => String -> AL.Lang a -> Bool -> Bool -> Bool -> IO ()
-run progPath progCode canMerge canOpt canPair = do
+run :: Typeable a => String -> AL.Lang a -> Bool -> Bool -> IO ()
+run progPath progCode canMerge canOpt = do
     let (c, fresh'') = C.translateALToC progCode
     let (cbody, parentParams) = C.runLiftAndMerge canMerge c fresh''
 
     -- optimise
-    let cbody' = if canOpt then optimiseRun cbody canPair else cbody
+    let cbody' = if canOpt then optimiseRun cbody else cbody
     let finalBody = cleanSkip cbody'
     let content = printCode finalBody parentParams
     
@@ -67,16 +63,16 @@ main = do
     let progsQueen = [("nQueensCall1", AL.nQueensCall1), ("nQueensCall", AL.nQueensCall)]
 
     -- basic
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False False) progsInt
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False False) progsList
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False False) progsQueen
+    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsInt
+    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsList
+    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsQueen
 
     -- merged lams
-    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False False) progsInt
-    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False False) progsList
-    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False False) progsQueen
+    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsInt
+    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsList
+    mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsQueen
 
     -- optimised (with pairs)
-    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True True) progsInt
-    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True True) progsList
-    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True True) progsQueen
+    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsInt
+    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsList
+    mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsQueen

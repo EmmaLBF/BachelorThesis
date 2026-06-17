@@ -9,7 +9,6 @@ import qualified AbsLang as AL
 import qualified NamedLang as NL
 import Control.Monad.State
 import Data.Typeable as DType
-import Debug.Trace
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Map as Map
 
