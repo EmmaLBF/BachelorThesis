@@ -38,10 +38,12 @@ def print_stats(code_name, size, df):
     print(f"    statistic = {mannwhitneyu_res.statistic}")  
 
 
-df_merge = pd.read_csv("pythonScripts/benchmarks/MERGESORT_20260614_135120.csv")
+df_merge = pd.read_csv("pythonScripts/benchmarks/mergeAgain_20260617_171111.csv")
 print_stats("mergeSortCall", 30000, df_merge)
 
-df_queen = pd.read_csv("pythonScripts/benchmarks/QUEENS_20260614_142213.csv")
+df_queen1 = pd.read_csv("pythonScripts/benchmarks/Queens1_20260617_162053.csv")
+df_queen2 = pd.read_csv("pythonScripts/benchmarks/Queens2_20260617_163557.csv")
+df_queen =  pd.concat([df_queen1, df_queen2], ignore_index=True)
 print_stats("nQueensCall", 10, df_queen)
 
 c_code_merge = samples("mergeSortCall", "cProgs/", 30000, df_merge)
@@ -65,3 +67,28 @@ ax[3].set_title(f"Q-Q plot: optimised nQueens")
 plt.tight_layout()
 plt.savefig(f"pythonScripts/charts/qplot.png", dpi=150)
 plt.close(fig)
+
+
+
+# print diff between merged and basic
+
+def diff(code_name, sizes, df, prog1, prog2):
+    all_diffs = []
+    for size in sizes:
+        basic_code = samples(code_name, prog1, size, df)
+        merged_code = samples(code_name, prog2, size, df)
+        all_diffs.extend([a - b for a, b in zip(basic_code, merged_code)])
+    
+    overall_avg = sum(all_diffs) / len(all_diffs)
+    print(f"Overall average difference: {overall_avg:.1%}")
+
+mergeSortSizes = [100, 1000, 5000, 10000, 15000, 20000, 22000, 25000, 28000, 30000]
+nQueensSizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+print("DIFF BASIC -> MERGE")
+diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/baselines/", "outputs/mergedLams/")
+diff("nQueensCall", nQueensSizes, df_queen, "outputs/baselines/", "outputs/mergedLams/")
+
+print("DIFF BASIC -> OPT")
+diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/baselines/", "outputs/optimised/")
+diff("nQueensCall", nQueensSizes, df_queen, "outputs/baselines/", "outputs/optimised/")

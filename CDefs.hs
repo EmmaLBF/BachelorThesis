@@ -362,7 +362,7 @@ showCStmt indent m (DefFun ct ifun params body) =
         unboxings = if hasEnv
             then concatMap (\case
                 CParam ip t ->
-                    "\n" ++ indentStr (indent+1) ++
+                    "\n" ++ indentStr (indent + 1) ++
                     printDecl ("v" ++ show ip) t ++
                     " = " ++ unbox t ("v" ++ show ip ++ "_raw") ++ ";"
                 _ -> "") params
@@ -376,8 +376,7 @@ showCStmt indent m (DefVar ct i x) =
         case x of
             (Val (ClosureV _)) -> printDecl ("c" ++ show i) ct
             (Val (EnvV _)) -> printDecl ("env" ++ show i) ct
-            _ ->
-                case ct of
+            _ -> case ct of
                     CTClosure -> printDecl ("c" ++ show i) ct
                     _ -> printDecl ("v" ++ show i) ct
     ++ " = " ++ showCExpression x m ++ ";"

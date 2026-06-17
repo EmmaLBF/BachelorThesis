@@ -59,7 +59,7 @@ Node* v8(int n, int v10, Node* v11) {
 }
 
 // nQueens
-Node* v5(int n, int v6, Node* v7) {
+Node* v55(int n, int v6, Node* v7) {
     while (v6 != n) {
         v6++;
         v7 = v8(n, v6, v7);
@@ -68,8 +68,8 @@ Node* v5(int n, int v6, Node* v7) {
 }
 
 int main() {
-  int v4 = 10;
-    printInt(v0(v5(v4, 0, cons(NULL, NULL))));
+  int v5 = 10;
+    printInt(v0(v55(v5, 0, cons(NULL, NULL))));
     return 0;
 }
 

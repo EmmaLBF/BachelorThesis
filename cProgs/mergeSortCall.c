@@ -50,7 +50,7 @@ NodeInt* v0(NodeInt* list) { // mergeSort
 }
 
 int main() {
-  printListInt(v0(LIST(10, 42)));
+  printListInt(v0(LIST(30000, 42)));
     return 0;
 }
 

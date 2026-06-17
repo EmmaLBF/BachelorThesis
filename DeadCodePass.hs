@@ -13,13 +13,31 @@ import qualified Data.Set as Set
 
 -- ***** REMOVE ENV PARAM FROM FUNCTIONS ***** 
 
+-- (1) Overall Pass
+envRemovalPass :: CStatement -> CStatement
+envRemovalPass body =
+    let l = collectUselessEnvParam body emptyFunctionInfo
+        paramRemoved = removeUselessEnvParam body (-1) l
+    in demoteEnvs paramRemoved
+
+-- (2) removes first env params for functions where it is not used
+-- collects list of functions that had their envs removed
+collectUselessEnvParam :: CStatement -> FunctionInfo -> RemovedEnvs
+collectUselessEnvParam (DefFun t ifun params body) _ =
+    let r' = getFunctionInfo (DefFun t ifun params body) emptyFunctionInfo
+        p' = [p | p <- params, case p of CParamEnv i -> Set.member i (envUses r'); _ -> True]
+    in if params /= p' then Set.singleton ifun else Set.empty
+collectUselessEnvParam (Seq x y) r = Set.union (collectUselessEnvParam x r) (collectUselessEnvParam y r)
+collectUselessEnvParam _ _ = Set.empty
+
+-- (3a) remove collected envs
 removeUselessEnvParam :: CStatement -> Int -> RemovedEnvs -> CStatement
 removeUselessEnvParam (DefFun t ifun params body) _ s = 
     let p' = [p | p <- params, case p of CParamEnv i -> i /= ifun || ifun `notElem` s; _ -> True]
     in DefFun t ifun p' (removeUselessEnvParam body ifun s)
 removeUselessEnvParam s ifun m = mapChildrenStmt (\x -> removeUselessEnvParam x ifun m) (\e -> removeUselessEnvParamExpr e ifun m) s
 
--- drop the env parameter from the call expressions that are affected
+-- (3b) drop the env parameter from the call expressions that are affected
 -- remove env access to just var access
 removeUselessEnvParamExpr :: CExpression -> Int -> RemovedEnvs -> CExpression
 removeUselessEnvParamExpr (GetEnvField t envId varId) ifun s
@@ -34,29 +52,16 @@ removeUselessEnvParamExpr (CallExpr tf tx f x) ifun s =
         else CallExpr tf tx (removeUselessEnvParamExpr f ifun s) (removeUselessEnvParamExpr x ifun s)
 removeUselessEnvParamExpr e ifun s = mapChildrenExpr (\x -> removeUselessEnvParamExpr x ifun s) e
 
--- removes first env params for functions where it is not used
--- collects list of functions that had their envs removed
-collectUselessEnvParam :: CStatement -> FunctionInfo -> RemovedEnvs
-collectUselessEnvParam (DefFun t ifun params body) _ =
-    let r' = getFunctionInfo (DefFun t ifun params body) emptyFunctionInfo
-        p' = [p | p <- params, case p of CParamEnv i -> Set.member i (envUses r'); _ -> True]
-    in if params /= p' then Set.singleton ifun else Set.empty
-collectUselessEnvParam (Seq x y) r = Set.union (collectUselessEnvParam x r) (collectUselessEnvParam y r)
-collectUselessEnvParam _ _ = Set.empty
-
-envRemovalPass :: CStatement -> CStatement
-envRemovalPass body =
-    let l = collectUselessEnvParam body emptyFunctionInfo
-        paramRemoved = removeUselessEnvParam body (-1) l
-    in demoteEnvs paramRemoved
 
 -- ***** REMOVE VARS (THAT ARE USED <= 1 TIMES) ***** 
 
+-- helper
 usedAtMostOnce :: Int -> VarUses -> Bool
 usedAtMostOnce i m = case Map.lookup i m of
     Just n | n <= 1 -> True
     _ -> False
 
+-- (1a)
 removeSingleVars :: CStatement -> CStatement -> FunctionInfo -> CStatement
 removeSingleVars (DefVar _ i _) _ r | usedAtMostOnce i (varUses r) = Skip
 removeSingleVars (UpdateVar _ i _) _ r | usedAtMostOnce i (varUses r)  = Skip
@@ -65,6 +70,7 @@ removeSingleVars s@(DefFun t i p body) stmt _ =
 removeSingleVars s stmt r =
     mapChildrenStmt (\x -> removeSingleVars x stmt r) (\e -> removeSingleVarsExpr e stmt r) s
 
+-- (1b)
 removeSingleVarsExpr :: CExpression -> CStatement -> FunctionInfo -> CExpression
 removeSingleVarsExpr (Var t i) stmt r | usedAtMostOnce i (varUses r) =
     case Map.lookup i (varDefs r) of
@@ -77,15 +83,14 @@ removeSingleVarsExpr (Val (ClosureV i)) stmt r | usedAtMostOnce i (varUses r) =
 removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x stmt r) e
 
 
--- ***** REMOVE CLOSURES ***** 
-
-
 -- CLEAN IR (REMOVE SKIPS)
 
 cleanSkip :: CStatement -> CStatement
 cleanSkip (Seq Skip y) = cleanSkip y
 cleanSkip (Seq y Skip) = cleanSkip y
 cleanSkip s = mapChildrenStmt cleanSkip id s
+
+-- REMOVE USLESS + CASTS
 
 -- the only ones that need cast are fst and snd because they return void*
 removeCast :: CExpression -> CExpression -> CExpression

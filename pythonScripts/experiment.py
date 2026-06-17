@@ -271,40 +271,43 @@ MERGESORT = [
     {
         "name": "mergeSortCall",
         "folders": ["outputs/baselines/", "outputs/mergedLams/", "outputs/optimised/", "cProgs/"],
-        "sizes": [100, 1000, 5000, 10000, 15000, 20000, 25000, 30000],
+        "sizes": [100, 1000, 5000, 10000, 15000, 20000, 22000, 25000, 28000, 30000],
         "distance_from_bottom": 4,
         "prefix": "  printListInt(v0(LIST(",
         "suffix": ", 42)));\n",
     }
 ]
 
-QUEENS = [
+QUEENS1 = [
     {
         "name": "nQueensCall",
         "folders": ["outputs/baselines/", "outputs/mergedLams/"],
-        "sizes": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "sizes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "distance_from_bottom": 4,
-        "prefix": "  printInt(v0(v104(",
+        "prefix": "  printInt(v0(v106(",
         "suffix": ")));\n",
-    },
+    }
+]
+
+QUEENS2 = [
     {
         "name": "nQueensCall",
         "folders": ["outputs/optimised/", "cProgs/"],
-        "sizes": [2, 4, 6, 8, 10],
+        "sizes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "distance_from_bottom": 7,
-        "prefix": "  int v4 = ",
+        "prefix": "  int v5 = ",
         "suffix": ";\n",
     }
 ]
 
-OUTPUT_CSV = f"pythonScripts/benchmarks/QUEENS_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+OUTPUT_CSV = f"pythonScripts/benchmarks/mergeAgain_{time.strftime('%Y%m%d_%H%M%S')}.csv"
 
 if __name__ == "__main__":
     rows = []
     # A tiny adapter so run_trials can "write" rows into our list via .writerow.
     collector = type("RowCollector", (), {"writerow": staticmethod(rows.append)})()
 
-    for prog in QUEENS:
+    for prog in MERGESORT:
         for folder in prog["folders"]:
             run_trials(
                 path_half=prog["name"],

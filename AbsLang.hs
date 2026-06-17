@@ -83,39 +83,22 @@ eval = ev 0 Map.empty
           Nothing -> error "Type mismatch in env"
         Nothing -> error "Variable not found"
     ev fresh env (Lam f) = \v ->
-      let env' = Map.insert fresh (toDyn v) env
-       in ev (fresh + 1) env' (f (Var fresh))
-    ev fresh env (Apply f x) =
-      let v = ev fresh env x
-          fn = ev fresh env f
-       in fn v
+      ev (fresh + 1) (Map.insert fresh (toDyn v) env) (f (Var fresh))
     ev _ _ (LBool b) = b
     ev _ _ (LInt i) = i
+    ev _ _ EmptyList = []
     ev fresh env (If c t e) =
       if ev fresh env c then ev fresh env t else ev fresh env e
-    ev fresh env (LIntOp op l r) =
-      let l' = ev fresh env l
-          r' = ev fresh env r
-       in binop op l' r'
-    ev fresh env (Not x) =
-      let x' = ev fresh env x
-       in not x'
-    ev fresh env (Abs x) =
-      let x' = ev fresh env x
-       in abs x'
-    ev fresh env (LBoolOp op l r) =
-      let l' = ev fresh env l
-          r' = ev fresh env r
-       in boolop op l' r'
-    ev fresh env (LCmpOp op l r) =
-      let l' = ev fresh env l
-          r' = ev fresh env r
-       in cmpop op l' r'
+    ev fresh env (Not x) = not (ev fresh env x)
+    ev fresh env (Abs x) = abs (ev fresh env x)
+    ev fresh env (Apply f x) = (ev fresh env f) (ev fresh env x)
+    ev fresh env (LIntOp op l r) = binop op (ev fresh env l) (ev fresh env r)
+    ev fresh env (LBoolOp op l r) = boolop op (ev fresh env l) (ev fresh env r)
+    ev fresh env (LCmpOp op l r) = cmpop op (ev fresh env l) (ev fresh env r)
     ev fresh env (Prod l r) = (ev fresh env l, ev fresh env r)
     ev fresh env (Fst p) = fst (ev fresh env p)
     ev fresh env (Snd p) = snd (ev fresh env p)
     ev fresh env (Fix f) = fix (ev fresh env f)
-    ev _ _ EmptyList = []
     ev fresh env (ConsList x l) = ev fresh env x : ev fresh env l
     ev fresh env (CaseList l nilCase consCase) =
       case ev fresh env l of

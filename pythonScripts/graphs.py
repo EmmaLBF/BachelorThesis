@@ -17,8 +17,9 @@ import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 
-CSV_MERGE = "pythonScripts/benchmarks/MERGESORT_20260614_135120.csv"
-CSV_QUEENS = "pythonScripts/benchmarks/QUEENS_20260614_142213.csv"
+CSV_MERGE = "pythonScripts/benchmarks/mergeAgain_20260617_171111.csv"
+CSV_QUEENS1 = "pythonScripts/benchmarks/Queens1_20260617_162053.csv"
+CSV_QUEENS2 = "pythonScripts/benchmarks/Queens2_20260617_163557.csv"
 OUTDIR = "./pythonScripts/charts"
 os.makedirs(OUTDIR, exist_ok=True)
 
@@ -143,8 +144,9 @@ def grouped_bar(df, ax, metric, ylabel):
 
 def main():
     df_merge = pd.read_csv(CSV_MERGE)
-    df_queens = pd.read_csv(CSV_QUEENS)
-    df = pd.concat([df_merge, df_queens], ignore_index=True)
+    df_queens1 = pd.read_csv(CSV_QUEENS1)
+    df_queens2 = pd.read_csv(CSV_QUEENS2)
+    df = pd.concat([df_merge, df_queens1, df_queens2], ignore_index=True)
     # numeric coercion for safety
     for col in ["n", "InstructionCount", "Allocs", "Frees", "BytesAlloced",
                 "Time_median(s)", "Time_stdev(s)", "BinarySize(bytes)", "SymbolCount"]:
@@ -154,10 +156,10 @@ def main():
     programs = df["program"].unique()
     for p in programs:
         fig, ax = plt.subplots(1, 3, figsize=(15, 4))
-        line_plot(df, p, "Time_median(s)", "median time (s)",ax[0],
+        line_plot(df, p, "Time_median(s)", "(a) median time (s)",ax[0],
                   logy=True, errcol="Time_stdev(s)")
-        line_plot(df, p, "InstructionCount", "instruction count", ax[1], logy=True)
-        line_plot(df, p, "Allocs", "allocations", ax[2], logy=True)
+        line_plot(df, p, "InstructionCount", "(b) instruction count", ax[1], logy=True)
+        line_plot(df, p, "Allocs", "(c) allocations", ax[2], logy=True)
         ax[0].legend(title="version")
         fig.tight_layout()
         path = os.path.join(OUTDIR, f"{p}_plots.png")
@@ -168,9 +170,8 @@ def main():
 
     # Fixed-size comparisons across programs
     fig, ax = plt.subplots(1, 2, figsize=(15, 4))
-    # fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(programs)), 4.5))
-    grouped_bar(df, ax[0], "BinarySize(bytes)", "binary size (bytes)")
-    grouped_bar(df, ax[1], "SymbolCount", "symbol count")
+    grouped_bar(df, ax[0], "BinarySize(bytes)", "(a) binary size (bytes)")
+    grouped_bar(df, ax[1], "SymbolCount", "(b) symbol count")
     ax[0].legend(title="version")
     fig.tight_layout()
     path = os.path.join(OUTDIR, f"bars.png")
