@@ -86,7 +86,6 @@ data CExpression where
 
 data CStatement where
     Return :: CExpression -> CStatement
-    BindExpr :: CType -> CExpression -> Int -> CStatement -> CStatement
     Seq :: CStatement -> CStatement -> CStatement
     If :: CExpression -> CStatement -> CStatement -> CStatement
     DefFun :: CType -> Int -> CParams -> CStatement -> CStatement
@@ -356,10 +355,6 @@ showCStmt indent m (While cond body) =
     "\n" ++ indentStr indent ++ "while " ++ showCExpression cond m ++ " {"
     ++ showCStmt (indent + 1) m body
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent m (BindExpr ct x i y) =
-    "\n" ++ indentStr indent ++ printDecl ("v" ++ show i) ct
-    ++ " = " ++ showCExpression x m ++ ";"
-    ++ showCStmt indent m y
 showCStmt indent m (Seq x y) = showCStmt indent m x ++ showCStmt indent m y
 showCStmt indent m (DefFun ct ifun params body) =
     let hasEnv = any (\case CParamEnv _ -> True; _ -> False) params

@@ -79,7 +79,7 @@ translate (CL.UpdateVar i (x :: CL.CExpression a)) =
 translate (CL.While cond x) = While (translateExpr cond) (translate x)
 translate (CL.Seq x y) = Seq (translate x) (translate y)
 translate (CL.BindExpr (x :: CL.CExpression a) i s) =
-    BindExpr (fromTypeRep (typeRep (Proxy :: Proxy a))) (translateExpr x) i (translate s)
+    Seq (DefVar (fromTypeRep (typeRep (Proxy :: Proxy a))) i (translateExpr x)) (translate s)
 translate (CL.If cond x y) = If (translateExpr cond) (translate x) (translate y)
 translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
     DefFun (fromTypeRep (typeRep (Proxy :: Proxy b))) ifun [CParam ip (fromTypeRep (typeRep tp))] (translate body)
@@ -99,7 +99,6 @@ addBoxingExpr e = mapChildrenExpr addBoxingExpr e
 
 findReturn :: CStatement -> CExpression
 findReturn (Return x) = x
-findReturn (BindExpr _ _ _ y) = findReturn y
 findReturn (Seq _ y) = findReturn y
 findReturn (If _ x _) = findReturn x
 findReturn (While _ x) = findReturn x
@@ -424,10 +423,6 @@ applyClosures (While c x) stmt closureFuns = do
     (pre, c') <- applyClosuresExpr c stmt closureFuns
     x' <- applyClosures x stmt closureFuns
     return $ Seq pre (While c' x')
-applyClosures (BindExpr t c i x) stmt closureFuns = do
-    (pre, c') <- applyClosuresExpr c stmt closureFuns
-    x' <- applyClosures x stmt closureFuns
-    return $ Seq pre (BindExpr t c' i x')
 applyClosures (Return x) stmt closureFuns = do
     (pre, x') <- applyClosuresExpr x stmt closureFuns
     return $ Seq pre (Return x')
@@ -480,7 +475,6 @@ generateEnvStructs ifun liftenv =
 removeFirstReturn :: CStatement -> CStatement
 removeFirstReturn (Return _) = Skip
 removeFirstReturn (Seq x y) = Seq x (removeFirstReturn y)
-removeFirstReturn (BindExpr t x i y) = BindExpr t x i (removeFirstReturn y)
 removeFirstReturn (If c t e) = If c (removeFirstReturn t) (removeFirstReturn e)
 removeFirstReturn (While c x) = While c (removeFirstReturn x)
 removeFirstReturn x = x

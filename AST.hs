@@ -43,7 +43,6 @@ getGlobalInfo (DefFun t _ params body) m =
                     _ -> acc ) m params
         m'' = m' { pairTypes = addPairType t (pairTypes m') }
     in getGlobalInfo body m''
-getGlobalInfo (BindExpr t x i y) m = getGlobalInfo y (getGlobalInfoExpr x (m {globalUsedVars = Set.insert i (globalUsedVars m), pairTypes = addPairType t (pairTypes m)}))
 getGlobalInfo (Return x) m = getGlobalInfoExpr x m
 getGlobalInfo (DefVar t i x) m =
     let m' = case x of
@@ -159,7 +158,6 @@ getFunctionInfo (DefFun _ ifun params body) r =
     in r' { funId = ifun, funParams = params}
 getFunctionInfo (Seq x y) r = getFunctionInfo y (getFunctionInfo x r)
 getFunctionInfo (Return x) r = getFunctionInfoExpr True x r
-getFunctionInfo (BindExpr t x i y) r = getFunctionInfo y (getFunctionInfoExpr False x (r { varUses = Map.insertWith (+) i 1 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) }))  -- x doesn't escape by being bound
 getFunctionInfo (If c t e) r =
     let r' = getFunctionInfoExpr False c r
     in mergeFunctionInfo (getFunctionInfo t r') (getFunctionInfo e r')

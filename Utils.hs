@@ -106,7 +106,6 @@ getFunsWithParams _ = Map.empty
 endsInIf :: CStatement -> Bool
 endsInIf If {} = True
 endsInIf (Seq _ y) = endsInIf y
-endsInIf (BindExpr _ _ _ y) = endsInIf y
 endsInIf _ = False
 
 
@@ -187,7 +186,6 @@ mapChildrenStmt fs _  (Seq x y)          = Seq (fs x) (fs y)
 mapChildrenStmt fs fe (If c x y)         = If (fe c) (fs x) (fs y)
 mapChildrenStmt fs fe (While c x)        = While (fe c) (fs x)
 mapChildrenStmt fs _  (DefFun t i p b)   = DefFun t i p (fs b)
-mapChildrenStmt fs fe (BindExpr t x i y) = BindExpr t (fe x) i (fs y)
 mapChildrenStmt _  fe (DefVar t i x)     = DefVar t i (fe x)
 mapChildrenStmt _  fe (UpdateVar t i x)  = UpdateVar t i (fe x)
 mapChildrenStmt _  fe (Return x)         = Return (fe x)
@@ -202,14 +200,12 @@ childrenStmt (Seq x y)         = [x, y]
 childrenStmt (If _ x y)        = [x, y]
 childrenStmt (While _ x)       = [x]
 childrenStmt (DefFun _ _ _ b)  = [b]
-childrenStmt (BindExpr _ _ _ y) = [y]
 childrenStmt _                 = []
 
 -- child expressions held directly by a statement
 childExprsStmt :: CStatement -> [CExpression]
 childExprsStmt (If c _ _)        = [ c]
 childExprsStmt (While c _)       = [ c]
-childExprsStmt (BindExpr _ x _ _) = [ x]
 childExprsStmt (DefVar _ _ x)    = [ x]
 childExprsStmt (UpdateVar _ _ x) = [ x]
 childExprsStmt (Return x)        = [ x]
@@ -225,7 +221,6 @@ mapChildrenStmtM fs fe stmt = case stmt of
     If c x y -> If <$> fe c <*> fs x <*> fs y
     While c x -> While <$> fe c <*> fs x
     DefFun t i p b -> DefFun t i p <$> fs b
-    BindExpr t e i y -> BindExpr t <$> fe e <*> pure i <*> fs y
     DefVar t i x -> DefVar t i <$> fe x
     UpdateVar t i x -> UpdateVar t i <$> fe x
     Return x -> Return <$> fe x

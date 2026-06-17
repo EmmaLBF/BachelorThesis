@@ -63,9 +63,6 @@ collectPairParam _ = Map.empty
 
 collectPairLocals :: CStatement -> Map.Map Int CType
 collectPairLocals (DefVar t i _) | isPair t = Map.singleton i t
-collectPairLocals (BindExpr t _ i k)
-    | isPair t = Map.insert i t (collectPairLocals k)
-    | otherwise = collectPairLocals k
 collectPairLocals (DefFun _ _ params b) = Map.union (collectPairLocals b) (Map.unions $ map collectPairParam params)
 collectPairLocals s = foldr Map.union Map.empty ([collectPairLocals c | c <- childrenStmt s])
 
@@ -89,9 +86,6 @@ returnIsAlwaysStored ifun (DefVar _ _ expr@CallExpr{}) =
 returnIsAlwaysStored ifun (UpdateVar _ _ expr@CallExpr{}) =
     let (_, args) = collectArgs expr
     in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
-returnIsAlwaysStored ifun (BindExpr _ expr@CallExpr{} _ y) =
-    let (_, args) = collectArgs expr
-    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args && returnIsAlwaysStored ifun y
 returnIsAlwaysStored ifun s = and ([returnIsAlwaysStored ifun c | c <- childrenStmt s] ++ [returnIsAlwaysStoredExpr ifun e | e <- childExprsStmt s])
 
 isCallToFun :: Int -> CExpression -> Bool
@@ -107,7 +101,6 @@ isCallToFun _ _ = False
 getVarsThatHoldReturn :: Int -> CStatement -> Set.Set Int
 getVarsThatHoldReturn ifun (DefVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
 getVarsThatHoldReturn ifun (UpdateVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
-getVarsThatHoldReturn ifun (BindExpr _ expr@CallExpr{} i y) | isCallToFun ifun expr = Set.insert i (getVarsThatHoldReturn ifun y)
 getVarsThatHoldReturn ifun s = foldr Set.union Set.empty ([getVarsThatHoldReturn ifun c | c <- childrenStmt s])
 
 

@@ -87,7 +87,6 @@ usedAtMostOnce i m = case Map.lookup i m of
     _ -> False
 
 removeSingleVars :: CStatement -> CStatement -> FunctionInfo -> CStatement
-removeSingleVars (BindExpr _ _ i y) stmt r | usedAtMostOnce i (varUses r) = removeSingleVars y stmt r
 removeSingleVars (DefVar _ i _) _ r | usedAtMostOnce i (varUses r) = Skip
 removeSingleVars (UpdateVar _ i _) _ r | usedAtMostOnce i (varUses r)  = Skip
 removeSingleVars s@(DefFun t i p body) stmt _ =
