@@ -39,13 +39,13 @@ getTypeExpr (EmptyList t) = t
 getTypeExpr (ConsList t _ _) = t
 getTypeExpr (IsEmpty _ _) = CTBool
 getTypeExpr (IndexList t _ _) = t
-getTypeExpr ApplyClosure{} = CTVoidPtr
+getTypeExpr ApplyClosure{} = CTPtr CTVoid
 getTypeExpr (GetEnvField t _ _) = t
 getTypeExpr (CallExpr tf _ _ _) = tf
 getTypeExpr (CastExpr t _) = t
 getTypeExpr (Box t _) = t
 getTypeExpr (Unbox t _) = t
-getTypeExpr (Val _) = CTVoidPtr
+getTypeExpr (Val _) = CTPtr CTVoid
 
 stripWrap :: CExpression -> CExpression
 stripWrap (Unbox _ r) = stripWrap r
@@ -78,6 +78,12 @@ getDefs :: CStatement -> [CStatement]
 getDefs stmt@DefFun{} = [stmt]
 getDefs (Seq x y) = getDefs x ++ getDefs y
 getDefs _ = []
+
+getDefIds :: CStatement -> [Int]
+getDefIds (DefFun _ ifun _ _) = [ifun]
+getDefIds (Seq x y) = getDefIds x ++ getDefIds y
+getDefIds _ = []
+
 
 getClosureDefs :: CStatement -> [Int]
 getClosureDefs (DefFun tret ifun _ _) =

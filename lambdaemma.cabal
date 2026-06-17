@@ -4,7 +4,7 @@ version:            0.1.0.0
 
 executable lambdaemma
     main-is: Main.hs
-    other-modules: AbsLang, NamedLang, CLang, C, CDefs, InlinePass, DemotePairsPass, DeadCodePass, Utils, AST, LambdaMergePass
+    other-modules: AbsLang, NamedLang, CLang, C, CDefs, InlinePass, DemotePass, DeadCodePass, Utils, AST, LambdaMergePass
 
     build-depends:
         base >= 4.14 && < 5,

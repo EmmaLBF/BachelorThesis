@@ -10,12 +10,10 @@ import qualified AbsLang as AL
 import Data.Typeable ( Typeable )
 import System.IO
 
-import Utils ( getFunsWithParams )
 import AST ( emptyFunctionInfo )
 import InlinePass
-import DemotePairsPass ( canBeByValue, demotePairs, demoteClosures )
+import DemotePass ( demotePairsPass, demoteClosures )
 import DeadCodePass
-import Control.Monad.State ( evalState )
 
 {-
 gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
@@ -24,7 +22,7 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 
 keepOptimising :: CStatement -> CStatement
 keepOptimising body =
-    let body1 = evalState (demoteClosures body emptyFunctionInfo) []
+    let body1 = demoteClosures body emptyFunctionInfo
         body2 = inlinePass body1
         body3 = envRemovalPass body2
         body4 = eliminateAliases body3
@@ -33,9 +31,7 @@ keepOptimising body =
     in  if body == body6 then body6 else keepOptimising body6
 
 optimiseRun :: CStatement -> CStatement
-optimiseRun body =
-    let body' = keepOptimising body
-    in demotePairs body' (canBeByValue body') (getFunsWithParams body')
+optimiseRun body = demotePairsPass (keepOptimising body)
 
 -- takes name of file, program to run and three bools:
 -- should lambdas be merged, should the main opt loop be run, should pairs be demoted

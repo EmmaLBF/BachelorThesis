@@ -200,13 +200,13 @@ isParentOf child parent parentMap =
 paramsToArgVars :: CParams -> Map.Map Int CArg
 paramsToArgVars [] = Map.empty
 paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
-paramsToArgVars [CParamEnv i] = Map.singleton i (CArg CTVoidPtr (Val (EnvV i)))
+paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTPtr CTVoid) (Val (EnvV i)))
 paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
 
 paramsToArgGetEnv :: CParams -> Int -> Map.Map Int CArg
 paramsToArgGetEnv [] _ = Map.empty
 paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
-paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg CTVoidPtr (GetEnvField CTVoidPtr parent i))
+paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
 paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
 
 
@@ -254,7 +254,7 @@ addEnvParameterExpr e@(CallExpr tf _ _ _) m =
                 (Var _ i) -> i
                 _ -> -1
     in case Map.lookup fId m of
-        Just _ -> rebuildCall tf f' (CArg CTVoidPtr (Val (EnvV fId)) : map (\(CArg t arg)-> CArg t (addEnvParameterExpr arg m)) args)
+        Just _ -> rebuildCall tf f' (CArg (CTPtr CTVoid) (Val (EnvV fId)) : map (\(CArg t arg)-> CArg t (addEnvParameterExpr arg m)) args)
         _ -> mapChildrenExpr (`addEnvParameterExpr` m) e
 addEnvParameterExpr e m = mapChildrenExpr (`addEnvParameterExpr` m) e
 
@@ -321,7 +321,7 @@ applyClosuresExpr (CallExpr tf tx f x) stmt closureFuns =
         fId = case f' of Var _ i -> i ; _ -> -1
     in case Map.lookup fId closureFuns of
         Just innerFun -> do -- the called function returns a closure
-            let newType = fromMaybe CTVoidPtr (getFunType stmt (followClosureIFun innerFun closureFuns))
+            let newType = fromMaybe (CTPtr CTVoid) (getFunType stmt (followClosureIFun innerFun closureFuns))
             let mergedMap = Map.map length (getFunsWithParams stmt)
             let numArgs = Map.findWithDefault 1 fId mergedMap
             let (currArgs, otherArgs) = splitAt numArgs args

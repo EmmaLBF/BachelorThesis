@@ -37,7 +37,6 @@ data CType
     | CTClosure
     | CTPtr CType
     | CTFun CType CType
-    | CTVoidPtr
     deriving (Show, Eq, Ord)
 
 data CArg where
@@ -113,6 +112,11 @@ type ClosureParams = Set.Set Int -- set of params which are closures
 type MergedMap = Map.Map Int Int
 -- maps a function id to the set of Cparams of all of the functions it is nested in
 type FreeVars = Map.Map Int (Set.Set CParam)
+type RemovedEnvs = Set.Set Int
+type RemovedClos = Set.Set Int
+type VarsByValue = Set.Set Int
+type FunsByValue = Set.Set Int
+type VarUses = Map.Map Int Int -- var id mapped to number of uses
 
 data GlobalInfo = GlobalInfo
     { usedEnvs :: Set.Set Int   -- var ids that flow into heap
@@ -171,7 +175,7 @@ fromTypeRep p =
         ("[]", [_]) -> CTNode
         ("(,)", [l,r]) -> CTPtr (CTPair (fromTypeRep l) (fromTypeRep r))
         ("->", [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
-        _  -> CTVoidPtr
+        _  -> CTPtr CTVoid
 
 printPairType :: CType -> String
 printPairType x = case x of
@@ -185,7 +189,6 @@ printPairType x = case x of
     CTClosure -> "CLosure"
     CTPtr ct -> printPairType ct ++ "Ptr"
     CTFun ct ct' -> "Fun" ++ printPairType ct ++ printPairType ct'
-    CTVoidPtr -> "VoidPtr"
 
 -- print type for var decl, give string "v" + id
 printDecl :: String -> CType -> String
@@ -197,7 +200,6 @@ printDecl name CTNodeInt = "NodeInt* " ++ name
 printDecl name CTNodeBool = "NodeBool* " ++ name
 printDecl name (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr ++ " " ++ name
 printDecl name CTClosure = "Closure* " ++ name
-printDecl name CTVoidPtr = "void* " ++ name
 printDecl name (CTPtr t) = printDecl ("*" ++ name) t
 printDecl name (CTFun a b) = printFunPtr name a b
 
@@ -217,7 +219,6 @@ printType CTNodeInt = "NodeInt*"
 printType CTNodeBool = "NodeBool*"
 printType (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr
 printType CTClosure = "Closure*"
-printType CTVoidPtr = "void*"
 printType (CTPtr t) = printType t ++ "*"
 printType (CTFun a b) = printFunPtr "" a b
 

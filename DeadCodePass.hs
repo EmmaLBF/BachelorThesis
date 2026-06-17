@@ -6,82 +6,53 @@ import C
 import CDefs
 import AST
 import Utils
+import DemotePass
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Control.Monad.State
 
 
 -- ***** REMOVE ENV PARAM FROM FUNCTIONS ***** 
 
-removeCallParamEnv :: CStatement -> Int -> Set.Set Int -> CStatement
-removeCallParamEnv (DefFun t i p body) _ s = DefFun t i p (removeCallParamEnv body i s)
-removeCallParamEnv s ifun m = mapChildrenStmt (\x -> removeCallParamEnv x ifun m) (\e -> removeCallParamEnvExpr e ifun m) s
+removeUselessEnvParam :: CStatement -> Int -> RemovedEnvs -> CStatement
+removeUselessEnvParam (DefFun t ifun params body) _ s = 
+    let p' = [p | p <- params, case p of CParamEnv i -> i /= ifun || ifun `notElem` s; _ -> True]
+    in DefFun t ifun p' (removeUselessEnvParam body ifun s)
+removeUselessEnvParam s ifun m = mapChildrenStmt (\x -> removeUselessEnvParam x ifun m) (\e -> removeUselessEnvParamExpr e ifun m) s
 
-removeCallParamEnvExpr :: CExpression -> Int -> Set.Set Int -> CExpression
-removeCallParamEnvExpr (GetEnvField t envId varId) ifun s
+-- drop the env parameter from the call expressions that are affected
+-- remove env access to just var access
+removeUselessEnvParamExpr :: CExpression -> Int -> RemovedEnvs -> CExpression
+removeUselessEnvParamExpr (GetEnvField t envId varId) ifun s
     | envId == ifun && ifun `elem` s = Var t varId
-removeCallParamEnvExpr (CallExpr tf tx f x) ifun s =
+removeUselessEnvParamExpr (CallExpr tf tx f x) ifun s =
     let (f', args) = collectArgs (CallExpr tf tx f x)
         fId = case f' of Var _ i -> i; _ -> -1
     in  if fId `elem` s
         then
             let args' = case args of (CArg _ (Val (EnvV _)) : rest) -> rest; _ -> args
-            in rebuildCall tf f' (map (\(CArg t arg) -> CArg t (removeCallParamEnvExpr arg ifun s)) args')
-        else CallExpr tf tx (removeCallParamEnvExpr f ifun s) (removeCallParamEnvExpr x ifun s)
-removeCallParamEnvExpr e ifun s = mapChildrenExpr (\x -> removeCallParamEnvExpr x ifun s) e
+            in rebuildCall tf f' (map (\(CArg t arg) -> CArg t (removeUselessEnvParamExpr arg ifun s)) args')
+        else CallExpr tf tx (removeUselessEnvParamExpr f ifun s) (removeUselessEnvParamExpr x ifun s)
+removeUselessEnvParamExpr e ifun s = mapChildrenExpr (\x -> removeUselessEnvParamExpr x ifun s) e
 
 -- removes first env params for functions where it is not used
-removeEnvParam :: CStatement -> CStatement -> FunctionInfo -> State (Set.Set Int) CStatement
-removeEnvParam (DefFun t ifun params body) stmt _ =
+-- collects list of functions that had their envs removed
+collectUselessEnvParam :: CStatement -> FunctionInfo -> RemovedEnvs
+collectUselessEnvParam (DefFun t ifun params body) _ =
     let r' = getFunctionInfo (DefFun t ifun params body) emptyFunctionInfo
         p' = [p | p <- params, case p of CParamEnv i -> Set.member i (envUses r'); _ -> True]
-    in do
-        when (params /= p') $ modify (Set.insert ifun)
-        body' <- removeEnvParam body stmt r'
-        return $ DefFun t ifun p' body'
-removeEnvParam (Seq x y) stmt r = Seq <$> removeEnvParam x stmt r <*> removeEnvParam y stmt r
-removeEnvParam x _ _ = return x
+    in if params /= p' then Set.singleton ifun else Set.empty
+collectUselessEnvParam (Seq x y) r = Set.union (collectUselessEnvParam x r) (collectUselessEnvParam y r)
+collectUselessEnvParam _ _ = Set.empty
 
 envRemovalPass :: CStatement -> CStatement
 envRemovalPass body =
-    let (removedEnvParamBody, l) = runState (removeEnvParam body body emptyFunctionInfo) Set.empty
-        paramRemoved = removeCallParamEnv removedEnvParamBody (-1) l
-    in removeEnvs paramRemoved
-
--- ***** REMOVE LOCAL ENVS ***** 
-
--- removes envs that are only used locally (no alloc needed)
-removeEnvs :: CStatement -> CStatement
-removeEnvs (DefFun t i p body) =
-    let removed = collectUnusedEnvAllocs body emptyFunctionInfo
-    in DefFun t i p (rewriteRemovedEnvs removed body)
-removeEnvs (Seq x y) = Seq (removeEnvs x) (removeEnvs y)
-removeEnvs x = x
-
--- PASS 1: remove the AllocEnv statements that aren't needed, collect their ids
-    -- can only be removed if it does not escape anywhere
-collectUnusedEnvAllocs :: CStatement -> FunctionInfo -> Set.Set Int
-collectUnusedEnvAllocs (AllocEnv envId _ _ _) r | envId `notElem` escapedEnvs r = Set.singleton envId
-collectUnusedEnvAllocs s@(DefFun _ _ _ body) _ =
-    collectUnusedEnvAllocs body (getFunctionInfo s emptyFunctionInfo)
-collectUnusedEnvAllocs s r =
-    foldr Set.union Set.empty ([collectUnusedEnvAllocs c r | c <- childrenStmt s])
-
--- PASS 2: rewrites get-env-field accesses to the envs that were removed, and removes alloc statements
-rewriteRemovedEnvs :: Set.Set Int -> CStatement -> CStatement
-rewriteRemovedEnvs r (AllocEnv envId _ _ _) | envId `elem` r = Skip
-rewriteRemovedEnvs r s = mapChildrenStmt (rewriteRemovedEnvs r) (rewriteRemovedEnvsExpr r) s
-
-rewriteRemovedEnvsExpr :: Set.Set Int -> CExpression -> CExpression
-rewriteRemovedEnvsExpr removed (GetEnvField t envId varId)
-    | Set.member envId removed = rewriteRemovedEnvsExpr removed (Var t varId)
-    | otherwise = GetEnvField t envId varId
-rewriteRemovedEnvsExpr removed e = mapChildrenExpr (rewriteRemovedEnvsExpr removed) e
-
+    let l = collectUselessEnvParam body emptyFunctionInfo
+        paramRemoved = removeUselessEnvParam body (-1) l
+    in demoteEnvs paramRemoved
 
 -- ***** REMOVE VARS (THAT ARE USED <= 1 TIMES) ***** 
 
-usedAtMostOnce :: Int -> Map.Map Int Int -> Bool
+usedAtMostOnce :: Int -> VarUses -> Bool
 usedAtMostOnce i m = case Map.lookup i m of
     Just n | n <= 1 -> True
     _ -> False
@@ -107,8 +78,6 @@ removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x st
 
 
 -- ***** REMOVE CLOSURES ***** 
-
-
 
 
 -- CLEAN IR (REMOVE SKIPS)
@@ -144,9 +113,7 @@ eliminateAliases :: CStatement -> CStatement
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
         stmt' = replaceAliases stmt (aliases info)
-    in  if stmt == stmt'
-        then stmt'
-        else eliminateAliases stmt'
+    in  if stmt == stmt' then stmt' else eliminateAliases stmt'
 
 -- replaces all var defs of form v2 = v3 or v2 = env5
 replaceAliases :: CStatement -> Map.Map Int CArg -> CStatement
