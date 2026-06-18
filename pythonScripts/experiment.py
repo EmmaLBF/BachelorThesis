@@ -270,7 +270,7 @@ def only_run(c_file, folder="outputs/"):
 MERGESORT = [
     {
         "name": "mergeSortCall",
-        "folders": ["outputs/baselines/", "outputs/mergedLams/", "outputs/optimised/", "cProgs/"],
+        "folders": ["outputs/basic/", "outputs/mergedLams/", "outputs/optimised/", "baselines/"],
         "sizes": [100, 1000, 5000, 10000, 15000, 20000, 22000, 25000, 28000, 30000],
         "distance_from_bottom": 4,
         "prefix": "  printListInt(v0(LIST(",
@@ -281,7 +281,7 @@ MERGESORT = [
 QUEENS1 = [
     {
         "name": "nQueensCall",
-        "folders": ["outputs/baselines/", "outputs/mergedLams/"],
+        "folders": ["outputs/basic/", "outputs/mergedLams/"],
         "sizes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "distance_from_bottom": 4,
         "prefix": "  printInt(v0(v106(",
@@ -292,7 +292,7 @@ QUEENS1 = [
 QUEENS2 = [
     {
         "name": "nQueensCall",
-        "folders": ["outputs/optimised/", "cProgs/"],
+        "folders": ["outputs/optimised/", "baselines/"],
         "sizes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "distance_from_bottom": 7,
         "prefix": "  int v5 = ",

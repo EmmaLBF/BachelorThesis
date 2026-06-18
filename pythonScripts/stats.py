@@ -12,7 +12,7 @@ def samples(program, folder, n, df):
 def print_stats(code_name, size, df):
     print(f"TESTING: {code_name}")
 
-    c_code = samples(code_name, "cProgs/", size, df)
+    c_code = samples(code_name, "baselines/", size, df)
     opt_code = samples(code_name, "outputs/optimised/", size, df)
 
     # Null hypothesis is "the data is normal." 
@@ -46,10 +46,10 @@ df_queen2 = pd.read_csv("pythonScripts/benchmarks/Queens2_20260617_163557.csv")
 df_queen =  pd.concat([df_queen1, df_queen2], ignore_index=True)
 print_stats("nQueensCall", 10, df_queen)
 
-c_code_merge = samples("mergeSortCall", "cProgs/", 30000, df_merge)
+c_code_merge = samples("mergeSortCall", "baselines/", 30000, df_merge)
 opt_code_merge = samples("mergeSortCall", "outputs/optimised/", 30000, df_merge)
 
-c_code_queen = samples("nQueensCall", "cProgs/", 10, df_queen)
+c_code_queen = samples("nQueensCall", "baselines/", 10, df_queen)
 opt_code_queen = samples("nQueensCall", "outputs/optimised/", 10, df_queen)
 
 # q plot to check normality
@@ -86,9 +86,9 @@ mergeSortSizes = [100, 1000, 5000, 10000, 15000, 20000, 22000, 25000, 28000, 300
 nQueensSizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 print("DIFF BASIC -> MERGE")
-diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/baselines/", "outputs/mergedLams/")
-diff("nQueensCall", nQueensSizes, df_queen, "outputs/baselines/", "outputs/mergedLams/")
+diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/basic/", "outputs/mergedLams/")
+diff("nQueensCall", nQueensSizes, df_queen, "outputs/basic/", "outputs/mergedLams/")
 
 print("DIFF BASIC -> OPT")
-diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/baselines/", "outputs/optimised/")
-diff("nQueensCall", nQueensSizes, df_queen, "outputs/baselines/", "outputs/optimised/")
+diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/basic/", "outputs/optimised/")
+diff("nQueensCall", nQueensSizes, df_queen, "outputs/basic/", "outputs/optimised/")

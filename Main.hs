@@ -59,9 +59,9 @@ main = do
     let progsQueen = [("nQueensCall1", AL.nQueensCall1), ("nQueensCall", AL.nQueensCall)]
 
     -- basic
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsInt
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsList
-    mapM_ (\(name, prog) -> run ("baselines/" ++ name) prog False False) progsQueen
+    mapM_ (\(name, prog) -> run ("basic/" ++ name) prog False False) progsInt
+    mapM_ (\(name, prog) -> run ("basic/" ++ name) prog False False) progsList
+    mapM_ (\(name, prog) -> run ("basic/" ++ name) prog False False) progsQueen
 
     -- merged lams
     mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsInt

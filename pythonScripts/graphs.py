@@ -39,9 +39,9 @@ def short_version(folder):
         return "Optimised"
     elif folder == "outputs/mergedLams/":
         return "Merged Lambdas"
-    elif folder == "outputs/baselines/":
+    elif folder == "outputs/basic/":
         return "Basic"
-    elif folder == "cProgs/":
+    elif folder == "baselines/":
         return "Baseline"
     return "nothing"
 

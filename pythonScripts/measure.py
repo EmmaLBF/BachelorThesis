@@ -163,7 +163,7 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
 
 
 # print("Basic MERGESORT ******")
-# runTrials("mergeSortCall", "outputs/baselines/", 4, "  printListInt(v0(LIST", "()));\n")
+# runTrials("mergeSortCall", "outputs/basic/", 4, "  printListInt(v0(LIST", "()));\n")
 
 # print("MergeLams MERGESORT ******")
 # runTrials("mergeSortCall", "outputs/mergedLams/", 4, "  printListInt(v0(LIST", "()));\n")
@@ -184,7 +184,7 @@ def runTrials(path_half, folder, distanceFromBottom, newLineFirst, newLineSecond
 
 
 print("Test All Basic ******")
-for folder in ["baselines", "mergedLams", "optimised"]:
+for folder in ["basic", "mergedLams", "optimised"]:
     print("\n" + ("-" * 30))
     print("\n" + folder)
     for prog in progs:
