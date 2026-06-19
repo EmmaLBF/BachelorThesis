@@ -114,20 +114,15 @@ type FunsByValue = Set.Set Int
 type VarUses = Map.Map Int Int -- var id mapped to number of uses
 
 data GlobalInfo = GlobalInfo
-    { usedEnvs :: Set.Set Int   -- var ids that flow into heap
-    , closureUses :: Map.Map Int Int -- id of closure -> number of times used
-    , functionCallsGlobal :: Map.Map Int Int -- id of function called -> number of times called
-    , globalUsedVars :: Set.Set Int
-    , aliases :: Map.Map Int CArg
-    , callArgs :: Map.Map Int [CArgs]
-    , pairTypes :: Set.Set (CType, CType)
+    { usedEnvsGlobal :: Set.Set Int   -- var ids that flow into heap
+    , funCallsGlobal :: Map.Map Int Int -- id of function called -> number of times called
+    , aliasesGlobal :: Map.Map Int CArg
+    , pairTypesGlobal :: Set.Set (CType, CType)
     } deriving (Show)
 
 data FunctionInfo = FunctionInfo
     {
-      funId :: Int
-    , funParams :: CParams
-    , escapedVars :: Set.Set Int   -- var ids that flow into heap
+      escapedVars :: Set.Set Int   -- var ids that flow into heap
     , varUses :: Map.Map Int Int
     , varDefs :: Map.Map Int CArg
     , escapedEnvs :: Set.Set Int   -- env ids that outlive the frame

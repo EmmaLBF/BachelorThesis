@@ -6,6 +6,8 @@ module AST where
 import CDefs
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Utils (childrenExpr)
+import Data.List (foldl')
 
 -- Global AST info traversal
 
@@ -16,22 +18,38 @@ addPairType t s =
         CTPair tx ty -> Set.insert (tx, ty) s
         _ -> s
 
+-- addPairType :: CType -> FunctionInfo -> FunctionInfo
+-- addPairType t m =
+--     case t of
+--         CTPtr (CTPair tx ty) -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
+--         CTPair tx ty -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
+--         _ -> m
+
+addAlias :: CExpression -> Int -> CType -> GlobalInfo -> GlobalInfo
+addAlias x i t m =
+    case x of
+        Val (EnvV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (EnvV j))) (aliasesGlobal m)}
+        Val (ClosureV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (ClosureV j))) (aliasesGlobal m)}
+        HeadList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (HeadList t2 var)) (aliasesGlobal m)}
+        TailList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (TailList t2 var)) (aliasesGlobal m)}
+        expr@Var{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        expr@Fst{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        expr@Snd{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        _ -> m
+
 emptyGlobalInfo :: GlobalInfo
-emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Set.empty Map.empty Map.empty Set.empty
+emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Set.empty
 
 mergeGlobalInfo :: GlobalInfo -> GlobalInfo -> GlobalInfo
 mergeGlobalInfo a b = GlobalInfo
-    (Set.union (usedEnvs a) (usedEnvs b))
-    (Map.unionWith (+) (closureUses a) (closureUses b))
-    (Map.unionWith (+) (functionCallsGlobal a) (functionCallsGlobal b))
-    (Set.union (globalUsedVars a) (globalUsedVars b))
-    (Map.union (aliases a) (aliases b))
-    (Map.unionWith (++) (callArgs a) (callArgs b))
-    (Set.union (pairTypes a) (pairTypes b))
+    (Set.union (usedEnvsGlobal a) (usedEnvsGlobal b))
+    (Map.unionWith (+) (funCallsGlobal a) (funCallsGlobal b))
+    (Map.union (aliasesGlobal a) (aliasesGlobal b))
+    (Set.union (pairTypesGlobal a) (pairTypesGlobal b))
 
 getGlobalInfo :: CStatement -> GlobalInfo -> GlobalInfo
 getGlobalInfo (AllocEnv _ i directPs _) m =
-    let m' = m { usedEnvs = Set.insert i (usedEnvs m) }
+    let m' = m { usedEnvsGlobal = Set.insert i (usedEnvsGlobal m) }
     in foldr (\(CArg _ x) acc -> getGlobalInfoExpr x acc) m' directPs
 getGlobalInfo (Seq x y) m = getGlobalInfo y (getGlobalInfo x m)
 getGlobalInfo (If c x y) m = getGlobalInfo y (getGlobalInfo x (getGlobalInfoExpr c m))
@@ -39,66 +57,54 @@ getGlobalInfo (While c x) m = getGlobalInfo x (getGlobalInfoExpr c m)
 getGlobalInfo (DefFun t _ params body) m =
     let m' = foldr (\p acc ->
                 case p of
-                    CParamEnv i -> m { usedEnvs = Set.insert i (usedEnvs m) }
+                    CParamEnv i -> m { usedEnvsGlobal = Set.insert i (usedEnvsGlobal m) }
                     _ -> acc ) m params
-        m'' = m' { pairTypes = addPairType t (pairTypes m') }
+        m'' = m' { pairTypesGlobal = addPairType t (pairTypesGlobal m') }
     in getGlobalInfo body m''
 getGlobalInfo (Return x) m = getGlobalInfoExpr x m
 getGlobalInfo (DefVar t i x) m =
-    let m' = case x of
-                Val (EnvV j) -> m { aliases = Map.insert i (CArg t (Val (EnvV j))) (aliases m)}
-                Val (ClosureV j) -> m { aliases = Map.insert i (CArg t (Val (ClosureV j))) (aliases m)}
-                HeadList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (HeadList t2 var)) (aliases m)}
-                TailList t2 var@Var{} -> m { aliases = Map.insert i (CArg t (TailList t2 var)) (aliases m)}
-                expr@Var{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                expr@Fst{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                expr@Snd{} -> m { aliases = Map.insert i (CArg t expr) (aliases m)}
-                _ -> m
-    in getGlobalInfoExpr x (m' {globalUsedVars = Set.insert i (globalUsedVars m'), pairTypes = addPairType t (pairTypes m)})
-getGlobalInfo (UpdateVar t i x) m = getGlobalInfoExpr x (m {globalUsedVars = Set.insert i (globalUsedVars m), pairTypes = addPairType t (pairTypes m)})
+    let m' = addAlias x i t m
+    in getGlobalInfoExpr x (m' {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfo (UpdateVar t _ x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
 getGlobalInfo _ m = m
 
 getGlobalInfoExpr :: CExpression -> GlobalInfo -> GlobalInfo
-getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvs = Set.insert i (usedEnvs m), globalUsedVars = Set.insert i (globalUsedVars m)}
-getGlobalInfoExpr (Val (ClosureV i)) m = m { closureUses = Map.insertWith (+) i 1 (closureUses m) }
-getGlobalInfoExpr (GetEnvField t i _) m = m { usedEnvs = Set.insert i (usedEnvs m), pairTypes = addPairType t (pairTypes m) }
+getGlobalInfoExpr (Val (EnvV i)) m = m { usedEnvsGlobal = Set.insert i (usedEnvsGlobal m)}
+getGlobalInfoExpr (GetEnvField t i _) m = m { usedEnvsGlobal = Set.insert i (usedEnvsGlobal m), pairTypesGlobal = addPairType t (pairTypesGlobal m) }
 getGlobalInfoExpr (CallExpr tf tx f x) m =
     let (func, args) = CDefs.collectArgs (CallExpr tf tx f x)
         m' = case func of
-                Var _ i -> m { functionCallsGlobal = Map.insertWith (+) i 1 (functionCallsGlobal m),
-                                callArgs = Map.insertWith (++) i [args] (callArgs m)}
+                Var _ i -> m { funCallsGlobal = Map.insertWith (+) i 1 (funCallsGlobal m)}
                 _ -> getGlobalInfoExpr f m
-        m'' = m' {pairTypes = addPairType tx (addPairType tf (pairTypes m'))}
+        m'' = m' {pairTypesGlobal = addPairType tx (addPairType tf (pairTypesGlobal m'))}
     in foldr (\(CArg _ a) acc -> getGlobalInfoExpr a acc) m'' args
-getGlobalInfoExpr (ApplyClosure t f x) m = getGlobalInfoExpr x (getGlobalInfoExpr f (m {pairTypes = addPairType t (pairTypes m)}))
-getGlobalInfoExpr (Ternary tp c t e) m = getGlobalInfoExpr e (getGlobalInfoExpr t (getGlobalInfoExpr c (m {pairTypes = addPairType tp (pairTypes m)})))
+getGlobalInfoExpr (ApplyClosure t f x) m = getGlobalInfoExpr x (getGlobalInfoExpr f (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)}))
+getGlobalInfoExpr (Ternary tp c t e) m = getGlobalInfoExpr e (getGlobalInfoExpr t (getGlobalInfoExpr c (m {pairTypesGlobal = addPairType tp (pairTypesGlobal m)})))
+getGlobalInfoExpr (ConsList t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)}))
+getGlobalInfoExpr (Prod t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)}))
+getGlobalInfoExpr (Fst t t2 x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t2 (addPairType t (pairTypesGlobal m))})
+getGlobalInfoExpr (Snd t t2 x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t2 (addPairType t (pairTypesGlobal m))})
+getGlobalInfoExpr (IsEmpty t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (HeadList t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (TailList t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (Box t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (Unbox t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (CastExpr t x) m = getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)})
+getGlobalInfoExpr (IndexList t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypesGlobal = addPairType t (pairTypesGlobal m)}))
 getGlobalInfoExpr (LIntOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (LCmpOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
 getGlobalInfoExpr (LBoolOp _ x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x m)
-getGlobalInfoExpr (ConsList t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)}))
-getGlobalInfoExpr (Prod t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)}))
-getGlobalInfoExpr (Fst t t2 x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t2 (addPairType t (pairTypes m))})
-getGlobalInfoExpr (Snd t t2 x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t2 (addPairType t (pairTypes m))})
 getGlobalInfoExpr (Not x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (Abs x) m = getGlobalInfoExpr x m
-getGlobalInfoExpr (IsEmpty t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (HeadList t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (TailList t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (Box t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (Unbox t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (CastExpr t x) m = getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)})
-getGlobalInfoExpr (IndexList t x y) m = getGlobalInfoExpr y (getGlobalInfoExpr x (m {pairTypes = addPairType t (pairTypes m)}))
 getGlobalInfoExpr _ m = m
 
 -- Per function body AST info traversal
 
 emptyFunctionInfo :: FunctionInfo
-emptyFunctionInfo = FunctionInfo 0 [] Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty
+emptyFunctionInfo = FunctionInfo Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty
 
 mergeFunctionInfo :: FunctionInfo -> FunctionInfo -> FunctionInfo
 mergeFunctionInfo a b = FunctionInfo
-    (funId a)
-    (funParams a)
     (Set.union (escapedVars a) (escapedVars b))
     (Map.unionWith max (varUses a) (varUses b))
     (Map.union (varDefs a) (varDefs b))
@@ -109,8 +115,7 @@ mergeFunctionInfo a b = FunctionInfo
     (Set.union (escapedClos a) (escapedClos b))
 
 getFunctionInfoExpr :: Bool -> CExpression -> FunctionInfo -> FunctionInfo
-getFunctionInfoExpr _ (GetEnvField _ envId _) r =
-    r { envUses = Set.insert envId (envUses r) }
+getFunctionInfoExpr _ (GetEnvField _ envId _) r = r { envUses = Set.insert envId (envUses r) }
 getFunctionInfoExpr escapes (Var _ i) r =
     if escapes
     then r { escapedVars = Set.insert i (escapedVars r), varUses = Map.insertWith (+) i 1 (varUses r) }
@@ -118,27 +123,11 @@ getFunctionInfoExpr escapes (Var _ i) r =
 getFunctionInfoExpr escapes (Val (EnvV i)) r =
     if escapes
     then r { escapedEnvs = Set.insert i (escapedEnvs r), envUses = Set.insert i (envUses r)  }
-    else r
+    else r { envUses = Set.insert i (envUses r)  }
 getFunctionInfoExpr escapes (Val (ClosureV i)) r =
     if escapes
     then r { escapedClos = Set.insert i (escapedClos r), varUses = Map.insertWith (+) i 1 (varUses r) }
     else r { varUses = Map.insertWith (+) i 1 (varUses r) }
-getFunctionInfoExpr escapes (Not x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Abs x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Fst _ _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Snd _ _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (IsEmpty _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (HeadList _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (TailList _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (CastExpr _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Box _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Unbox _ x) m = getFunctionInfoExpr escapes x m
-getFunctionInfoExpr escapes (Ternary _ _ t e) m = getFunctionInfoExpr escapes t (getFunctionInfoExpr escapes e m)
-getFunctionInfoExpr escapes (ConsList _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
-getFunctionInfoExpr escapes (Prod _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
-getFunctionInfoExpr escapes (LIntOp _ x y) m = getFunctionInfoExpr escapes  x (getFunctionInfoExpr escapes y m)
-getFunctionInfoExpr escapes (LCmpOp _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
-getFunctionInfoExpr escapes (LBoolOp _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
 getFunctionInfoExpr escapes (CallExpr tf tx f x) m =
     let (func, args) = CDefs.collectArgs (CallExpr tf tx f x)
         m' = case func of
@@ -149,13 +138,10 @@ getFunctionInfoExpr escapes (CallExpr tf tx f x) m =
         processArg (Val (EnvV _)) m' = m'
         processArg arg m' = getFunctionInfoExpr True arg m'
 getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr False f (getFunctionInfoExpr escapes x m)
-getFunctionInfoExpr escapes (IndexList _ x y) m = getFunctionInfoExpr escapes x (getFunctionInfoExpr escapes y m)
-getFunctionInfoExpr _ _ m = m
+getFunctionInfoExpr escape e m =  foldl' (flip (getFunctionInfoExpr escape)) m (childrenExpr e)
 
 getFunctionInfo :: CStatement -> FunctionInfo -> FunctionInfo
-getFunctionInfo (DefFun _ ifun params body) r =
-    let r' = getFunctionInfo body (r { funId = ifun, funParams = params})
-    in r' { funId = ifun, funParams = params}
+getFunctionInfo (DefFun _ _ _ body) r = getFunctionInfo body r
 getFunctionInfo (Seq x y) r = getFunctionInfo y (getFunctionInfo x r)
 getFunctionInfo (Return x) r = getFunctionInfoExpr True x r
 getFunctionInfo (If c t e) r =

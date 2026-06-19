@@ -14,7 +14,7 @@ import qualified Data.Map as Map
 inlinePass :: CStatement -> CStatement
 inlinePass body =
     let globalInfo = getGlobalInfo body emptyGlobalInfo
-        safeToInline = Map.keys $ Map.filter (== 1) (functionCallsGlobal globalInfo)
+        safeToInline = Map.keys $ Map.filter (== 1) (funCallsGlobal globalInfo)
         (body', removed') = 
             foldr (\i (b, removed) ->
                 let b' = inlineOne i b

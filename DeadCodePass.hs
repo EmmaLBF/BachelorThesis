@@ -117,7 +117,7 @@ removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
 eliminateAliases :: CStatement -> CStatement
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
-        stmt' = replaceAliases stmt (aliases info)
+        stmt' = replaceAliases stmt (aliasesGlobal info)
     in  if stmt == stmt' then stmt' else eliminateAliases stmt'
 
 -- replaces all var defs of form v2 = v3 or v2 = env5

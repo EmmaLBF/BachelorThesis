@@ -518,8 +518,9 @@ printCode finalBody freeVars =
     let finalDefs = getDefs finalBody
         finalMergeMap = Map.map length (getFunsWithParams finalBody)
         globalInfo = getGlobalInfo finalBody emptyGlobalInfo
+        funInfo = getFunctionInfo finalBody emptyFunctionInfo
 
-        envStructs = foldr (Seq . (`generateEnvStructs` freeVars)) Skip (Set.toList (usedEnvs globalInfo))
+        envStructs = foldr (Seq . (`generateEnvStructs` freeVars)) Skip (Set.toList (usedEnvsGlobal globalInfo))
         
         imports =   "\n#include <stdbool.h>" ++
                     "\n#include <stdio.h>" ++
@@ -534,7 +535,7 @@ printCode finalBody freeVars =
         funImpl = showCStmt 0 finalMergeMap funPart
 
         in "\n// imports" ++ imports ++
-            "\n// pair type defitions" ++ concatMap genPairDeclaration (Set.toList (pairTypes globalInfo)) ++
+            "\n// pair type defitions" ++ concatMap genPairDeclaration (Set.toList (pairTypesGlobal globalInfo)) ++
             "\n// function defitions" ++ showFunDefs finalDefs ++
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty envStructs ++
             "\n// function implementations" ++ funImpl ++
