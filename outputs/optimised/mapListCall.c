@@ -4,16 +4,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
 // pair type defitions
 // function defitions
-NodeInt* v0(int (*v1)(int), NodeInt* v2);
+ListInt* v0(int (*v1)(int), ListInt* v2);
 int v14(int v5);
 
 // closure defitions
 // function implementations
-NodeInt* v0(int (*v1)(int), NodeInt* v2) {
+ListInt* v0(int (*v1)(int), ListInt* v2) {
   if (((v2) == NULL)) {
     return NULL;
   } else {

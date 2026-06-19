@@ -1,7 +1,7 @@
 // imports
 #include <stdio.h>
 #include <stdlib.h>
-#include "../outputs/listLib.c"
+#include "../outputs/lib.c"
 
 int fibonacci(int n) {
     int first = 1, second = 1, next = 1;

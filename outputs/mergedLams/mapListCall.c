@@ -4,12 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
 // pair type defitions
 // function defitions
-NodeInt* v10(void* env10, void* v3_raw, void* v4_raw);
-NodeInt* v0(int (*v1)(int), NodeInt* v2);
+ListInt* v10(void* env10, void* v3_raw, void* v4_raw);
+ListInt* v0(int (*v1)(int), ListInt* v2);
 int v14(int v5);
 
 // closure defitions
@@ -21,13 +21,13 @@ typedef struct {
 } Env_v10;
 
 // function implementations
-NodeInt* v10(void* env10, void* v3_raw, void* v4_raw) {
+ListInt* v10(void* env10, void* v3_raw, void* v4_raw) {
   int v3 = *(int*)v3_raw;
-  NodeInt* v4 = (NodeInt*)v4_raw;
+  ListInt* v4 = (ListInt*)v4_raw;
   return consInt(((Env_v10*)env10)->v1(v3), v0(((Env_v10*)env10)->v1, v4));
 }
 
-NodeInt* v0(int (*v1)(int), NodeInt* v2) {
+ListInt* v0(int (*v1)(int), ListInt* v2) {
   Env_v10* env10 = malloc(sizeof(Env_v10));
   env10->v1 = v1;
   if (((v2) == NULL)) return NULL;

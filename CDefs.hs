@@ -30,9 +30,9 @@ data CType
     = CTInt
     | CTBool
     | CTVoid
-    | CTNode
-    | CTNodeInt
-    | CTNodeBool
+    | CTList
+    | CTListInt
+    | CTListBool
     | CTPair CType CType
     | CTClosure
     | CTPtr CType
@@ -170,9 +170,9 @@ fromTypeRep p =
         ("Int", []) -> CTInt
         ("Bool", []) -> CTBool
         ("()", []) -> CTVoid
-        ("[]", [a]) | show a == "Int" -> CTNodeInt
-                    | show a == "Bool" -> CTNodeBool
-        ("[]", [_]) -> CTNode
+        ("[]", [a]) | show a == "Int" -> CTListInt
+                    | show a == "Bool" -> CTListBool
+        ("[]", [_]) -> CTList
         ("(,)", [l,r]) -> CTPtr (CTPair (fromTypeRep l) (fromTypeRep r))
         ("->", [a, b]) -> CTFun (fromTypeRep a) (fromTypeRep b)
         _  -> CTPtr CTVoid
@@ -182,9 +182,9 @@ printPairType x = case x of
     CTInt -> "Int"
     CTBool -> "Bool"
     CTVoid -> "Void"
-    CTNode -> "Node"
-    CTNodeInt -> "NodeInt"
-    CTNodeBool -> "NodeBool"
+    CTList -> "List"
+    CTListInt -> "ListInt"
+    CTListBool -> "ListBool"
     CTPair _ _ -> "Pair"
     CTClosure -> "CLosure"
     CTPtr ct -> printPairType ct ++ "Ptr"
@@ -195,9 +195,9 @@ printDecl :: String -> CType -> String
 printDecl name CTInt = "int " ++ name
 printDecl name CTBool = "bool " ++ name
 printDecl name CTVoid = "void* " ++ name
-printDecl name CTNode = "Node* " ++ name
-printDecl name CTNodeInt = "NodeInt* " ++ name
-printDecl name CTNodeBool = "NodeBool* " ++ name
+printDecl name CTList = "List* " ++ name
+printDecl name CTListInt = "ListInt* " ++ name
+printDecl name CTListBool = "ListBool* " ++ name
 printDecl name (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr ++ " " ++ name
 printDecl name CTClosure = "Closure* " ++ name
 printDecl name (CTPtr t) = printDecl ("*" ++ name) t
@@ -214,9 +214,9 @@ printType :: CType -> String
 printType CTInt = "int"
 printType CTBool = "bool"
 printType CTVoid = "void"
-printType CTNode = "Node*"
-printType CTNodeInt = "NodeInt*"
-printType CTNodeBool = "NodeBool*"
+printType CTList = "List*"
+printType CTListInt = "ListInt*"
+printType CTListBool = "ListBool*"
 printType (CTPair tl tr) = "Pair_" ++ printPairType tl ++ "_" ++ printPairType tr
 printType CTClosure = "Closure*"
 printType (CTPtr t) = printType t ++ "*"

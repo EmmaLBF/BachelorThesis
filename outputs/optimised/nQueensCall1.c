@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
 // pair type defitions
 typedef struct Pair_Int_Int {
@@ -20,12 +20,12 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 };
 
 // function defitions
-int v0(Node* v1);
-Node* v16(Node* v17, Node* v18);
-bool v30(Pair_Int_Int *v31, Node* v32);
-Node* v21(int v22, int v23, Node* v24, int v25);
-Node* v10(int v11, int v12, Node* v13);
-Node* v7(void* env7, void* v8_raw, void* v9_raw);
+int v0(List* v1);
+List* v16(List* v17, List* v18);
+bool v30(Pair_Int_Int *v31, List* v32);
+List* v21(int v22, int v23, List* v24, int v25);
+List* v10(int v11, int v12, List* v13);
+List* v7(void* env7, void* v8_raw, void* v9_raw);
 
 // closure defitions
 typedef struct {
@@ -36,7 +36,7 @@ typedef struct {
 } Env_v107;
 
 // function implementations
-int v0(Node* v1) {
+int v0(List* v1) {
   if (((v1) == NULL)) {
     return 0;
   } else {
@@ -44,7 +44,7 @@ int v0(Node* v1) {
   }
 }
 
-Node* v16(Node* v17, Node* v18) {
+List* v16(List* v17, List* v18) {
   if (((v17) == NULL)) {
     return v18;
   } else {
@@ -52,7 +52,7 @@ Node* v16(Node* v17, Node* v18) {
   }
 }
 
-bool v30(Pair_Int_Int *v31, Node* v32) {
+bool v30(Pair_Int_Int *v31, List* v32) {
   if (((v32) == NULL)) {
     return true;
   } else {
@@ -61,12 +61,12 @@ bool v30(Pair_Int_Int *v31, Node* v32) {
   }
 }
 
-Node* v21(int v22, int v23, Node* v24, int v25) {
+List* v21(int v22, int v23, List* v24, int v25) {
   if ((v25 == v22)) {
     return NULL;
   } else {
     Pair_Int_Int *v27 = makePair_Int_Int(v23, v25);
-    Node* v75 = NULL;
+    List* v75 = NULL;
     if (v30(v27, v24)) {
       v75 = cons(cons(v27, v24), v21(v22, v23, v24, (v25 + 1)));
     } else {
@@ -76,7 +76,7 @@ Node* v21(int v22, int v23, Node* v24, int v25) {
   }
 }
 
-Node* v10(int v11, int v12, Node* v13) {
+List* v10(int v11, int v12, List* v13) {
   if (((v13) == NULL)) {
     return NULL;
   } else {
@@ -84,9 +84,9 @@ Node* v10(int v11, int v12, Node* v13) {
   }
 }
 
-Node* v7(void* env7, void* v8_raw, void* v9_raw) {
+List* v7(void* env7, void* v8_raw, void* v9_raw) {
   int v8 = *(int*)v8_raw;
-  Node* v9 = (Node*)v9_raw;
+  List* v9 = (List*)v9_raw;
   if ((v8 == ((Env_v7*)env7)->v5)) {
     return v9;
   } else {

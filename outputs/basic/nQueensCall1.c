@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
 // pair type defitions
 typedef struct Pair_Int_Int {
@@ -22,10 +22,10 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 // function defitions
 int v45(void* env45, void* v3_raw);
 Closure* v46(void* env46, void* v2_raw);
-int v0(Node* v1);
-Node* v52(void* env52, void* v20_raw);
+int v0(List* v1);
+List* v52(void* env52, void* v20_raw);
 Closure* v53(void* env53, void* v19_raw);
-Node* v55(void* env55, void* v18_raw);
+List* v55(void* env55, void* v18_raw);
 Closure* v16(void* env16, void* v17_raw);
 bool v57(void* env57, void* v43_raw);
 bool v59(void* env59, void* v40_raw);
@@ -35,20 +35,20 @@ bool v68(void* env68, void* v34_raw);
 Closure* v69(void* env69, void* v33_raw);
 bool v71(void* env71, void* v32_raw);
 Closure* v30(void* env30, void* v31_raw);
-Node* v75(void* env75, void* v29_raw);
-Node* v81(void* env81, void* v27_raw);
-Node* v83(void* env83, void* v25_raw);
+List* v75(void* env75, void* v29_raw);
+List* v81(void* env81, void* v27_raw);
+List* v83(void* env83, void* v25_raw);
 Closure* v84(void* env84, void* v24_raw);
 Closure* v85(void* env85, void* v23_raw);
 Closure* v21(void* env21, void* v22_raw);
-Node* v95(void* env95, void* v15_raw);
+List* v95(void* env95, void* v15_raw);
 Closure* v96(void* env96, void* v14_raw);
-Node* v98(void* env98, void* v13_raw);
+List* v98(void* env98, void* v13_raw);
 Closure* v99(void* env99, void* v12_raw);
 Closure* v10(void* env10, void* v11_raw);
-Node* v104(void* env104, void* v9_raw);
+List* v104(void* env104, void* v9_raw);
 Closure* v7(void* env7, void* v8_raw);
-Node* v107(int v5);
+List* v107(int v5);
 
 // closure defitions
 typedef struct {
@@ -77,16 +77,16 @@ typedef struct {
 } Env_v46;
 
 typedef struct {
-    Node* v18;
-    Node* v19;
+    List* v18;
+    List* v19;
 } Env_v52;
 
 typedef struct {
-    Node* v18;
+    List* v18;
 } Env_v53;
 
 typedef struct {
-    Node* v17;
+    List* v17;
 } Env_v55;
 
 typedef struct {
@@ -121,21 +121,21 @@ typedef struct {
 } Env_v71;
 
 typedef struct {
-    Node* v24;
+    List* v24;
     Pair_Int_Int *v27;
 } Env_v75;
 
 typedef struct {
     int v22;
     int v23;
-    Node* v24;
+    List* v24;
     int v25;
 } Env_v81;
 
 typedef struct {
     int v22;
     int v23;
-    Node* v24;
+    List* v24;
 } Env_v83;
 
 typedef struct {
@@ -150,7 +150,7 @@ typedef struct {
 typedef struct {
     int v11;
     int v12;
-    Node* v14;
+    List* v14;
 } Env_v95;
 
 typedef struct {
@@ -177,12 +177,12 @@ typedef struct {
 
 // function implementations
 int v45(void* env45, void* v3_raw) {
-  Node* v3 = (Node*)v3_raw;
+  List* v3 = (List*)v3_raw;
   return (1 + v0(v3));
 }
 
 Closure* v46(void* env46, void* v2_raw) {
-  Node* v2 = (Node*)v2_raw;
+  List* v2 = (List*)v2_raw;
   Env_v45* env45 = malloc(sizeof(Env_v45));
   Closure* c45 = malloc(sizeof(Closure));
   c45->env = env45;
@@ -190,22 +190,22 @@ Closure* v46(void* env46, void* v2_raw) {
   return c45;
 }
 
-int v0(Node* v1) {
+int v0(List* v1) {
   Env_v46* env46 = malloc(sizeof(Env_v46));
   if (((v1) == NULL)) return 0;
   Closure* c46 = v46(env46, (void*)((v1)->head));
   return (int)(intptr_t)(c46)->fn((c46)->env, (v1)->tail);
 }
 
-Node* v52(void* env52, void* v20_raw) {
-  Node* v20 = (Node*)v20_raw;
+List* v52(void* env52, void* v20_raw) {
+  List* v20 = (List*)v20_raw;
   Env_v16* env16 = malloc(sizeof(Env_v16));
   Closure* c16 = v16(env16, (void*)(v20));
-  return cons(((Env_v52*)env52)->v19, (Node*)(c16)->fn((c16)->env, ((Env_v52*)env52)->v18));
+  return cons(((Env_v52*)env52)->v19, (List*)(c16)->fn((c16)->env, ((Env_v52*)env52)->v18));
 }
 
 Closure* v53(void* env53, void* v19_raw) {
-  Node* v19 = (Node*)v19_raw;
+  List* v19 = (List*)v19_raw;
   Env_v52* env52 = malloc(sizeof(Env_v52));
   env52->v19 = v19;
   env52->v18 = ((Env_v53*)env53)->v18;
@@ -215,17 +215,17 @@ Closure* v53(void* env53, void* v19_raw) {
   return c52;
 }
 
-Node* v55(void* env55, void* v18_raw) {
-  Node* v18 = (Node*)v18_raw;
+List* v55(void* env55, void* v18_raw) {
+  List* v18 = (List*)v18_raw;
   Env_v53* env53 = malloc(sizeof(Env_v53));
   env53->v18 = v18;
   if (((((Env_v55*)env55)->v17) == NULL)) return v18;
   Closure* c53 = v53(env53, (void*)((((Env_v55*)env55)->v17)->head));
-  return (Node*)(c53)->fn((c53)->env, (((Env_v55*)env55)->v17)->tail);
+  return (List*)(c53)->fn((c53)->env, (((Env_v55*)env55)->v17)->tail);
 }
 
 Closure* v16(void* env16, void* v17_raw) {
-  Node* v17 = (Node*)v17_raw;
+  List* v17 = (List*)v17_raw;
   Env_v55* env55 = malloc(sizeof(Env_v55));
   env55->v17 = v17;
   Closure* c55 = malloc(sizeof(Closure));
@@ -268,7 +268,7 @@ Closure* v62(void* env62, void* v36_raw) {
 }
 
 bool v68(void* env68, void* v34_raw) {
-  Node* v34 = (Node*)v34_raw;
+  List* v34 = (List*)v34_raw;
   Env_v30* env30 = malloc(sizeof(Env_v30));
   Env_v62* env62 = malloc(sizeof(Env_v62));
   Closure* c30 = v30(env30, (void*)(((Env_v68*)env68)->v31));
@@ -288,7 +288,7 @@ Closure* v69(void* env69, void* v33_raw) {
 }
 
 bool v71(void* env71, void* v32_raw) {
-  Node* v32 = (Node*)v32_raw;
+  List* v32 = (List*)v32_raw;
   Env_v69* env69 = malloc(sizeof(Env_v69));
   env69->v31 = ((Env_v71*)env71)->v31;
   if (((v32) == NULL)) return true;
@@ -306,8 +306,8 @@ Closure* v30(void* env30, void* v31_raw) {
   return c71;
 }
 
-Node* v75(void* env75, void* v29_raw) {
-  Node* v29 = (Node*)v29_raw;
+List* v75(void* env75, void* v29_raw) {
+  List* v29 = (List*)v29_raw;
   Env_v30* env30 = malloc(sizeof(Env_v30));
   Closure* c30 = v30(env30, (void*)(((Env_v75*)env75)->v27));
   if ((bool)(intptr_t)(c30)->fn((c30)->env, ((Env_v75*)env75)->v24)) {
@@ -317,7 +317,7 @@ Node* v75(void* env75, void* v29_raw) {
   }
 }
 
-Node* v81(void* env81, void* v27_raw) {
+List* v81(void* env81, void* v27_raw) {
   Pair_Int_Int *v27 = (Pair_Int_Int*)v27_raw;
   Env_v21* env21 = malloc(sizeof(Env_v21));
   Env_v75* env75 = malloc(sizeof(Env_v75));
@@ -326,10 +326,10 @@ Node* v81(void* env81, void* v27_raw) {
   Closure* c21 = v21(env21, box_int(((Env_v81*)env81)->v22));
   Closure* c110 = (c21)->fn((c21)->env, box_int(((Env_v81*)env81)->v23));
   Closure* c111 = (c110)->fn((c110)->env, ((Env_v81*)env81)->v24);
-  return v75(env75, (void*)((Node*)(c111)->fn((c111)->env, box_int((((Env_v81*)env81)->v25 + 1)))));
+  return v75(env75, (void*)((List*)(c111)->fn((c111)->env, box_int((((Env_v81*)env81)->v25 + 1)))));
 }
 
-Node* v83(void* env83, void* v25_raw) {
+List* v83(void* env83, void* v25_raw) {
   int v25 = *(int*)v25_raw;
   Env_v81* env81 = malloc(sizeof(Env_v81));
   env81->v25 = v25;
@@ -341,7 +341,7 @@ Node* v83(void* env83, void* v25_raw) {
 }
 
 Closure* v84(void* env84, void* v24_raw) {
-  Node* v24 = (Node*)v24_raw;
+  List* v24 = (List*)v24_raw;
   Env_v83* env83 = malloc(sizeof(Env_v83));
   env83->v24 = v24;
   env83->v22 = ((Env_v84*)env84)->v22;
@@ -373,8 +373,8 @@ Closure* v21(void* env21, void* v22_raw) {
   return c85;
 }
 
-Node* v95(void* env95, void* v15_raw) {
-  Node* v15 = (Node*)v15_raw;
+List* v95(void* env95, void* v15_raw) {
+  List* v15 = (List*)v15_raw;
   Env_v10* env10 = malloc(sizeof(Env_v10));
   Env_v16* env16 = malloc(sizeof(Env_v16));
   Env_v21* env21 = malloc(sizeof(Env_v21));
@@ -383,12 +383,12 @@ Node* v95(void* env95, void* v15_raw) {
   Closure* c113 = (c112)->fn((c112)->env, ((Env_v95*)env95)->v14);
   Closure* c10 = v10(env10, box_int(((Env_v95*)env95)->v11));
   Closure* c114 = (c10)->fn((c10)->env, box_int(((Env_v95*)env95)->v12));
-  Closure* c16 = v16(env16, (void*)((Node*)(c113)->fn((c113)->env, box_int(0))));
-  return (Node*)(c16)->fn((c16)->env, (Node*)(c114)->fn((c114)->env, v15));
+  Closure* c16 = v16(env16, (void*)((List*)(c113)->fn((c113)->env, box_int(0))));
+  return (List*)(c16)->fn((c16)->env, (List*)(c114)->fn((c114)->env, v15));
 }
 
 Closure* v96(void* env96, void* v14_raw) {
-  Node* v14 = (Node*)v14_raw;
+  List* v14 = (List*)v14_raw;
   Env_v95* env95 = malloc(sizeof(Env_v95));
   env95->v14 = v14;
   env95->v11 = ((Env_v96*)env96)->v11;
@@ -399,14 +399,14 @@ Closure* v96(void* env96, void* v14_raw) {
   return c95;
 }
 
-Node* v98(void* env98, void* v13_raw) {
-  Node* v13 = (Node*)v13_raw;
+List* v98(void* env98, void* v13_raw) {
+  List* v13 = (List*)v13_raw;
   Env_v96* env96 = malloc(sizeof(Env_v96));
   env96->v11 = ((Env_v98*)env98)->v11;
   env96->v12 = ((Env_v98*)env98)->v12;
   if (((v13) == NULL)) return NULL;
   Closure* c96 = v96(env96, (void*)((v13)->head));
-  return (Node*)(c96)->fn((c96)->env, (v13)->tail);
+  return (List*)(c96)->fn((c96)->env, (v13)->tail);
 }
 
 Closure* v99(void* env99, void* v12_raw) {
@@ -430,8 +430,8 @@ Closure* v10(void* env10, void* v11_raw) {
   return c99;
 }
 
-Node* v104(void* env104, void* v9_raw) {
-  Node* v9 = (Node*)v9_raw;
+List* v104(void* env104, void* v9_raw) {
+  List* v9 = (List*)v9_raw;
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v5 = ((Env_v104*)env104)->v5;
   Env_v10* env10 = malloc(sizeof(Env_v10));
@@ -439,7 +439,7 @@ Node* v104(void* env104, void* v9_raw) {
   Closure* c10 = v10(env10, box_int(((Env_v104*)env104)->v5));
   Closure* c115 = (c10)->fn((c10)->env, box_int(((Env_v104*)env104)->v8));
   Closure* c7 = v7(env7, box_int((((Env_v104*)env104)->v8 + 1)));
-  return (Node*)(c7)->fn((c7)->env, (Node*)(c115)->fn((c115)->env, v9));
+  return (List*)(c7)->fn((c7)->env, (List*)(c115)->fn((c115)->env, v9));
 }
 
 Closure* v7(void* env7, void* v8_raw) {
@@ -453,11 +453,11 @@ Closure* v7(void* env7, void* v8_raw) {
   return c104;
 }
 
-Node* v107(int v5) {
+List* v107(int v5) {
   Env_v7* env7 = malloc(sizeof(Env_v7));
   env7->v5 = v5;
   Closure* c7 = v7(env7, box_int(0));
-  return (Node*)(c7)->fn((c7)->env, cons(NULL, NULL));
+  return (List*)(c7)->fn((c7)->env, cons(NULL, NULL));
 }
 
 // main

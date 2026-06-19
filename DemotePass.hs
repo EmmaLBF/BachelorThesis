@@ -109,7 +109,7 @@ demotePairsStmt (DefVar t i x) m funs =
     in  if t == t' then DefVar t' i x'
         else case getTypeExpr x' of
             (CTPtr _) -> DefVar t' i (Unbox t' x')
-            CTNode -> DefVar t' i (Unbox t' x')
+            CTList -> DefVar t' i (Unbox t' x')
             _ -> DefVar t' i x'
 demotePairsStmt (UpdateVar t i (Prod tp x y)) m funs = UpdateVar (stripPairPtr i t m) i (Prod (stripPairPtr i tp m) (demotePairsExpr x m funs) (demotePairsExpr y m funs))
 demotePairsStmt s m funs = mapChildrenStmt (\x -> demotePairsStmt x m funs) (\e -> demotePairsExpr e m funs) s

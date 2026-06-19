@@ -4,15 +4,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
 // pair type defitions
 // function defitions
-int v0(NodeInt* v1);
+int v0(ListInt* v1);
 
 // closure defitions
 // function implementations
-int v0(NodeInt* v1) {
+int v0(ListInt* v1) {
   if (((v1) == NULL)) {
     return 0;
   } else {

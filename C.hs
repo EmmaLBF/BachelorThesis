@@ -528,7 +528,7 @@ printCode finalBody freeVars =
                     "\n#include <stdio.h>" ++
                     "\n#include <stdlib.h>" ++
                     "\n#include <stdint.h>" ++
-                    "\n#include \"../listLib.c\"\n"
+                    "\n#include \"../lib.c\"\n"
         (funPart, mainBody) = splitTopLevel finalBody
         retExpr = findReturn mainBody
         mainBodyWithoutRet = removeFirstReturn mainBody
@@ -544,8 +544,8 @@ printCode finalBody freeVars =
             "\n// main\nint main(void) {" ++ mainBodyImpl ++
                     case getTypeExpr retExpr of
                         CTInt -> "\n  printInt("
-                        CTNodeInt -> "\n  printListInt("
+                        CTListInt -> "\n  printListInt("
                         CTFun _ CTInt -> "\n  printInt("
-                        CTFun _ CTNodeInt -> "\n  printListInt("
+                        CTFun _ CTListInt -> "\n  printListInt("
                         _ ->error "cannot print"
             ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"

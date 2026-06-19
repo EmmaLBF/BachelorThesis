@@ -1,9 +1,9 @@
 // imports
 #include <stdio.h>
 #include <stdlib.h>
-#include "../outputs/listLib.c"
+#include "../outputs/lib.c"
 
-NodeInt* map(int (*func)(int), NodeInt* l) {
+ListInt* map(int (*func)(int), ListInt* l) {
   if (!l) return NULL;
   return consInt(func(l->head), map(func, l->tail));
 }
@@ -16,7 +16,7 @@ int f(int input) {
 int main(void) {
     int seed = 42;
     int len = 5;
-    NodeInt* list = LIST(len, seed);
+    ListInt* list = LIST(len, seed);
     printListInt(map(f, list));
     return 0;
 }
