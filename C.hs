@@ -108,7 +108,7 @@ replaceReturnClosure :: CStatement -> Int -> CStatement
 replaceReturnClosure (Return _) i = Return (Val (ClosureV i))
 replaceReturnClosure s i = mapChildrenStmt (`replaceReturnClosure` i) id s
 
-rebuildCall :: CType -> CExpression -> [CArg] -> CExpression
+rebuildCall :: CType -> CExpression -> CArgs -> CExpression
 rebuildCall tf = foldl (\acc (CArg ta a) -> CallExpr tf ta acc a)
 
 findFirstDefFun :: CStatement -> Maybe CStatement
@@ -139,7 +139,7 @@ removeDefFun s ifun = mapChildrenStmt (`removeDefFun` ifun) id s
 -- this only lifts one def at a time
 
 -- also returns map of which function is which parent
-liftDefs :: CStatement -> State (FreeVars, Map.Map Int Int) CStatement
+liftDefs :: CStatement -> State (FreeVars, ParentMap) CStatement
 liftDefs stmt@(DefFun tret ifun params body) =
     let defToRemove = findFirstDefFun body -- find a def nested inside the current one
     in case defToRemove of
@@ -163,7 +163,7 @@ liftDefs (Seq x y) = do
         else Seq x <$> liftDefs y
 liftDefs x = return x
 
-lambdaLift :: CStatement -> State (FreeVars, Map.Map Int Int) CStatement
+lambdaLift :: CStatement -> State (FreeVars, ParentMap) CStatement
 lambdaLift stmt = do
     (m, _) <- get
     stmt' <- liftDefs stmt
@@ -189,7 +189,7 @@ replaceParentVarAccess s currFun m =
 
 
 -- follow the id of the current function in the parent map so see if the first int is the parent of the second
-isParentOf :: Int -> Int -> Map.Map Int Int -> Bool
+isParentOf :: Int -> Int -> ParentMap -> Bool
 isParentOf child parent parentMap =
     case Map.lookup child parentMap of
         Just i
@@ -197,13 +197,13 @@ isParentOf child parent parentMap =
             | otherwise -> isParentOf i parent parentMap
         Nothing -> False
 
-paramsToArgVars :: CParams -> Map.Map Int CArg
+paramsToArgVars :: CParams -> CArgMap
 paramsToArgVars [] = Map.empty
 paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
 paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTPtr CTVoid) (Val (EnvV i)))
 paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
 
-paramsToArgGetEnv :: CParams -> Int -> Map.Map Int CArg
+paramsToArgGetEnv :: CParams -> Int -> CArgMap
 paramsToArgGetEnv [] _ = Map.empty
 paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
 paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
@@ -217,7 +217,7 @@ paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (para
 -- returns map of funid to the fun it makes a closure for
 -- returns set of ids of parameter vars that also become closures (can't be in the same set as the functions because they are closures not functions that return closures
     -- so they can;t have the call statement)
-makeClosureFactories ::  CStatement -> FreeVars -> Map.Map Int Int -> State ClosureFuns CStatement
+makeClosureFactories ::  CStatement -> FreeVars -> ParentMap -> State ClosureFuns CStatement
 makeClosureFactories (DefFun tret ifun params body) _ _
     | tret == CTClosure = return (DefFun tret ifun params body) -- for the looping so that it eventually terminates
 makeClosureFactories (DefFun tret ifun params body) m parents =
@@ -258,8 +258,8 @@ addEnvParameterExpr e@(CallExpr tf _ _ _) m =
         _ -> mapChildrenExpr (`addEnvParameterExpr` m) e
 addEnvParameterExpr e m = mapChildrenExpr (`addEnvParameterExpr` m) e
 
-addEnvParameter :: CStatement -> FreeVars -> CStatement
-addEnvParameter s m = mapChildrenStmt (`addEnvParameter` m) (`addEnvParameterExpr` m) s
+addEnvParameters :: CStatement -> FreeVars -> CStatement
+addEnvParameters s m = mapChildrenStmt (`addEnvParameters` m) (`addEnvParameterExpr` m) s
 
 allocateEnvironment :: Int -> Int -> FreeVars -> CParams -> CStatement
 allocateEnvironment i ifun freeVarsMap params =
@@ -296,7 +296,7 @@ followClosureIFun i m =
         _ -> i
 
 -- number of hops through map depends on num of args
-applyWithCast :: CType -> CExpression -> [CArg] -> State Int (CStatement, CExpression)
+applyWithCast :: CType -> CExpression -> CArgs -> State Int (CStatement, CExpression)
 applyWithCast _ base [] = return (Skip, base)
 applyWithCast retType base [CArg t a] = return (Skip, CastExpr retType (ApplyClosure t base a))
 applyWithCast retType base (CArg t a : rest) = do
@@ -399,7 +399,7 @@ applyClosuresExpr (ApplyClosure t x y) stmt closureFuns = do
     return (Seq pre pre', ApplyClosure t x' y')
 applyClosuresExpr x _ _ = return (Skip, x)
 
-applyClosuresArgs :: [CArg] -> CStatement -> ClosureFuns -> State Int (CStatement, [CArg])
+applyClosuresArgs :: CArgs -> CStatement -> ClosureFuns -> State Int (CStatement, CArgs)
 applyClosuresArgs [] _ _ = return (Skip, [])
 applyClosuresArgs [CArg t x] stmt closureFuns = do
     (pre, x') <- applyClosuresExpr x stmt closureFuns
@@ -438,7 +438,7 @@ applyClosures x _ _ = return x
 -- keep looping make closure factories
 -- after we made the first ones and applied closures some funs return closures now
 -- so we need to handle them until nothing changes
-applyClosuresPasses :: CStatement -> FreeVars -> Map.Map Int Int -> Int -> CStatement
+applyClosuresPasses :: CStatement -> FreeVars -> ParentMap -> Int -> CStatement
 applyClosuresPasses body freeVarsMap parents freshCounter =
     let (body', closureFuns) = runState (makeClosureFactories body freeVarsMap parents) Map.empty
     in  if Map.null closureFuns then body'
@@ -465,9 +465,9 @@ genPairDeclaration (a, b) =
     ++ "\n  p->fst = fst;\n  p->snd = snd;\n  return p;"
     ++ "\n};\n"
 
-generateEnvStructs :: Int -> Map.Map Int (Set.Set CParam) -> CStatement
-generateEnvStructs ifun liftenv =
-    let envParams = maybe [] Set.toList (Map.lookup ifun liftenv)
+generateEnvStructs :: Int -> FreeVars -> CStatement
+generateEnvStructs ifun freeVars =
+    let envParams = maybe [] Set.toList (Map.lookup ifun freeVars)
     in DefEnvStruct ifun envParams
 
 -- MAIN
@@ -505,16 +505,13 @@ translateALToC progCode =
 
 runLiftAndMerge :: Bool -> CStatement -> Int -> (CStatement, FreeVars)
 runLiftAndMerge canMerge body freshInt =
-    let (body', (freeVarsMap, parentMap)) =
-            if canMerge then
-                let merged = mergeLambdas body body
-                in runState (lambdaLift merged) (Map.empty, Map.empty)
-            else runState (lambdaLift body) (Map.empty, Map.empty)
-        body'' = addEnvParameter body' freeVarsMap
-        body''' = applyClosuresPasses body'' freeVarsMap parentMap freshInt
-        body'''' = addEnvAllocs body''' body''' freeVarsMap
-        body''''' = addBoxing body''''
-    in (body''''', freeVarsMap)
+    let body0 = if canMerge then mergeLambdas body body else body
+        (body1, (freeVarsMap, parentMap)) = runState (lambdaLift body0) (Map.empty, Map.empty)
+        body2 = addEnvParameters body1 freeVarsMap
+        body3 = applyClosuresPasses body2 freeVarsMap parentMap freshInt
+        body4 = addEnvAllocs body3 body3 freeVarsMap
+        body5 = addBoxing body4
+    in (body5, freeVarsMap)
 
 printCode :: CStatement -> FreeVars -> String
 printCode finalBody freeVars =

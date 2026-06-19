@@ -17,14 +17,13 @@ data CParam where
   CParam :: Int -> CType -> CParam
   CParamEnv  :: Int -> CParam -- void* env parameter
   deriving (Show, Ord)
+type CParams = [CParam]
+type CParamMap = Map.Map Int CParam
 instance Eq CParam where
   CParam i _ == CParam j _ = i == j
   CParamEnv i == CParamEnv j = i == j
   CParam i _ == CParamEnv j = i == j
   CParamEnv i == CParam j _ = i == j
-
-type CParams = [CParam]
-type CParamMap = Map.Map Int CParam
 
 data CType
     = CTInt
@@ -41,8 +40,10 @@ data CType
 
 data CArg where
   CArg :: CType -> CExpression -> CArg
-
+type CArgs = [CArg]
 type CArgMap = Map.Map Int CArg
+instance Show CArg where
+    show (CArg _ x) = showCExpression x Map.empty
 
 data CValue a where
     IntV :: Int -> CValue Int
@@ -82,6 +83,8 @@ data CExpression where
     CastExpr :: CType -> CExpression -> CExpression
     Box :: CType -> CExpression -> CExpression
     Unbox :: CType -> CExpression -> CExpression
+instance Eq CExpression where
+    l == r = showCExpression l Map.empty == showCExpression r Map.empty
 
 data CStatement where
     Return :: CExpression -> CStatement
@@ -95,23 +98,15 @@ data CStatement where
     DefEnvStruct :: Int -> CParams -> CStatement -- same, but fields are concrete types
     AllocClosure :: Int -> CStatement -- closureId
     AllocEnv :: Int -> Int -> CArgMap -> CArgMap -> CStatement -- envId parentId directParams parentParams
-
-
-instance Eq CExpression where
-    l == r = showCExpression l Map.empty == showCExpression r Map.empty
 instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
-instance Show CArg where
-    show (CArg _ x) = showCExpression x Map.empty
 
 
--- maps a function id (that returns a closure) to the function said closure contains
-type ClosureFuns = Map.Map Int Int
+type ClosureFuns = Map.Map Int Int -- maps a function id (that returns a closure) to the function said closure contains
 type ClosureParams = Set.Set Int -- set of params which are closures
--- maps a function id to the number of new parameters it has (for later printing calls/apply corretcly)
-type MergedMap = Map.Map Int Int
--- maps a function id to the set of Cparams of all of the functions it is nested in
-type FreeVars = Map.Map Int (Set.Set CParam)
+type MergedMap = Map.Map Int Int -- maps a function id to the number of new parameters it has (for later printing calls/apply corretcly)
+type FreeVars = Map.Map Int (Set.Set CParam) -- maps a function id to the set of Cparams of all of the functions it is nested in
+type ParentMap = Map.Map Int Int -- maps lambda to the id of its direct parent lambda
 type RemovedEnvs = Set.Set Int
 type RemovedClos = Set.Set Int
 type VarsByValue = Set.Set Int
@@ -124,7 +119,7 @@ data GlobalInfo = GlobalInfo
     , functionCallsGlobal :: Map.Map Int Int -- id of function called -> number of times called
     , globalUsedVars :: Set.Set Int
     , aliases :: Map.Map Int CArg
-    , callArgs :: Map.Map Int [[CArg]]
+    , callArgs :: Map.Map Int [CArgs]
     , pairTypes :: Set.Set (CType, CType)
     } deriving (Show)
 
@@ -144,13 +139,13 @@ data FunctionInfo = FunctionInfo
 
 -- HELPERS
 
-collectArgs :: CExpression -> (CExpression, [CArg])
+collectArgs :: CExpression -> (CExpression, CArgs)
 collectArgs (CallExpr _ tx f x) =
     let (f', as) = collectArgs f
     in (f', as ++ [CArg tx x])
 collectArgs e = (e, [])
 
-collectArgsApply :: CExpression -> (CExpression, [CArg])
+collectArgsApply :: CExpression -> (CExpression, CArgs)
 collectArgsApply (ApplyClosure tx f x) =
     let (f', as) = collectArgsApply f
     in (f', as ++ [CArg tx x])
