@@ -8,11 +8,9 @@ import Utils
 
 -- for a function (int), given the amount of params, check that every call site has at least that many applications
 checkCallExpr :: Int -> Int -> CExpression -> Bool
-checkCallExpr fun params expr@CallExpr{} =
-    let (f, args) = CDefs.collectArgs expr
-    in case f of
-        Var _ i | i == fun -> length args >= params
-        _ -> all (\(CArg _ x) -> case x of (Var _ i) | i == fun -> False; _ -> True) args
+checkCallExpr fun params expr@CallExpr{} | isCallToFun fun expr =
+    let (_, args) = CDefs.collectArgs expr
+    in length args >= params
 checkCallExpr fun params e = and [checkCallExpr fun params c | c <- childrenExpr e]
 
 checkCallStmt :: Int -> Int -> CStatement -> Bool
@@ -23,11 +21,8 @@ checkCallStmt ifun params s = and ([checkCallStmt ifun params c | c <- childrenS
 mergeLambdas :: CStatement -> CStatement -> CStatement
 mergeLambdas prog (DefFun tret ifun params body) =
     case body of
-        (Seq (DefFun tret1 ifun1 params1 body1) (Return (Var _ i))) ->
-            let newParams = params ++ params1
-                canMerge = checkCallStmt ifun (length newParams) prog && ifun1 == i
-            in  if canMerge
-                then mergeLambdas prog (DefFun tret1 ifun newParams body1)
-                else DefFun tret ifun params (mergeLambdas prog body)
+        (Seq (DefFun tret1 ifun1 params1 body1) (Return (Var _ i)))
+            | checkCallStmt ifun (length (params ++ params1)) prog && ifun1 == i ->
+                mergeLambdas prog (DefFun tret1 ifun (params ++ params1) body1)
         _ -> DefFun tret ifun params (mergeLambdas prog body)
 mergeLambdas prog stmt = mapChildrenStmt (mergeLambdas prog) id stmt

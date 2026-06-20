@@ -48,14 +48,13 @@ inlineOne i body =
 
 -- takes a pair of cparam and arg and turns them into a var definition
 -- so that the inlined body can still use its arguments
+-- do not redefine env vars which are already defined, we don't want Env66* env66 = env66;
 inlineArgs :: (CParam, CArg) -> CStatement -> CStatement
 inlineArgs (param, CArg _ arg) acc =
     case (param, arg) of
         (CParam ip tp, _) -> Seq (DefVar tp ip arg) acc
-        (CParamEnv ip, Val (EnvV ip'))
-            | ip' == ip -> acc -- do not redefine env vars which are already defined, we don't want Env66* env66 = env66;
-            | otherwise -> Seq (DefVar (CTPtr CTVoid) ip arg) acc
-        (x, y) -> error ("mismatch arg and param = " ++ show x ++ " | " ++ showCExpression y Map.empty)
+        (CParamEnv ip, Val (EnvV ip')) | ip' /= ip -> Seq (DefVar (CTPtr CTVoid) ip arg) acc
+        (_, _) -> acc
 
 -- Replace all CallExpr (Var i) args with inlined body
 -- Replace ternary with if so that we can add the pre work
@@ -68,23 +67,17 @@ inlineCallsTo i params retExpr fbody s =
 
     where
     goExpr :: CExpression -> (CStatement, CExpression)
-    goExpr e@CallExpr{} =
-        let (func, args) = collectArgs e
-        in case func of
-            Var _ j | j == i -> -- called function is equal to the one we're inlining
-                let funArgs = take (length params) args
-                    bindings = foldr inlineArgs Skip (zip params funArgs)
-                in (Seq bindings fbody, retExpr)
-            _ ->
-                let pre = foldr ((Seq . fst) . goExpr) Skip (childrenExpr e)
-                in (pre, mapChildrenExpr (snd . goExpr) e)
+    goExpr e@CallExpr{} | isCallToFun i e = -- called function is equal to the one we're inlining
+        let (_, args) = collectArgs e
+            funArgs = take (length params) args
+            bindings = foldr inlineArgs Skip (zip params funArgs)
+        in (Seq bindings fbody, retExpr)
     goExpr e =
         let pre = foldr ((Seq . fst) . goExpr) Skip (childrenExpr e)
         in (pre, mapChildrenExpr (snd . goExpr) e)
 
 -- pass list of called funs
 removeDeadFuns :: [Int] -> CStatement -> CStatement
-removeDeadFuns removedFuns def@(DefFun _ ifun _ _) =
-    if ifun `elem` removedFuns then Skip else def -- still used
+removeDeadFuns removedFuns (DefFun _ ifun _ _) | ifun `elem` removedFuns = Skip
 removeDeadFuns m (Seq x y) = Seq (removeDeadFuns m x) (removeDeadFuns m y)
 removeDeadFuns _ x = x

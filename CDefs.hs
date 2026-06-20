@@ -97,7 +97,7 @@ data CStatement where
     Skip :: CStatement
     DefEnvStruct :: Int -> CParams -> CStatement -- same, but fields are concrete types
     AllocClosure :: Int -> CStatement -- closureId
-    AllocEnv :: Int -> Int -> CArgMap -> CStatement -- envId parentId directParams parentParams
+    AllocEnv :: Int -> Int -> CArgMap -> CStatement -- envId parentId params
 instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
 
@@ -130,6 +130,7 @@ data FunctionInfo = FunctionInfo
     , envUses :: Set.Set Int
     , functionCalls :: Map.Map Int Int
     , escapedClos :: Set.Set Int
+    , allocedClos :: Set.Set Int
     } deriving (Show)
 
 -- HELPERS

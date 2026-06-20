@@ -105,7 +105,7 @@ getGlobalInfoExpr _ m = m
 -- Per function body AST info traversal
 
 emptyFunctionInfo :: FunctionInfo
-emptyFunctionInfo = FunctionInfo Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty
+emptyFunctionInfo = FunctionInfo Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty Set.empty
 
 mergeFunctionInfo :: FunctionInfo -> FunctionInfo -> FunctionInfo
 mergeFunctionInfo a b = FunctionInfo
@@ -117,6 +117,7 @@ mergeFunctionInfo a b = FunctionInfo
     (Set.union (envUses a) (envUses b))
     (Map.unionWith (+) (functionCalls a) (functionCalls b))
     (Set.union (escapedClos a) (escapedClos b))
+    (Set.union (allocedClos a) (allocedClos b))
 
 getFunctionInfoExpr :: Bool -> CExpression -> FunctionInfo -> FunctionInfo
 getFunctionInfoExpr _ (GetEnvField _ envId _) r = addEnvUse envId r
@@ -146,6 +147,6 @@ getFunctionInfo (UpdateVar t i x) r = addVarUse i (getFunctionInfoExpr False x (
 getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
 getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
 getFunctionInfo (AllocEnv i _ params) r =
-    foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) (addEnvAlloc i r) params
-getFunctionInfo (AllocClosure i) r = addEnvEscape i (addEnvUse i r)
+    foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) (addEnvUse i (addEnvAlloc i r)) params
+getFunctionInfo (AllocClosure i) r = addEnvEscape i (addEnvUse i (r {allocedClos = Set.insert i (allocedClos r)}))
 getFunctionInfo _ r = r

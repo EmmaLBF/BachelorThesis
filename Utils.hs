@@ -84,7 +84,6 @@ getDefIds (DefFun _ ifun _ _) = [ifun]
 getDefIds (Seq x y) = getDefIds x ++ getDefIds y
 getDefIds _ = []
 
-
 getClosureDefs :: CStatement -> [Int]
 getClosureDefs (DefFun tret ifun _ _) =
     case tret of
@@ -92,6 +91,12 @@ getClosureDefs (DefFun tret ifun _ _) =
         _ -> []
 getClosureDefs (Seq x y) = getClosureDefs x ++ getClosureDefs y
 getClosureDefs _ = []
+
+isCallToFun :: Int -> CExpression -> Bool
+isCallToFun ifun expr@CallExpr{} =
+    let (f', _) = collectArgs expr
+    in case f' of Var _ i' | i' == ifun -> True; _ -> False
+isCallToFun _ _ = False
 
 getFunType :: CStatement -> Int -> Maybe CType
 getFunType (DefFun tret ifun _ _) i | ifun == i = Just tret

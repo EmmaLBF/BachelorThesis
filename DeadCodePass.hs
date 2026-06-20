@@ -11,16 +11,14 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 
--- ***** REMOVE ENV PARAM FROM FUNCTIONS ***** 
-
--- (1) Overall Pass
+-- (1) REMOVE ENV PARAM FROM FUNCTIONS 
 envRemovalPass :: CStatement -> CStatement
 envRemovalPass body =
     let l = collectUselessEnvParam body emptyFunctionInfo
         paramRemoved = removeUselessEnvParam body (-1) l
     in demoteEnvs paramRemoved
 
--- (2) removes first env params for functions where it is not used
+-- (1a) removes first env params for functions where it is not used
 -- collects list of functions that had their envs removed
 collectUselessEnvParam :: CStatement -> FunctionInfo -> RemovedEnvs
 collectUselessEnvParam (DefFun t ifun params body) _ =
@@ -30,14 +28,14 @@ collectUselessEnvParam (DefFun t ifun params body) _ =
 collectUselessEnvParam (Seq x y) r = Set.union (collectUselessEnvParam x r) (collectUselessEnvParam y r)
 collectUselessEnvParam _ _ = Set.empty
 
--- (3a) remove collected envs
+-- (1b) remove collected envs
 removeUselessEnvParam :: CStatement -> Int -> RemovedEnvs -> CStatement
 removeUselessEnvParam (DefFun t ifun params body) _ s = 
     let p' = [p | p <- params, case p of CParamEnv i -> i /= ifun || ifun `notElem` s; _ -> True]
     in DefFun t ifun p' (removeUselessEnvParam body ifun s)
 removeUselessEnvParam s ifun m = mapChildrenStmt (\x -> removeUselessEnvParam x ifun m) (\e -> removeUselessEnvParamExpr e ifun m) s
 
--- (3b) drop the env parameter from the call expressions that are affected
+-- (1c) drop the env parameter from the call expressions that are affected
 -- remove env access to just var access
 removeUselessEnvParamExpr :: CExpression -> Int -> RemovedEnvs -> CExpression
 removeUselessEnvParamExpr (GetEnvField t envId varId) ifun s
@@ -53,74 +51,14 @@ removeUselessEnvParamExpr (CallExpr tf tx f x) ifun s =
 removeUselessEnvParamExpr e ifun s = mapChildrenExpr (\x -> removeUselessEnvParamExpr x ifun s) e
 
 
--- ***** REMOVE VARS (THAT ARE USED <= 1 TIMES) ***** 
-
--- helper
-usedAtMostOnce :: Int -> VarUses -> Bool
-usedAtMostOnce i m = case Map.lookup i m of
-    Just n | n <= 1 -> True
-    _ -> False
-
--- (1a)
-removeSingleVars :: CStatement -> CStatement -> FunctionInfo -> CStatement
-removeSingleVars (DefVar _ i _) _ r | usedAtMostOnce i (varUses r) = Skip
-removeSingleVars (UpdateVar _ i _) _ r | usedAtMostOnce i (varUses r)  = Skip
-removeSingleVars s@(DefFun t i p body) stmt _ =
-    DefFun t i p (removeSingleVars body stmt (getFunctionInfo s emptyFunctionInfo))
-removeSingleVars s stmt r =
-    mapChildrenStmt (\x -> removeSingleVars x stmt r) (\e -> removeSingleVarsExpr e stmt r) s
-
--- (1b)
-removeSingleVarsExpr :: CExpression -> CStatement -> FunctionInfo -> CExpression
-removeSingleVarsExpr (Var t i) stmt r | usedAtMostOnce i (varUses r) =
-    case Map.lookup i (varDefs r) of
-        (Just (CArg _ x)) -> removeSingleVarsExpr x stmt r
-        _ -> Var t i
-removeSingleVarsExpr (Val (ClosureV i)) stmt r | usedAtMostOnce i (varUses r) =
-    case Map.lookup i (varDefs r) of
-        Just (CArg _ x) -> removeSingleVarsExpr x stmt r
-        _ -> Val (ClosureV i)
-removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x stmt r) e
-
-
--- CLEAN IR (REMOVE SKIPS)
-
-cleanSkip :: CStatement -> CStatement
-cleanSkip (Seq Skip y) = cleanSkip y
-cleanSkip (Seq y Skip) = cleanSkip y
-cleanSkip s = mapChildrenStmt cleanSkip id s
-
--- REMOVE USLESS + CASTS
-
--- the only ones that need cast are fst and snd because they return void*
-removeCast :: CExpression -> CExpression -> CExpression
-removeCast fallback x = case x of
-    Fst{} -> fallback
-    Snd{} -> fallback
-    expr -> expr
-
--- REMOVE USELESS LOGIC AND CASTS (i.e. making a list out of the head and tail of another list)
-removeUselessExpr :: CExpression -> CExpression
-removeUselessExpr (CastExpr t x) = removeCast (CastExpr t x) (removeUselessExpr x)
-removeUselessExpr (Unbox t x) = removeCast (Unbox t x) (removeUselessExpr x)
-removeUselessExpr (ConsList t x y) =
-    case (stripWrap x, stripWrap y) of
-        (HeadList _ l1, TailList _ l2) | l1 == l2 -> l1
-        _ -> ConsList t (removeUselessExpr x) (removeUselessExpr y)
-removeUselessExpr e = mapChildrenExpr removeUselessExpr e
-
-removeUselessStmt :: CStatement -> CStatement
-removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
-
--- REMOVING ALIASES
-
+-- (2) REMOVING ALIASES
 eliminateAliases :: CStatement -> CStatement
 eliminateAliases stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
         stmt' = replaceAliases stmt (aliasesGlobal info)
     in  if stmt == stmt' then stmt' else eliminateAliases stmt'
 
--- replaces all var defs of form v2 = v3 or v2 = env5
+-- (2a) replaces all var defs of form v2 = v3 or v2 = env5
 replaceAliases :: CStatement -> Map.Map Int CArg -> CStatement
 replaceAliases s m = mapChildrenStmt (`replaceAliases` m) (`replaceAliasesExpr` m) s
 
@@ -135,3 +73,57 @@ replaceAliasesExpr (GetEnvField t structId fieldId) m =
         Just (CArg _ (Val (EnvV newId))) -> replaceAliasesExpr (GetEnvField t newId fieldId) m
         _ -> GetEnvField t structId fieldId
 replaceAliasesExpr e m = mapChildrenExpr (`replaceAliasesExpr` m) e
+
+
+-- (3) REMOVE VARS USED <= 1 TIMES
+removeSingleVars :: CStatement -> CStatement -> FunctionInfo -> CStatement
+removeSingleVars (DefVar _ i _) _ r | usedAtMostOnce i (varUses r) = Skip
+removeSingleVars (UpdateVar _ i _) _ r | usedAtMostOnce i (varUses r)  = Skip
+removeSingleVars s@(DefFun t i p body) stmt _ =
+    DefFun t i p (removeSingleVars body stmt (getFunctionInfo s emptyFunctionInfo))
+removeSingleVars s stmt r =
+    mapChildrenStmt (\x -> removeSingleVars x stmt r) (\e -> removeSingleVarsExpr e stmt r) s
+
+removeSingleVarsExpr :: CExpression -> CStatement -> FunctionInfo -> CExpression
+removeSingleVarsExpr (Var t i) stmt r | usedAtMostOnce i (varUses r) =
+    case Map.lookup i (varDefs r) of
+        (Just (CArg _ x)) -> removeSingleVarsExpr x stmt r
+        _ -> Var t i
+removeSingleVarsExpr (Val (ClosureV i)) stmt r | usedAtMostOnce i (varUses r) =
+    case Map.lookup i (varDefs r) of
+        Just (CArg _ x) -> removeSingleVarsExpr x stmt r
+        _ -> Val (ClosureV i)
+removeSingleVarsExpr e stmt r = mapChildrenExpr (\x -> removeSingleVarsExpr x stmt r) e
+
+usedAtMostOnce :: Int -> VarUses -> Bool
+usedAtMostOnce i m = case Map.lookup i m of
+    Just n | n <= 1 -> True
+    _ -> False
+
+
+--  (4) REMOVE USLESS LOGIC + CASTS (i.e. making a list out of the head and tail of another list)
+-- the only ones that need cast are fst and snd because they return void*
+removeCast :: CExpression -> CExpression -> CExpression
+removeCast fallback x = case x of
+    Fst{} -> fallback
+    Snd{} -> fallback
+    expr -> expr
+
+removeUselessExpr :: CExpression -> CExpression
+removeUselessExpr (CastExpr t x) = removeCast (CastExpr t x) (removeUselessExpr x)
+removeUselessExpr (Unbox t x) = removeCast (Unbox t x) (removeUselessExpr x)
+removeUselessExpr (ConsList t x y) =
+    case (stripWrap x, stripWrap y) of
+        (HeadList _ l1, TailList _ l2) | l1 == l2 -> l1
+        _ -> ConsList t (removeUselessExpr x) (removeUselessExpr y)
+removeUselessExpr e = mapChildrenExpr removeUselessExpr e
+
+removeUselessStmt :: CStatement -> CStatement
+removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
+
+
+-- (5) CLEAN IR (REMOVE SKIPS)
+cleanSkip :: CStatement -> CStatement
+cleanSkip (Seq Skip y) = cleanSkip y
+cleanSkip (Seq y Skip) = cleanSkip y
+cleanSkip s = mapChildrenStmt cleanSkip id s

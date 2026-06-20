@@ -11,26 +11,69 @@ import qualified Data.Set as Set
 import Data.Maybe
 
 
--- STACK ALLOCATE PAIRS
+-- **** (1) DEMOTE CLOSURES ****
+-- top level pass, if we alloc a closure that never escapes the function we can keep it on the stack
+-- collects a list of closures that are local to the function they are in
+    -- it then removes all of these from the body of that function
+demoteClosures :: CStatement -> FunctionInfo -> CStatement
+demoteClosures (DefFun tret ifun ps x) _ =
+    let funInfo = getFunctionInfo x emptyFunctionInfo
+        removed = Set.difference (allocedClos funInfo) (escapedClos funInfo)
+    in DefFun tret ifun ps (rewriteClosureUse removed x )
+demoteClosures x g = mapChildrenStmt (`demoteClosures` g) id x
 
--- function return value can be stack allocated if its value is always stored in a variable
-    -- and that variable is always used by value
-canBeByValueFun :: Int -> CStatement -> VarsByValue -> Bool
-canBeByValueFun ifun body varsByValue =
-    let isAlwaysStored = returnIsAlwaysStored ifun body
-        varsThatHoldReturn = getVarsThatHoldReturn ifun body
-    in isAlwaysStored && all (`elem` varsByValue) varsThatHoldReturn
+-- remove the alloc closures we don't need and the envs that have no direct params
+rewriteClosureUse :: RemovedClos -> CStatement -> CStatement
+rewriteClosureUse r (AllocClosure i) | i `elem` r = Skip
+rewriteClosureUse r s = mapChildrenStmt (rewriteClosureUse r) (rewriteClosureUseExpr r) s
 
--- all the variables which escape a demoted function will now also be demoted
-getFunsByValue :: Int -> VarsByValue -> CStatement -> FunsByValue
-getFunsByValue i varsByValue body 
-    | canBeByValueFun i body varsByValue =
-        let funDef = fromMaybe Skip (findFunDef i (getDefs body))
-            analysis = getFunctionInfo funDef emptyFunctionInfo
-        in foldr Set.insert (Set.singleton i) (escapedVars analysis)
-    | otherwise = Set.empty
+-- closure id, parent id, aplly to rewrite
+-- turn the application of a heap allocated closure into the call of a stack allocated one
+-- We call the fn stored in the closure directly with the env and its args
+-- i is the id of the closureAlloc were getting rid of
+    -- if we find the application of that closure we need to rewrite it to a callexpr
+rewriteClosureUseExpr :: RemovedClos -> CExpression -> CExpression
+rewriteClosureUseExpr removed e@ApplyClosure{} =
+    let (f', args) = collectArgsApply e
+    in case f' of
+        Val (ClosureV i') | i' `elem` removed ->
+            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr removed x)) args
+                envArg = CArg (CTPtr CTVoid) (Val (EnvV i'))
+            in rebuildCall (CTPtr CTVoid) (Var (CTPtr CTVoid) i') (envArg : args') -- call the closure function directly
+        _ -> mapChildrenExpr (rewriteClosureUseExpr removed) e
+rewriteClosureUseExpr i e = mapChildrenExpr (rewriteClosureUseExpr i) e
 
--- A pair is safe to put of stack iff every use of it is only with fst or snd
+
+-- ***** (2) REMOVE LOCAL ENVS ***** 
+-- removes envs that are only used locally (no alloc needed)
+demoteEnvs :: CStatement -> CStatement
+demoteEnvs (DefFun t i p body) =
+    let funInfo = getFunctionInfo body emptyFunctionInfo
+        removed = Set.difference (allocedEnvs funInfo) (escapedEnvs funInfo)
+    in DefFun t i p (rewriteRemovedEnvs removed body)
+demoteEnvs (Seq x y) = Seq (demoteEnvs x) (demoteEnvs y)
+demoteEnvs x = x
+
+-- (2a) rewrites get-env-field accesses to the envs that were removed, and removes alloc statements
+rewriteRemovedEnvs :: RemovedEnvs -> CStatement -> CStatement
+rewriteRemovedEnvs r (AllocEnv envId _ _) | envId `elem` r = Skip
+rewriteRemovedEnvs r s = mapChildrenStmt (rewriteRemovedEnvs r) (rewriteRemovedEnvsExpr r) s
+
+rewriteRemovedEnvsExpr :: RemovedEnvs -> CExpression -> CExpression
+rewriteRemovedEnvsExpr removed (GetEnvField t envId varId)
+    | Set.member envId removed = rewriteRemovedEnvsExpr removed (Var t varId)
+    | otherwise = GetEnvField t envId varId
+rewriteRemovedEnvsExpr removed e = mapChildrenExpr (rewriteRemovedEnvsExpr removed) e
+
+
+-- (3) STACK ALLOCATE PAIRS
+demotePairsPass :: CStatement -> CStatement
+demotePairsPass s =
+    let byValueSet = canBeByValue s
+        funsWithParams = getFunsWithParams s
+    in demotePairsStmt s byValueSet funsWithParams
+
+-- (3a) A pair is safe to put of stack iff every use of it is only with fst or snd
 canBeByValue :: CStatement -> VarsByValue
 canBeByValue stmt =
     let pairLocals = collectPairLocals stmt   -- vars whose DefVar type is pair
@@ -50,50 +93,24 @@ alwaysFstSndExpr e = foldr (Map.unionWith (&&)) Map.empty [alwaysFstSndExpr c | 
 alwaysFstSnd :: CStatement -> Map.Map Int Bool
 alwaysFstSnd s = foldr (Map.unionWith (&&)) Map.empty ([alwaysFstSnd c | c <- childrenStmt s] ++ [alwaysFstSndExpr e | e <- childExprsStmt s])
 
-collectPairParam :: CParam -> Set.Set Int
-collectPairParam (CParam i t) | isPair t = Set.singleton i
-collectPairParam _ = Set.empty
+-- all the variables which escape a demoted function will now also be demoted
+getFunsByValue :: Int -> VarsByValue -> CStatement -> FunsByValue
+getFunsByValue i varsByValue body 
+    | canBeByValueFun i body varsByValue =
+        let funDef = fromMaybe Skip (findFunDef i (getDefs body))
+            analysis = getFunctionInfo funDef emptyFunctionInfo
+        in foldr Set.insert (Set.singleton i) (escapedVars analysis)
+    | otherwise = Set.empty
 
-collectPairLocals :: CStatement -> Set.Set Int
-collectPairLocals (DefVar t i _) | isPair t = Set.singleton i
-collectPairLocals (DefFun _ _ params b) = Set.union (collectPairLocals b) (Set.unions $ map collectPairParam params)
-collectPairLocals s = foldr Set.union Set.empty ([collectPairLocals c | c <- childrenStmt s])
+-- function return value can be stack allocated if its value is always stored in a variable
+    -- and that variable is always used by value
+canBeByValueFun :: Int -> CStatement -> VarsByValue -> Bool
+canBeByValueFun ifun body varsByValue =
+    let isAlwaysStored = returnIsAlwaysStored ifun body
+        varsThatHoldReturn = getVarsThatHoldReturn ifun body
+    in isAlwaysStored && all (`elem` varsByValue) varsThatHoldReturn
 
--- returns true if the result of call this function is only ever stored in a var
-    -- through defvars/updatevars/binds directly
-returnIsAlwaysStoredExpr :: Int -> CExpression -> Bool
-returnIsAlwaysStoredExpr ifun expr@CallExpr{} = not (isCallToFun ifun expr)
-returnIsAlwaysStoredExpr ifun e = and [returnIsAlwaysStoredExpr ifun c | c <- childrenExpr e]
-
-returnIsAlwaysStored :: Int -> CStatement -> Bool
-returnIsAlwaysStored ifun (DefVar _ _ expr@CallExpr{}) =
-    let (_, args) = collectArgs expr
-    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
-returnIsAlwaysStored ifun (UpdateVar _ _ expr@CallExpr{}) =
-    let (_, args) = collectArgs expr
-    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
-returnIsAlwaysStored ifun s = and ([returnIsAlwaysStored ifun c | c <- childrenStmt s] ++ [returnIsAlwaysStoredExpr ifun e | e <- childExprsStmt s])
-
-isCallToFun :: Int -> CExpression -> Bool
-isCallToFun ifun expr@CallExpr{} =
-    let (f', _) = collectArgs expr
-    in case f' of Var _ i' | i' == ifun -> True; _ -> False
-isCallToFun _ _ = False
-
--- get all the defvars/updatevars/binds that hold a return of that function
-getVarsThatHoldReturn :: Int -> CStatement -> Set.Set Int
-getVarsThatHoldReturn ifun (DefVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
-getVarsThatHoldReturn ifun (UpdateVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
-getVarsThatHoldReturn ifun s = foldr Set.union Set.empty ([getVarsThatHoldReturn ifun c | c <- childrenStmt s])
-
-
--- put pairs on stack
-
--- turns pair pointer into just pair if it can be demoted
-stripPairPtr :: Int -> CType -> VarsByValue -> CType
-stripPairPtr i (CTPtr (CTPair tl tr)) m | i `elem` m = CTPair tl tr
-stripPairPtr _ t _ = t
-
+-- (3b) put pairs on stack
 -- need to explicitly strip prod of its type because it does not know what variable its held in
 demotePairsStmt :: CStatement -> VarsByValue -> Map.Map Int [Int] -> CStatement
 demotePairsStmt (DefFun tret ifun params body) m funs =
@@ -133,78 +150,39 @@ demotePairsExpr (CallExpr tf tx f a) m funs =
     in rebuildCall tf f' args'
 demotePairsExpr e m funs = mapChildrenExpr (\x -> demotePairsExpr x m funs) e
 
-demotePairsPass :: CStatement -> CStatement
-demotePairsPass s =
-    let byValueSet = canBeByValue s
-        funsWithParams = getFunsWithParams s
-    in demotePairsStmt s byValueSet funsWithParams
+-- HELPERS
 
+collectPairLocals :: CStatement -> Set.Set Int
+collectPairLocals (DefVar t i _) | isPair t = Set.singleton i
+collectPairLocals (DefFun _ _ params b) = Set.union (collectPairLocals b) (Set.unions $ map collectPairParam params)
+collectPairLocals s = foldr Set.union Set.empty ([collectPairLocals c | c <- childrenStmt s])
 
+collectPairParam :: CParam -> Set.Set Int
+collectPairParam (CParam i t) | isPair t = Set.singleton i
+collectPairParam _ = Set.empty
 
+-- returns true if the result of call this function is only ever stored in a var
+    -- through defvars/updatevars/binds directly
+returnIsAlwaysStoredExpr :: Int -> CExpression -> Bool
+returnIsAlwaysStoredExpr ifun expr@CallExpr{} = not (isCallToFun ifun expr)
+returnIsAlwaysStoredExpr ifun e = and [returnIsAlwaysStoredExpr ifun c | c <- childrenExpr e]
 
+returnIsAlwaysStored :: Int -> CStatement -> Bool
+returnIsAlwaysStored ifun (DefVar _ _ expr@CallExpr{}) =
+    let (_, args) = collectArgs expr
+    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
+returnIsAlwaysStored ifun (UpdateVar _ _ expr@CallExpr{}) =
+    let (_, args) = collectArgs expr
+    in all (\(CArg _ x) -> returnIsAlwaysStoredExpr ifun x) args
+returnIsAlwaysStored ifun s = and ([returnIsAlwaysStored ifun c | c <- childrenStmt s] ++ [returnIsAlwaysStoredExpr ifun e | e <- childExprsStmt s])
 
--- **** DEMOTE CLOSURES ****
+-- get all the defvars/updatevars/binds that hold a return of that function
+getVarsThatHoldReturn :: Int -> CStatement -> Set.Set Int
+getVarsThatHoldReturn ifun (DefVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
+getVarsThatHoldReturn ifun (UpdateVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
+getVarsThatHoldReturn ifun s = foldr Set.union Set.empty ([getVarsThatHoldReturn ifun c | c <- childrenStmt s])
 
--- closure id, parent id, aplly to rewrite
--- turn the application of a heap allocated closure into the call of a stack allocated one
--- We call the fn stored in the closure directly with the env and its args
--- i is the id of the closureAlloc were getting rid of
-    -- if we find the application of that closure we need to rewrite it to a callexpr
-rewriteClosureUseExpr :: RemovedClos -> CExpression -> CExpression
-rewriteClosureUseExpr removed e@ApplyClosure{} =
-    let (f', args) = collectArgsApply e
-    in case f' of
-        Val (ClosureV i') | i' `elem` removed ->
-            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr removed x)) args
-                envArg = CArg (CTPtr CTVoid) (Val (EnvV i'))
-            in rebuildCall (CTPtr CTVoid) (Var (CTPtr CTVoid) i') (envArg : args') -- call the closure function directly
-        _ -> mapChildrenExpr (rewriteClosureUseExpr removed) e
-rewriteClosureUseExpr i e = mapChildrenExpr (rewriteClosureUseExpr i) e
-
--- remove the alloc closures we don't need and the envs that have no direct params
-rewriteClosureUse :: RemovedClos -> CStatement -> CStatement
-rewriteClosureUse r (AllocClosure i) | i `elem` r = Skip
-rewriteClosureUse r s = mapChildrenStmt (rewriteClosureUse r) (rewriteClosureUseExpr r) s
-
-collectedDemotedClosures :: CStatement -> FunctionInfo -> RemovedClos
-collectedDemotedClosures (AllocClosure i) g | i `notElem` escapedClos g = Set.singleton i
-collectedDemotedClosures s g = foldr Set.union Set.empty ([collectedDemotedClosures c g | c <- childrenStmt s])
-
--- top level pass, if we alloc a closure that never escapes the function we can keep it on the stack
--- collects a list of closures that are local to the function they are in
-    -- it then removes all of these from the body of that function
-demoteClosures :: CStatement -> FunctionInfo -> CStatement
-demoteClosures (DefFun tret ifun ps x) _ =
-    let r = collectedDemotedClosures x (getFunctionInfo x emptyFunctionInfo)
-    in DefFun tret ifun ps (rewriteClosureUse r x)
-demoteClosures x g = mapChildrenStmt (`demoteClosures` g) id x
-
-
--- ***** REMOVE LOCAL ENVS ***** 
-
--- removes envs that are only used locally (no alloc needed)
-demoteEnvs :: CStatement -> CStatement
-demoteEnvs (DefFun t i p body) =
-    let removed = collectUnusedEnvAllocs body emptyFunctionInfo
-    in DefFun t i p (rewriteRemovedEnvs removed body)
-demoteEnvs (Seq x y) = Seq (demoteEnvs x) (demoteEnvs y)
-demoteEnvs x = x
-
--- PASS 1: remove the AllocEnv statements that aren't needed, collect their ids
-    -- can only be removed if it does not escape anywhere
-collectUnusedEnvAllocs :: CStatement -> FunctionInfo -> RemovedEnvs
-collectUnusedEnvAllocs (AllocEnv envId _ _) r | envId `notElem` escapedEnvs r = Set.singleton envId
-collectUnusedEnvAllocs s@(DefFun _ _ _ body) _ =
-    collectUnusedEnvAllocs body (getFunctionInfo s emptyFunctionInfo)
-collectUnusedEnvAllocs s r = foldr Set.union Set.empty ([collectUnusedEnvAllocs c r | c <- childrenStmt s])
-
--- PASS 2: rewrites get-env-field accesses to the envs that were removed, and removes alloc statements
-rewriteRemovedEnvs :: RemovedEnvs -> CStatement -> CStatement
-rewriteRemovedEnvs r (AllocEnv envId _ _) | envId `elem` r = Skip
-rewriteRemovedEnvs r s = mapChildrenStmt (rewriteRemovedEnvs r) (rewriteRemovedEnvsExpr r) s
-
-rewriteRemovedEnvsExpr :: RemovedEnvs -> CExpression -> CExpression
-rewriteRemovedEnvsExpr removed (GetEnvField t envId varId)
-    | Set.member envId removed = rewriteRemovedEnvsExpr removed (Var t varId)
-    | otherwise = GetEnvField t envId varId
-rewriteRemovedEnvsExpr removed e = mapChildrenExpr (rewriteRemovedEnvsExpr removed) e
+-- turns pair pointer into just pair if it can be demoted
+stripPairPtr :: Int -> CType -> VarsByValue -> CType
+stripPairPtr i (CTPtr (CTPair tl tr)) m | i `elem` m = CTPair tl tr
+stripPairPtr _ t _ = t
