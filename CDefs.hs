@@ -97,7 +97,7 @@ data CStatement where
     Skip :: CStatement
     DefEnvStruct :: Int -> CParams -> CStatement -- same, but fields are concrete types
     AllocClosure :: Int -> CStatement -- closureId
-    AllocEnv :: Int -> Int -> CArgMap -> CArgMap -> CStatement -- envId parentId directParams parentParams
+    AllocEnv :: Int -> Int -> CArgMap -> CStatement -- envId parentId directParams parentParams
 instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
 
@@ -380,11 +380,10 @@ showCStmt indent _ (AllocClosure ifun) =
     ++ "\n" ++ indentStr indent ++ "c" ++ show ifun ++ "->env = env" ++ show ifun ++ ";"
     ++ "\n" ++ indentStr indent ++ "c" ++ show ifun
     ++ "->fn = (void* (*)(void*, void*))v" ++ show ifun ++ ";"
-showCStmt indent m (AllocEnv envId _ directParams parentParams) =
+showCStmt indent m (AllocEnv envId _ params) =
     "\n" ++ indentStr indent ++ "Env_v" ++ show envId ++ "* env" ++ show envId
         ++ " = malloc(sizeof(Env_v" ++ show envId ++ "));"
-    ++ showDirect (Map.toList directParams)
-    ++ showDirect (Map.toList parentParams)
+    ++ showDirect (Map.toList params)
   where
     showDirect :: [(Int, CArg)] -> String
     showDirect [] = ""

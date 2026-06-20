@@ -163,11 +163,11 @@ ListInt* v37(void* env37, void* v14_raw) {
 Closure* v38(void* env38, void* v13_raw) {
   int v13 = *(int*)v13_raw;
   Env_v37* env37 = malloc(sizeof(Env_v37));
-  env37->v13 = v13;
   env37->v9 = ((Env_v38*)env38)->v9;
   env37->v10 = ((Env_v38*)env38)->v10;
   env37->v11 = ((Env_v38*)env38)->v11;
   env37->v12 = ((Env_v38*)env38)->v12;
+  env37->v13 = v13;
   Closure* c37 = malloc(sizeof(Closure));
   c37->env = env37;
   c37->fn = (void* (*)(void*, void*))v37;
@@ -177,10 +177,10 @@ Closure* v38(void* env38, void* v13_raw) {
 ListInt* v40(void* env40, void* v12_raw) {
   ListInt* v12 = (ListInt*)v12_raw;
   Env_v38* env38 = malloc(sizeof(Env_v38));
-  env38->v12 = v12;
   env38->v9 = ((Env_v40*)env40)->v9;
   env38->v10 = ((Env_v40*)env40)->v10;
   env38->v11 = ((Env_v40*)env40)->v11;
+  env38->v12 = v12;
   if (((((Env_v40*)env40)->v10) == NULL)) return ((Env_v40*)env40)->v9;
   Closure* c38 = v38(env38, box_int((((Env_v40*)env40)->v10)->head));
   return (ListInt*)(c38)->fn((c38)->env, (((Env_v40*)env40)->v10)->tail);
@@ -189,9 +189,9 @@ ListInt* v40(void* env40, void* v12_raw) {
 Closure* v41(void* env41, void* v11_raw) {
   int v11 = *(int*)v11_raw;
   Env_v40* env40 = malloc(sizeof(Env_v40));
-  env40->v11 = v11;
   env40->v9 = ((Env_v41*)env41)->v9;
   env40->v10 = ((Env_v41*)env41)->v10;
+  env40->v11 = v11;
   Closure* c40 = malloc(sizeof(Closure));
   c40->env = env40;
   c40->fn = (void* (*)(void*, void*))v40;
@@ -201,8 +201,8 @@ Closure* v41(void* env41, void* v11_raw) {
 ListInt* v43(void* env43, void* v10_raw) {
   ListInt* v10 = (ListInt*)v10_raw;
   Env_v41* env41 = malloc(sizeof(Env_v41));
-  env41->v10 = v10;
   env41->v9 = ((Env_v43*)env43)->v9;
+  env41->v10 = v10;
   if (((((Env_v43*)env43)->v9) == NULL)) return v10;
   Closure* c41 = v41(env41, box_int((((Env_v43*)env43)->v9)->head));
   return (ListInt*)(c41)->fn((c41)->env, (((Env_v43*)env43)->v9)->tail);
@@ -241,8 +241,8 @@ Pair_ListInt_ListInt* v53(void* env53, void* v26_raw) {
 Closure* v54(void* env54, void* v25_raw) {
   int v25 = *(int*)v25_raw;
   Env_v53* env53 = malloc(sizeof(Env_v53));
-  env53->v25 = v25;
   env53->v22 = ((Env_v54*)env54)->v22;
+  env53->v25 = v25;
   Closure* c53 = malloc(sizeof(Closure));
   c53->env = env53;
   c53->fn = (void* (*)(void*, void*))v53;
@@ -319,8 +319,8 @@ ListInt* v70(void* env70, void* v5_raw) {
 Closure* v71(void* env71, void* v4_raw) {
   int v4 = *(int*)v4_raw;
   Env_v70* env70 = malloc(sizeof(Env_v70));
-  env70->v4 = v4;
   env70->v2 = ((Env_v71*)env71)->v2;
+  env70->v4 = v4;
   Closure* c70 = malloc(sizeof(Closure));
   c70->env = env70;
   c70->fn = (void* (*)(void*, void*))v70;

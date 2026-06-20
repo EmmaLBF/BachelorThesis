@@ -41,8 +41,8 @@ ListInt* v9(void* env9, void* v4_raw) {
 Closure* v10(void* env10, void* v3_raw) {
   int v3 = *(int*)v3_raw;
   Env_v9* env9 = malloc(sizeof(Env_v9));
-  env9->v3 = v3;
   env9->v1 = ((Env_v10*)env10)->v1;
+  env9->v3 = v3;
   Closure* c9 = malloc(sizeof(Closure));
   c9->env = env9;
   c9->fn = (void* (*)(void*, void*))v9;

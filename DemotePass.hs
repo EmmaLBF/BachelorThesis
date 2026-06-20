@@ -193,14 +193,14 @@ demoteEnvs x = x
 -- PASS 1: remove the AllocEnv statements that aren't needed, collect their ids
     -- can only be removed if it does not escape anywhere
 collectUnusedEnvAllocs :: CStatement -> FunctionInfo -> RemovedEnvs
-collectUnusedEnvAllocs (AllocEnv envId _ _ _) r | envId `notElem` escapedEnvs r = Set.singleton envId
+collectUnusedEnvAllocs (AllocEnv envId _ _) r | envId `notElem` escapedEnvs r = Set.singleton envId
 collectUnusedEnvAllocs s@(DefFun _ _ _ body) _ =
     collectUnusedEnvAllocs body (getFunctionInfo s emptyFunctionInfo)
 collectUnusedEnvAllocs s r = foldr Set.union Set.empty ([collectUnusedEnvAllocs c r | c <- childrenStmt s])
 
 -- PASS 2: rewrites get-env-field accesses to the envs that were removed, and removes alloc statements
 rewriteRemovedEnvs :: RemovedEnvs -> CStatement -> CStatement
-rewriteRemovedEnvs r (AllocEnv envId _ _ _) | envId `elem` r = Skip
+rewriteRemovedEnvs r (AllocEnv envId _ _) | envId `elem` r = Skip
 rewriteRemovedEnvs r s = mapChildrenStmt (rewriteRemovedEnvs r) (rewriteRemovedEnvsExpr r) s
 
 rewriteRemovedEnvsExpr :: RemovedEnvs -> CExpression -> CExpression

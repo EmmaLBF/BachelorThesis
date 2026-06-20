@@ -234,7 +234,7 @@ makeClosureFactories (DefFun tret ifun params body) m parents =
                 | isParentOf retId ifun parents -> -- curr fun is parent
                     let parentParams = Set.toList freeVars \\ params
                         directParams = Set.toList (Set.intersection (Set.fromList params) freeVars)
-                        allocEnv = AllocEnv retId ifun (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun)
+                        allocEnv = AllocEnv retId ifun (Map.union (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun))
                         allocCls = if not returnsClosure then AllocClosure retId else Skip -- if its retun is alsready a closure we don't need to reallocate it
                         newBody = Seq allocEnv (Seq allocCls (replaceReturnClosure body retId))
                     in do
@@ -265,9 +265,9 @@ allocateEnvironment :: Int -> Int -> FreeVars -> CParams -> CStatement
 allocateEnvironment i ifun freeVarsMap params =
     case Map.lookup i freeVarsMap of
         Just freeVars ->
-            let freeVars' = (Set.toList freeVars \\ params)
-                directParams = Set.toList freeVars \\ freeVars'
-            in  AllocEnv i ifun (paramsToArgVars directParams) (paramsToArgGetEnv freeVars' ifun)
+            let parentParams = (Set.toList freeVars \\ params)
+                directParams = Set.toList freeVars \\ parentParams
+            in  AllocEnv i ifun (Map.union (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun))
         _ -> Skip
 
 -- add env  allocations for all the functions we call in the body of this function
@@ -518,7 +518,6 @@ printCode finalBody freeVars =
     let finalDefs = getDefs finalBody
         finalMergeMap = Map.map length (getFunsWithParams finalBody)
         globalInfo = getGlobalInfo finalBody emptyGlobalInfo
-        funInfo = getFunctionInfo finalBody emptyFunctionInfo
 
         envStructs = foldr (Seq . (`generateEnvStructs` freeVars)) Skip (Set.toList (usedEnvsGlobal globalInfo))
         

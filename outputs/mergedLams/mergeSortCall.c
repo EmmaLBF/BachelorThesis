@@ -121,10 +121,10 @@ ListInt* v41(void* env41, void* v11_raw, void* v12_raw) {
   int v11 = *(int*)v11_raw;
   ListInt* v12 = (ListInt*)v12_raw;
   Env_v38* env38 = malloc(sizeof(Env_v38));
-  env38->v11 = v11;
-  env38->v12 = v12;
   env38->v9 = ((Env_v41*)env41)->v9;
   env38->v10 = ((Env_v41*)env41)->v10;
+  env38->v11 = v11;
+  env38->v12 = v12;
   if (((((Env_v41*)env41)->v10) == NULL)) return ((Env_v41*)env41)->v9;
   return v38(env38, box_int((((Env_v41*)env41)->v10)->head), (void*)((((Env_v41*)env41)->v10)->tail));
 }

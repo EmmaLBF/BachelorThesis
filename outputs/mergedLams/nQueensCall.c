@@ -144,17 +144,17 @@ bool v56(void* env56, void* v42_raw) {
 bool v58(void* env58, void* v39_raw) {
   Pair_Int_Int *v39 = (Pair_Int_Int*)v39_raw;
   Env_v56* env56 = malloc(sizeof(Env_v56));
-  env56->v39 = v39;
   env56->v35 = ((Env_v58*)env58)->v35;
   env56->v38 = ((Env_v58*)env58)->v38;
+  env56->v39 = v39;
   return v56(env56, box_int((v39)->snd));
 }
 
 Closure* v59(void* env59, void* v38_raw) {
   int v38 = *(int*)v38_raw;
   Env_v58* env58 = malloc(sizeof(Env_v58));
-  env58->v38 = v38;
   env58->v35 = ((Env_v59*)env59)->v35;
+  env58->v38 = v38;
   Closure* c58 = malloc(sizeof(Closure));
   c58->env = env58;
   c58->fn = (void* (*)(void*, void*))v58;
@@ -201,8 +201,8 @@ List* v80(void* env80, void* v26_raw) {
   Pair_Int_Int *v26 = (Pair_Int_Int*)v26_raw;
   Env_v20* env20 = malloc(sizeof(Env_v20));
   Env_v74* env74 = malloc(sizeof(Env_v74));
-  env74->v26 = v26;
   env74->v23 = ((Env_v80*)env80)->v23;
+  env74->v26 = v26;
   return v74(env74, (void*)(v20(env20, box_int(((Env_v80*)env80)->v21), box_int(((Env_v80*)env80)->v22), (void*)(((Env_v80*)env80)->v23), box_int((((Env_v80*)env80)->v24 + 1)))));
 }
 

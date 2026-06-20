@@ -195,9 +195,8 @@ mapChildrenStmt fs _  (DefFun t i p b)   = DefFun t i p (fs b)
 mapChildrenStmt _  fe (DefVar t i x)     = DefVar t i (fe x)
 mapChildrenStmt _  fe (UpdateVar t i x)  = UpdateVar t i (fe x)
 mapChildrenStmt _  fe (Return x)         = Return (fe x)
-mapChildrenStmt _  fe (AllocEnv e p d pp) =
-    AllocEnv e p (Map.map (\(CArg t x) -> CArg t (fe x)) d)
-                 (Map.map (\(CArg t x) -> CArg t (fe x)) pp)
+mapChildrenStmt _  fe (AllocEnv e p params) =
+    AllocEnv e p (Map.map (\(CArg t x) -> CArg t (fe x)) params)
 mapChildrenStmt _  _  s = s
 
 -- child statements only
@@ -215,13 +214,10 @@ childExprsStmt (While c _)       = [ c]
 childExprsStmt (DefVar _ _ x)    = [ x]
 childExprsStmt (UpdateVar _ _ x) = [ x]
 childExprsStmt (Return x)        = [ x]
-childExprsStmt (AllocEnv _ _ d pp) = [ x | CArg _ x <- Map.elems d ++ Map.elems pp]
+childExprsStmt (AllocEnv _ _ params) = [ x | CArg _ x <- Map.elems params]
 childExprsStmt _                 = []
 
-mapChildrenStmtM :: Monad m
-             => (CStatement -> m CStatement)
-             -> (CExpression -> m CExpression)
-             -> CStatement -> m CStatement
+mapChildrenStmtM :: Monad m => (CStatement -> m CStatement) -> (CExpression -> m CExpression) -> CStatement -> m CStatement
 mapChildrenStmtM fs fe stmt = case stmt of
     Seq x y -> Seq <$> fs x <*> fs y
     If c x y -> If <$> fe c <*> fs x <*> fs y
@@ -230,7 +226,5 @@ mapChildrenStmtM fs fe stmt = case stmt of
     DefVar t i x -> DefVar t i <$> fe x
     UpdateVar t i x -> UpdateVar t i <$> fe x
     Return x -> Return <$> fe x
-    AllocEnv e p d pp -> AllocEnv e p
-                           <$> traverse (\(CArg t x) -> CArg t <$> fe x) d
-                           <*> traverse (\(CArg t x) -> CArg t <$> fe x) pp
+    AllocEnv e p params -> AllocEnv e p <$> traverse (\(CArg t x) -> CArg t <$> fe x) params
     s -> return s
