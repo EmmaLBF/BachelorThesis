@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use bimap" #-}
 
 module C where
 
@@ -91,19 +93,16 @@ translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
 -- also returns map of which function is which parent
 liftDefs :: CStatement -> State (FreeVars, ParentMap) CStatement
 liftDefs stmt@(DefFun tret ifun params body) =
-    let defToRemove = findFirstDefFun body -- find a def nested inside the current one
-    in case defToRemove of
-        Nothing -> return stmt -- no more defs to lift out
-        Just (DefFun tret' ifun' params' body') -> do
-            let removedDefBody = removeDefFun body ifun' -- remove the def we found
-                newDef = DefFun tret' ifun' (CParamEnv ifun' : params') body' -- add an env param to it and lift it out
-                usedInNested = Map.keysSet (varUses (getFunctionInfo body' emptyFunctionInfo)) -- vars that are used in the nested body
-            modify $ \(m, n) ->
-                let parentVars = Set.union (Set.fromList params) (Map.findWithDefault Set.empty ifun m)
-                    freeVars = Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars
-                in (Map.insert ifun' freeVars m, Map.insert ifun' ifun n) -- add all of its needed params to the map
-            return (Seq newDef (DefFun tret ifun params removedDefBody))
-        _ -> error "not def"
+    maybe (return stmt) liftNested (findFirstDefFun body) -- find a def nested inside the current one
+    where
+    liftNested (DefFun tret' ifun' params' body') = do
+        m <- gets fst
+        let removedDefOuter = removeDefFun body ifun' -- remove the def we found
+            defInner = DefFun tret' ifun' (CParamEnv ifun' : params') body' -- add an env param to it and lift it out
+            freeVars = findFreeVars body' params ifun m
+        modify $ \(m', n) -> (Map.insert ifun' freeVars m', Map.insert ifun' ifun n) -- add all of its needed params to the map
+        return (Seq defInner (DefFun tret ifun params removedDefOuter))
+    liftNested _ = error "expected a function definition"
 liftDefs (Seq x y) = Seq <$> liftDefs x <*>  liftDefs y
 liftDefs x = return x
 
@@ -112,46 +111,31 @@ lambdaLift stmt = do
     (m, _) <- get
     stmt' <- liftDefs stmt
     (m', _) <- get
-    let stmt'' = replaceParentVarAccess stmt' (-1) m'
+    let stmt'' = replaceFreeVarAccess stmt' (-1) m'
     if m' /= m then lambdaLift stmt'' else return stmt''
 
--- all of the parent function(s)'s paramteters need to be accessed through the env
+-- free vars are parent free vars + parent params - the variables that arent used
+findFreeVars :: CStatement -> CParams -> Int -> FreeVars -> Set.Set CParam
+findFreeVars body parentParams ifun freeVars =
+    let usedInNested = Map.keysSet (varUses (getFunctionInfo body emptyFunctionInfo)) -- vars that are used in the nested body
+        parentVars = Set.union (Set.fromList parentParams) (Map.findWithDefault Set.empty ifun freeVars)
+    in Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars 
+
+-- (1a) all of the parent function(s)'s paramteters need to be accessed through the env
 -- instead of directly through var
-replaceParentVarAccessExpr :: CExpression -> Int -> FreeVars -> CExpression
-replaceParentVarAccessExpr (Var t i) currFun m =
-    case Map.lookup currFun m of
-        Just funSet | i `elem` paramsToList (Set.toList funSet) -> GetEnvField t currFun i
+replaceFreeVarAccessExpr :: CExpression -> Int -> FreeVars -> CExpression
+replaceFreeVarAccessExpr (Var t i) ifun freeVars =
+    case Map.lookup ifun freeVars of
+        Just funSet | isElemParamSet i funSet -> GetEnvField t ifun i
         _ -> Var t i
-replaceParentVarAccessExpr e currFun m = mapChildrenExpr (\x -> replaceParentVarAccessExpr x currFun m) e
+replaceFreeVarAccessExpr e currFun m = mapChildrenExpr (\x -> replaceFreeVarAccessExpr x currFun m) e
 
-replaceParentVarAccess :: CStatement -> Int -> FreeVars -> CStatement
-replaceParentVarAccess (DefFun t ifun p body) _ m = DefFun t ifun p (replaceParentVarAccess body ifun m)
-replaceParentVarAccess s currFun m =
+replaceFreeVarAccess :: CStatement -> Int -> FreeVars -> CStatement
+replaceFreeVarAccess (DefFun t ifun p body) _ m = DefFun t ifun p (replaceFreeVarAccess body ifun m)
+replaceFreeVarAccess s currFun m =
     mapChildrenStmt
-        (\x -> replaceParentVarAccess x currFun m)
-        (\e -> replaceParentVarAccessExpr e currFun m) s
-
--- follow the id of the current function in the parent map so see if the first int is the parent of the second
-isParentOf :: Int -> Int -> ParentMap -> Bool
-isParentOf child parent parentMap =
-    case Map.lookup child parentMap of
-        Just i
-            | i == parent -> True
-            | otherwise -> isParentOf i parent parentMap
-        Nothing -> False
-
-paramsToArgVars :: CParams -> CArgMap
-paramsToArgVars [] = Map.empty
-paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
-paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTPtr CTVoid) (Val (EnvV i)))
-paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
-
-paramsToArgGetEnv :: CParams -> Int -> CArgMap
-paramsToArgGetEnv [] _ = Map.empty
-paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
-paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
-paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
-
+        (\x -> replaceFreeVarAccess x currFun m)
+        (\e -> replaceFreeVarAccessExpr e currFun m) s
 
 -- (2) add env parameters to call sites of hoisted functions
 -- if we call a function that is in our lifted set we need to make an env to its call list
@@ -322,6 +306,28 @@ allocateEnvironment i ifun freeVarsMap params =
                 directParams = Set.toList freeVars \\ parentParams
             in  AllocEnv i ifun (Map.union (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun))
         _ -> Skip
+
+-- follow the id of the current function in the parent map so see if the first int is the parent of the second
+isParentOf :: Int -> Int -> ParentMap -> Bool
+isParentOf child parent parentMap =
+    case Map.lookup child parentMap of
+        Just i
+            | i == parent -> True
+            | otherwise -> isParentOf i parent parentMap
+        Nothing -> False
+
+paramsToArgVars :: CParams -> CArgMap
+paramsToArgVars [] = Map.empty
+paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
+paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTPtr CTVoid) (Val (EnvV i)))
+paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
+
+paramsToArgGetEnv :: CParams -> Int -> CArgMap
+paramsToArgGetEnv [] _ = Map.empty
+paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
+paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
+paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
+
 
 ------ (5) Pass to add box/unbox
 

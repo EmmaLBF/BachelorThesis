@@ -8,6 +8,7 @@ import CDefs
 import Control.Monad.State
 import Unsafe.Coerce
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 fresh :: State Int Int
 fresh = do
@@ -66,12 +67,16 @@ defaultVal _ = unsafeCoerce UnitV
 -- FUNDEF HELPERS
 
 -- returns the deffun of fun i from the list of defs
-findFunDef :: Int -> [CStatement] -> Maybe CStatement
-findFunDef _ [] = Nothing
-findFunDef i (def@(DefFun _ ifun _ _) : rest) =
-    if i == ifun then Just def
-    else findFunDef i rest
-findFunDef _ _ = error "not valid def"
+findFunDef :: Int -> CStatement -> Maybe CStatement
+findFunDef toFind stmt =
+    let defs = getDefs stmt
+    in findDef toFind defs
+    where
+    findDef _ [] = Nothing
+    findDef i (def@(DefFun _ ifun _ _) : rest) =
+        if i == ifun then Just def
+        else findDef i rest
+    findDef _ _ = error "not valid def"
 
 -- collects a list of defs from the whole ast
 getDefs :: CStatement -> [CStatement]
@@ -109,7 +114,7 @@ getFunType _ _ = Nothing
 -- collects a map of each fun id with the ids of its params from the whole ast
 getFunsWithParams :: CStatement -> Map.Map Int [Int]
 getFunsWithParams (DefFun _ ifun params _) =
-    Map.insert ifun (paramsToListEnv params) Map.empty
+    Map.insert ifun (paramsToList params) Map.empty
 getFunsWithParams (Seq x y) = Map.union (getFunsWithParams x) (getFunsWithParams y)
 getFunsWithParams _ = Map.empty
 
@@ -126,15 +131,13 @@ paramId :: CParam -> Int
 paramId (CParam i _)  = i
 paramId (CParamEnv i) = i
 
+isElemParamSet :: Int -> Set.Set CParam -> Bool
+isElemParamSet i s = i `elem` paramsToList (Set.toList s)
+
 paramsToList :: CParams -> [Int]
 paramsToList [] = []
 paramsToList (CParam i _ : rest) = i : paramsToList rest
-paramsToList (CParamEnv{} : rest) = paramsToList rest
-
-paramsToListEnv :: CParams -> [Int]
-paramsToListEnv [] = []
-paramsToListEnv (CParam i _ : rest) = i : paramsToList rest
-paramsToListEnv (CParamEnv i : rest) = i : paramsToList rest
+paramsToList (CParamEnv i : rest) = i : paramsToList rest
 
 merge :: (CParamMap, CParamMap) -> (CParamMap, CParamMap) -> (CParamMap, CParamMap)
 merge (xfree, xbound) (yfree, ybound) = (Map.union xfree yfree, Map.union xbound ybound)

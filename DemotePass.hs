@@ -79,7 +79,7 @@ canBeByValue stmt =
     let pairLocals = collectPairLocals stmt   -- vars whose DefVar type is pair
         fstSndVars = Map.keysSet $ Map.filter id (alwaysFstSnd stmt) -- vars who are always used only with fst/snd
         varsbyValue = pairLocals `Set.intersection` fstSndVars -- vars that are used by value
-        funsByValue = foldr (\i -> Set.union (getFunsByValue i varsbyValue stmt)) Set.empty (getDefIds stmt)
+        funsByValue = getFunsByValue (getDefIds stmt) varsbyValue stmt
     in Set.union varsbyValue funsByValue
 
 -- if a pair is used not as fst/snd anywhere it is 'bad'
@@ -94,13 +94,15 @@ alwaysFstSnd :: CStatement -> Map.Map Int Bool
 alwaysFstSnd s = foldr (Map.unionWith (&&)) Map.empty ([alwaysFstSnd c | c <- childrenStmt s] ++ [alwaysFstSndExpr e | e <- childExprsStmt s])
 
 -- all the variables which escape a demoted function will now also be demoted
-getFunsByValue :: Int -> VarsByValue -> CStatement -> FunsByValue
-getFunsByValue i varsByValue body 
-    | canBeByValueFun i body varsByValue =
-        let funDef = fromMaybe Skip (findFunDef i (getDefs body))
+getFunsByValue :: [Int] -> VarsByValue -> CStatement -> VarsByValue
+getFunsByValue ifuns varsByValue body =
+    foldr (Set.union . addFun) Set.empty ifuns
+    where
+    addFun i | canBeByValueFun i body varsByValue =
+        let funDef = fromMaybe Skip (findFunDef i body)
             analysis = getFunctionInfo funDef emptyFunctionInfo
-        in foldr Set.insert (Set.singleton i) (escapedVars analysis)
-    | otherwise = Set.empty
+        in Set.insert i (escapedVars analysis)
+    addFun _ = Set.empty
 
 -- function return value can be stack allocated if its value is always stored in a variable
     -- and that variable is always used by value
@@ -133,7 +135,7 @@ demotePairsStmt s m funs = mapChildrenStmt (\x -> demotePairsStmt x m funs) (\e 
 
 demotePairsArgs :: [(CArg, Int)] -> VarsByValue -> Map.Map Int [Int] -> CArgs
 demotePairsArgs [] _ _ = []
-demotePairsArgs [(CArg _ (Prod tp l r), idProd)] m funs 
+demotePairsArgs [(CArg _ (Prod tp l r), idProd)] m funs
     | idProd `elem` m = [CArg tp (Prod (stripPairPtr idProd tp m) (demotePairsExpr l m funs) (demotePairsExpr r m funs))]
 demotePairsArgs [(CArg targ x, _)] m funs = [CArg targ (demotePairsExpr x m funs)]
 demotePairsArgs (b:is) m funs = demotePairsArgs [b] m funs ++ demotePairsArgs is m funs
@@ -178,8 +180,8 @@ returnIsAlwaysStored ifun s = and ([returnIsAlwaysStored ifun c | c <- childrenS
 
 -- get all the defvars/updatevars/binds that hold a return of that function
 getVarsThatHoldReturn :: Int -> CStatement -> Set.Set Int
-getVarsThatHoldReturn ifun (DefVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
-getVarsThatHoldReturn ifun (UpdateVar _ i expr@CallExpr{}) | isCallToFun ifun expr = Set.singleton i
+getVarsThatHoldReturn ifun (DefVar _ i x) | isCallToFun ifun x = Set.singleton i
+getVarsThatHoldReturn ifun (UpdateVar _ i x) | isCallToFun ifun x = Set.singleton i
 getVarsThatHoldReturn ifun s = foldr Set.union Set.empty ([getVarsThatHoldReturn ifun c | c <- childrenStmt s])
 
 -- turns pair pointer into just pair if it can be demoted

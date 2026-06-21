@@ -123,6 +123,7 @@ bindResult :: Int -> CStatement a -> CStatement a
 bindResult i (Return x) = DefVar i x
 bindResult i (Seq x y) = Seq x (bindResult i y)
 bindResult i (If c t e) = If c (bindResult i t) (bindResult i e)
+bindResult i (While c x) = While c (bindResult i x)
 bindResult i def@(DefFun ifun (_, _ :: Proxy arg) (_ :: CStatement b)) =
   let var = Var ifun :: CExpression (arg -> b)
   in Seq def (DefVar i var)
