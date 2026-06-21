@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module DeadCodePass where
 import C
@@ -12,21 +14,15 @@ import qualified Data.Set as Set
 
 
 -- (1) REMOVE ENV PARAM FROM FUNCTIONS 
+-- collects list of functions that had their envs removed
+-- removes first env params for functions where it is not used
 envRemovalPass :: CStatement -> CStatement
 envRemovalPass body =
-    let l = collectUselessEnvParam body emptyFunctionInfo
-        paramRemoved = removeUselessEnvParam body (-1) l
-    in demoteEnvs paramRemoved
-
--- (1a) removes first env params for functions where it is not used
--- collects list of functions that had their envs removed
-collectUselessEnvParam :: CStatement -> FunctionInfo -> RemovedEnvs
-collectUselessEnvParam (DefFun t ifun params body) _ =
-    let r' = getFunctionInfo (DefFun t ifun params body) emptyFunctionInfo
-        p' = [p | p <- params, case p of CParamEnv i -> Set.member i (envUses r'); _ -> True]
-    in if params /= p' then Set.singleton ifun else Set.empty
-collectUselessEnvParam (Seq x y) r = Set.union (collectUselessEnvParam x r) (collectUselessEnvParam y r)
-collectUselessEnvParam _ _ = Set.empty
+    let l = Set.fromList
+            [ ifun | fun@(DefFun _ ifun params _) <- getDefs body
+                , let usedEnvs = envUses (getFunctionInfo fun emptyFunctionInfo)
+                , any (\p -> case p of CParamEnv i | i == ifun -> not (Set.member i usedEnvs); _ -> False) params]
+    in demoteEnvs (removeUselessEnvParam body (-1) l)
 
 -- (1b) remove collected envs
 removeUselessEnvParam :: CStatement -> Int -> RemovedEnvs -> CStatement
@@ -43,10 +39,9 @@ removeUselessEnvParamExpr (GetEnvField t envId varId) ifun s
 removeUselessEnvParamExpr (CallExpr tf tx f x) ifun s =
     let (f', args) = collectArgs (CallExpr tf tx f x)
         fId = case f' of Var _ i -> i; _ -> -1
-    in  if fId `elem` s
-        then
-            let args' = case args of (CArg _ (Val (EnvV _)) : rest) -> rest; _ -> args
-            in rebuildCall tf f' (map (\(CArg t arg) -> CArg t (removeUselessEnvParamExpr arg ifun s)) args')
+    in  if fId `elem` s 
+        then let args' = case args of (CArg _ (Val (EnvV _)) : rest) -> rest; _ -> args
+             in rebuildCall tf f' (map (\(CArg t arg) -> CArg t (removeUselessEnvParamExpr arg ifun s)) args')
         else CallExpr tf tx (removeUselessEnvParamExpr f ifun s) (removeUselessEnvParamExpr x ifun s)
 removeUselessEnvParamExpr e ifun s = mapChildrenExpr (\x -> removeUselessEnvParamExpr x ifun s) e
 
@@ -102,11 +97,11 @@ usedAtMostOnce i m = case Map.lookup i m of
 
 
 --  (4) REMOVE USLESS LOGIC + CASTS (i.e. making a list out of the head and tail of another list)
--- the only ones that need cast are fst and snd because they return void*
+-- cannot remove cast from things that return erased type
 removeCast :: CExpression -> CExpression -> CExpression
 removeCast fallback x = case x of
-    Fst{} -> fallback
-    Snd{} -> fallback
+    ApplyClosure{} -> fallback
+    CallExpr{} -> fallback
     expr -> expr
 
 removeUselessExpr :: CExpression -> CExpression
@@ -121,9 +116,21 @@ removeUselessExpr e = mapChildrenExpr removeUselessExpr e
 removeUselessStmt :: CStatement -> CStatement
 removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
 
-
 -- (5) CLEAN IR (REMOVE SKIPS)
+-- cleanSkip :: CStatement -> CStatement
+-- cleanSkip (Seq Skip y) = cleanSkip y
+-- cleanSkip (Seq y Skip) = cleanSkip y
+-- cleanSkip s = mapChildrenStmt cleanSkip id s
+-- cleanSkip s =
+--     case mapChildrenStmt cleanSkip id s of
+--         Seq Skip y -> y
+--         Seq y Skip -> y
+--         s'         -> s
+
 cleanSkip :: CStatement -> CStatement
-cleanSkip (Seq Skip y) = cleanSkip y
-cleanSkip (Seq y Skip) = cleanSkip y
+cleanSkip (Seq x y) =
+    case (cleanSkip x, cleanSkip y) of
+        (Skip, y') -> y'
+        (x', Skip) -> x'
+        (x', y')   -> Seq x' y'
 cleanSkip s = mapChildrenStmt cleanSkip id s

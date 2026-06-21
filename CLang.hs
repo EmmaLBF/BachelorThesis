@@ -57,7 +57,6 @@ data CExpression a where
 
 data CStatement a where
   Return :: (Typeable a) => CExpression a -> CStatement a
-  BindExpr :: Typeable a => CExpression a -> Int -> CStatement b -> CStatement b
   Seq :: CStatement a -> CStatement a -> CStatement a
   If :: CExpression Bool -> CStatement a -> CStatement a -> CStatement a
   DefFun :: (Typeable a, Typeable b) => Int -> (Int, Proxy a) -> CStatement b -> CStatement b
@@ -191,10 +190,6 @@ replaceVarBinding (ConsList x y) = ConsList <$> replaceVarBinding x <*> replaceV
 replaceVarBinding expr = return expr
 
 replaceVarBindingStmt :: CStatement a -> State (Map.Map Int CArg) (CStatement a)
-replaceVarBindingStmt (BindExpr x i y) = do
-    x' <- replaceVarBinding x
-    y' <- replaceVarBindingStmt y
-    return (BindExpr x' i y')
 replaceVarBindingStmt (Seq x y) = Seq <$> replaceVarBindingStmt x <*> replaceVarBindingStmt y
 replaceVarBindingStmt (If cond x y) = If <$> replaceVarBinding cond <*> replaceVarBindingStmt x <*> replaceVarBindingStmt y
 replaceVarBindingStmt (While cond x) = While <$> replaceVarBinding cond <*> replaceVarBindingStmt x
@@ -207,10 +202,6 @@ replaceVarBindingStmt Skip = return Skip
 -- map stores for each var we have unbound what its value is now
 -- so if we had let v8 = v7 in ..., store v8 -> v7 in map
 collectBindings :: CStatement a -> State (Map.Map Int CArg) (CStatement a)
-collectBindings (BindExpr x i y) = do
-  x' <- replaceVarBinding x
-  modify (Map.insert i (CArg x'))
-  return y
 collectBindings (DefVar i x) = do
   x' <- replaceVarBinding x
   modify (Map.insert i (CArg x'))
@@ -285,7 +276,6 @@ evalExpr (IndexList l i) m =
   in vs !! idx
 
 evalStmt :: CStatement c -> Map.Map Int CVal -> ExecResult c
-evalStmt (BindExpr x i y) m = evalStmt y (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (DefVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (UpdateVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (Return x) m = ReturnVal (evalExpr x m) m
@@ -359,9 +349,6 @@ showCStmt indent (While cond body) =
     "\n" ++ indentStr indent ++ "while " ++ showCExpression cond ++ " {"
     ++ showCStmt (indent + 1) body
     ++ "\n" ++ indentStr indent ++ "}"
-showCStmt indent (BindExpr x i y) =
-    "\n" ++ indentStr indent ++ "let v" ++ show i ++ " = " ++ showCExpression x ++ " in"
-    ++ showCStmt (indent + 1) y
 showCStmt indent (Seq x y) =
     showCStmt indent x ++ showCStmt indent y
 showCStmt indent (DefFun ifun (i, targ) (body :: CStatement b)) =

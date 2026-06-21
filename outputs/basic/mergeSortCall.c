@@ -253,16 +253,10 @@ Pair_ListInt_ListInt* v56(void* env56, void* v24_raw) {
   ListInt* v24 = (ListInt*)v24_raw;
   Env_v54* env54 = malloc(sizeof(Env_v54));
   env54->v22 = ((Env_v56*)env56)->v22;
-  if ((((Env_v56*)env56)->v22 == 0)) {
-    return makePair_ListInt_ListInt(NULL, v24);
-  } else {
-    if (((v24) == NULL)) {
-      return makePair_ListInt_ListInt(NULL, NULL);
-    } else {
-      Closure* c54 = v54(env54, box_int((v24)->head));
-      return (Pair_ListInt_ListInt*)(c54)->fn((c54)->env, (v24)->tail);
-    }
-  }
+  if ((((Env_v56*)env56)->v22 == 0)) return makePair_ListInt_ListInt(NULL, v24);
+  if (((v24) == NULL)) return makePair_ListInt_ListInt(NULL, NULL);
+  Closure* c54 = v54(env54, box_int((v24)->head));
+  return (Pair_ListInt_ListInt*)(c54)->fn((c54)->env, (v24)->tail);
 }
 
 Pair_ListInt_ListInt* v58(void* env58, void* v22_raw) {
@@ -331,12 +325,9 @@ ListInt* v73(void* env73, void* v3_raw) {
   ListInt* v3 = (ListInt*)v3_raw;
   Env_v71* env71 = malloc(sizeof(Env_v71));
   env71->v2 = ((Env_v73*)env73)->v2;
-  if (((v3) == NULL)) {
-    return consInt(((Env_v73*)env73)->v2, NULL);
-  } else {
-    Closure* c71 = v71(env71, box_int((v3)->head));
-    return (ListInt*)(c71)->fn((c71)->env, (v3)->tail);
-  }
+  if (((v3) == NULL)) return consInt(((Env_v73*)env73)->v2, NULL);
+  Closure* c71 = v71(env71, box_int((v3)->head));
+  return (ListInt*)(c71)->fn((c71)->env, (v3)->tail);
 }
 
 Closure* v74(void* env74, void* v2_raw) {

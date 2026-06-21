@@ -13,11 +13,8 @@ int v0(ListInt* v1);
 // closure defitions
 // function implementations
 int v0(ListInt* v1) {
-  if (((v1) == NULL)) {
-    return 0;
-  } else {
-    return ((v1)->head + v0((v1)->tail));
-  }
+  if (((v1) == NULL)) return 0;
+  return ((v1)->head + v0((v1)->tail));
 }
 
 // main

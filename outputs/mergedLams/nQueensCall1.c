@@ -190,11 +190,8 @@ bool v30(void* env30, void* v31_raw, void* v32_raw) {
 List* v75(void* env75, void* v29_raw) {
   List* v29 = (List*)v29_raw;
   Env_v30* env30 = malloc(sizeof(Env_v30));
-  if (v30(env30, (void*)(((Env_v75*)env75)->v27), (void*)(((Env_v75*)env75)->v24))) {
-    return cons(cons(((Env_v75*)env75)->v27, ((Env_v75*)env75)->v24), v29);
-  } else {
-    return v29;
-  }
+  if (v30(env30, (void*)(((Env_v75*)env75)->v27), (void*)(((Env_v75*)env75)->v24))) return cons(cons(((Env_v75*)env75)->v27, ((Env_v75*)env75)->v24), v29);
+  return v29;
 }
 
 List* v81(void* env81, void* v27_raw) {

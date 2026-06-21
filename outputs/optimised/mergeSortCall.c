@@ -40,23 +40,20 @@ ListInt* v0(ListInt* v1);
 // closure defitions
 // function implementations
 ListInt* v8(ListInt* v9, ListInt* v10) {
-  if (((v9) == NULL)) {
-    return v10;
+  if (((v9) == NULL)) return v10;
+  ListInt* v41 = NULL;
+  if (((v10) == NULL)) {
+    v41 = v9;
   } else {
-    ListInt* v41 = NULL;
-    if (((v10) == NULL)) {
-      v41 = v9;
+    ListInt* v38 = NULL;
+    if (((v9)->head < (v10)->head)) {
+      v38 = consInt((v9)->head, v8((v9)->tail, v10));
     } else {
-      ListInt* v38 = NULL;
-      if (((v9)->head < (v10)->head)) {
-        v38 = consInt((v9)->head, v8((v9)->tail, v10));
-      } else {
-        v38 = consInt((v10)->head, v8((v10)->tail, v9));
-      }
-      v41 = v38;
+      v38 = consInt((v10)->head, v8((v10)->tail, v9));
     }
-    return v41;
+    v41 = v38;
   }
+  return v41;
 }
 
 Pair_ListInt_ListInt v19(Pair_Int_ListInt v20) {
@@ -75,26 +72,20 @@ Pair_ListInt_ListInt v19(Pair_Int_ListInt v20) {
 }
 
 int v29(ListInt* v30) {
-  if (((v30) == NULL)) {
-    return 0;
-  } else {
-    return (1 + v29((v30)->tail));
-  }
+  if (((v30) == NULL)) return 0;
+  return (1 + v29((v30)->tail));
 }
 
 ListInt* v0(ListInt* v1) {
-  if (((v1) == NULL)) {
-    return NULL;
+  if (((v1) == NULL)) return NULL;
+  ListInt* v74 = NULL;
+  if ((((v1)->tail) == NULL)) {
+    v74 = consInt((v1)->head, NULL);
   } else {
-    ListInt* v74 = NULL;
-    if ((((v1)->tail) == NULL)) {
-      v74 = consInt((v1)->head, NULL);
-    } else {
-      Pair_ListInt_ListInt v7 = v19((Pair_Int_ListInt){ .fst = (v29(v1) / 2), .snd = v1 });
-      v74 = v8(v0((v7).fst), v0((v7).snd));
-    }
-    return v74;
+    Pair_ListInt_ListInt v7 = v19((Pair_Int_ListInt){ .fst = (v29(v1) / 2), .snd = v1 });
+    v74 = v8(v0((v7).fst), v0((v7).snd));
   }
+  return v74;
 }
 
 // main

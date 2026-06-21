@@ -310,11 +310,8 @@ List* v75(void* env75, void* v29_raw) {
   List* v29 = (List*)v29_raw;
   Env_v30* env30 = malloc(sizeof(Env_v30));
   Closure* c30 = v30(env30, (void*)(((Env_v75*)env75)->v27));
-  if ((bool)(intptr_t)(c30)->fn((c30)->env, ((Env_v75*)env75)->v24)) {
-    return cons(cons(((Env_v75*)env75)->v27, ((Env_v75*)env75)->v24), v29);
-  } else {
-    return v29;
-  }
+  if ((bool)(intptr_t)(c30)->fn((c30)->env, ((Env_v75*)env75)->v24)) return cons(cons(((Env_v75*)env75)->v27, ((Env_v75*)env75)->v24), v29);
+  return v29;
 }
 
 List* v81(void* env81, void* v27_raw) {

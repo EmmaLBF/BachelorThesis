@@ -110,11 +110,8 @@ ListInt* v38(void* env38, void* v13_raw, void* v14_raw) {
   int v13 = *(int*)v13_raw;
   ListInt* v14 = (ListInt*)v14_raw;
   Env_v8* env8 = malloc(sizeof(Env_v8));
-  if ((((Env_v38*)env38)->v11 < v13)) {
-    return consInt(((Env_v38*)env38)->v11, v8(env8, (void*)(((Env_v38*)env38)->v12), (void*)(((Env_v38*)env38)->v10)));
-  } else {
-    return consInt(v13, v8(env8, (void*)(v14), (void*)(((Env_v38*)env38)->v9)));
-  }
+  if ((((Env_v38*)env38)->v11 < v13)) return consInt(((Env_v38*)env38)->v11, v8(env8, (void*)(((Env_v38*)env38)->v12), (void*)(((Env_v38*)env38)->v10)));
+  return consInt(v13, v8(env8, (void*)(v14), (void*)(((Env_v38*)env38)->v9)));
 }
 
 ListInt* v41(void* env41, void* v11_raw, void* v12_raw) {
