@@ -78,8 +78,6 @@ translate (CL.UpdateVar i (x :: CL.CExpression a)) =
     UpdateVar (fromTypeRep (typeRep (Proxy :: Proxy a))) i (translateExpr x)
 translate (CL.While cond x) = While (translateExpr cond) (translate x)
 translate (CL.Seq x y) = Seq (translate x) (translate y)
-translate (CL.BindExpr (x :: CL.CExpression a) i s) =
-    Seq (DefVar (fromTypeRep (typeRep (Proxy :: Proxy a))) i (translateExpr x)) (translate s)
 translate (CL.If cond x y) = If (translateExpr cond) (translate x) (translate y)
 translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
     DefFun (fromTypeRep (typeRep (Proxy :: Proxy b))) ifun [CParam ip (fromTypeRep (typeRep tp))] (translate body)
