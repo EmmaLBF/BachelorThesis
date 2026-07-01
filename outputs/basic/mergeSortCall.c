@@ -349,7 +349,7 @@ ListInt* v0(ListInt* v1) {
 
 // main
 int main(void) {
-  printListInt(v0(LIST(30000, 42)));
+  printListInt(v0(consInt(4, consInt(6, consInt(3, NULL)))));
   return 0;
 }
 

@@ -150,160 +150,102 @@ cons = ConsList
 --  Examples
 -- ─────────────────────────────────────────────
 
--- 2. Factorial
+-- 1. Factorial
 fac :: Lang (Int -> Int)
 fac = Fix $ lam $ \f -> lam $ \n ->
-  If
-    (n ==: int 0)
+  If (n ==: int 0)
     (int 1)
     (n *: (f `app` (n -: int 1)))
 
 facCall :: Lang Int
-facCall =
-  fac `app` int 5
+facCall = fac `app` int 5
 
--- 3. Fibonacci
+-- 2. Fibonacci
 fib :: Lang (Int -> Int)
 fib = Fix $ lam $ \f -> lam $ \n ->
-  If
-    (n <: int 2)
+  If (n <: int 2)
     n
     ((f `app` (n -: int 1)) +: (f `app` (n -: int 2)))
 
 fibCall :: Lang Int
-fibCall =
-  fib `app` int 5
+fibCall = fib `app` int 5
 
--- 4. GCD (using tuples to pass two arguments recursively)
+-- 3. GCD (using tuples to pass two arguments recursively)
 gcdLang :: Lang ((Int, Int) -> Int)
 gcdLang = Fix $ lam $ \f -> lam $ \p ->
-  let a = Fst p
-      b = Snd p
-   in If
-        (b ==: int 0)
+  let_ (Fst p) $ \a ->
+    let_ (Snd p) $ \b ->
+      If (b ==: int 0)
         a
         (f `app` Prod b (a %: b))
 
 gcdLangCall :: Lang Int
 gcdLangCall = gcdLang `app` Prod (int 30) (int 10)
 
--- 5. Higher-Order Functions: apply a function twice
-twice :: (Typeable a) => Lang ((a -> a) -> (a -> a))
-twice = lam $ \f -> lam $ \x -> f `app` (f `app` x)
-
-inc :: Lang (Int -> Int)
-inc = lam $ \x -> x +: int 1
-
--- 6. Power Function
+-- 4. Power Function
 power :: Lang ((Int, Int) -> Int)
 power = Fix $ lam $ \f -> lam $ \p ->
-  let b = Fst p
-      e = Snd p
-   in If
-        (e ==: int 0)
+  let_ (Fst p) $ \b ->
+    let_ (Snd p) $ \e ->
+      If (e ==: int 0)
         (int 1)
         (b *: (f `app` Prod b (e -: int 1)))
 
--- 7. Collatz Conjecture (count steps to reach 1)
+powerCall :: Lang Int
+powerCall = power `app` Prod (int 4) (int 2)
+
+-- 5. Collatz Conjecture (count steps to reach 1)
 collatzSteps :: Lang (Int -> Int)
 collatzSteps = Fix $ lam $ \f -> lam $ \n ->
-  If
-    (n ==: int 1)
+  If (n ==: int 1)
     (int 0)
     ( int 1
-        +: ( f
-               `app` If
-                 ((n %: int 2) ==: int 0)
+        +: ( f `app` If ((n %: int 2) ==: int 0)
                  (n /: int 2)
                  ((int 3 *: n) +: int 1)
            )
     )
 
--- 8. Efficient Fibonacci (O(n) using tuples as state)
+collatzCall :: Lang Int
+collatzCall = collatzSteps `app` int 8
+
+-- 6. Efficient Fibonacci (O(n) using tuples as state)
 -- fibFastHelper computes (a, b) after n steps
 fibFastHelper :: Lang ((Int, (Int, Int)) -> (Int, Int))
 fibFastHelper = Fix $ lam $ \f -> lam $ \p ->
-  let n = Fst p
-      state = Snd p
-      a = Fst state
-      b = Snd state
-   in If
-        (n ==: int 0)
-        state
-        (f `app` Prod (n -: int 1) (Prod b (a +: b)))
+  let_ (Fst p) $ \n ->
+    let_ (Snd p) $ \state ->
+      let_ (Fst state) $ \a ->
+        let_ (Snd state) $ \b ->
+          If (n ==: int 0)
+          state
+          (f `app` Prod (n -: int 1) (Prod b (a +: b)))
 
 -- Start with state (0, 1) and return the first element of the result
 fibFast :: Lang (Int -> Int)
 fibFast = lam $ \n ->
   Fst (fibFastHelper `app` Prod n (Prod (int 0) (int 1)))
 
--- 9. Ackermann Function (Deep Recursion Test)
+fibFastCall :: Lang Int
+fibFastCall = fibFast `app` int 6
+
+-- 7. Ackermann Function (Deep Recursion Test)
 ackermann :: Lang ((Int, Int) -> Int)
 ackermann = Fix $ lam $ \f -> lam $ \p ->
-  let m = Fst p
-      n = Snd p
-   in If
-        (m ==: int 0)
+  let_ (Fst p) $ \m ->
+    let_ (Snd p) $ \n ->
+      If (m ==: int 0)
         (n +: int 1)
         ( If
             (n ==: int 0)
             (f `app` Prod (m -: int 1) (int 1))
             (f `app` Prod (m -: int 1) (f `app` Prod m (n -: int 1)))
         )
+  
+ackermannCall :: Lang Int
+ackermannCall = ackermann `app` Prod (int 2) (int 6)
 
-isqrtHelper :: Lang ((Int, Int) -> Int)
-isqrtHelper = Fix $ lam $ \f -> lam $ \p ->
-  let n = Fst p
-      x = Snd p
-   in let_ ((x +: (n /: x)) /: int 2) $ \nextX ->
-        If
-          (nextX ==: x)
-          x
-          ( If
-              (nextX >: x)
-              x
-              (f `app` Prod n nextX)
-          )
-
-isqrt :: Lang (Int -> Int)
-isqrt = lam $ \n ->
-  If
-    (n ==: int 0)
-    (int 0)
-    (isqrtHelper `app` Prod n ((n /: int 2) +: int 1))
-
--- 11. Mutual Recursion using Tuples of Functions (isEven, isOdd)
-evenOddPair :: Lang (Int -> Bool, Int -> Bool)
-evenOddPair = Fix $ lam $ \f ->
-  let isEvn = Fst f
-      isOdd = Snd f
-      isEvn' = lam $ \n ->
-        If
-          (n ==: int 0)
-          (LBool True)
-          (isOdd `app` (n -: int 1))
-      isOdd' = lam $ \n ->
-        If
-          (n ==: int 0)
-          (LBool False)
-          (isEvn `app` (n -: int 1))
-   in Prod isEvn' isOdd'
-
-isEvenLang :: Lang (Int -> Bool)
-isEvenLang = Fst evenOddPair
-
-isOddLang :: Lang (Int -> Bool)
-isOddLang = Snd evenOddPair
-
--- 12. Sum of Digits
-sumDigits :: Lang (Int -> Int)
-sumDigits = Fix $ lam $ \f -> lam $ \n ->
-  If
-    (n ==: int 0)
-    (int 0)
-    ((n %: int 10) +: (f `app` (n /: int 10)))
-
--- 13. Sum List
+-- 8. Sum List
 sumList :: Lang ([Int] -> Int)
 sumList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
@@ -313,7 +255,7 @@ sumList = Fix $ lam $ \f -> lam $ \xs ->
 sumListCall :: Lang Int
 sumListCall = sumList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- 14. length of a list
+-- 9. length of a list
 lenList :: Typeable a => Lang ([a] -> Int)
 lenList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
@@ -323,7 +265,7 @@ lenList = Fix $ lam $ \f -> lam $ \xs ->
 lenListCall :: Lang Int
 lenListCall = lenList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- 15. map over a list
+-- 10. map over a list
 mapList :: Lang ((Int -> Int) -> [Int] -> [Int])
 mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
   CaseList xs
@@ -334,9 +276,7 @@ mapListCall :: Lang [Int]
 mapListCall = (mapList `app` (lam $ \x -> x *: int 2))
                       `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
-
--- 16. mergesort
-
+-- 11. mergesort
 mergeList :: Lang ([Int] -> [Int] -> [Int])
 mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
   CaseList first
@@ -345,8 +285,7 @@ mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
       CaseList second
         first
         (lam $ \hSecond -> lam $ \tSecond ->
-          If
-            (hFirst <: hSecond)
+          If (hFirst <: hSecond)
             (cons hFirst ((f `app` tFirst) `app` second))
             (cons hSecond ((f `app` tSecond) `app` first))
         )
@@ -355,25 +294,24 @@ mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
 splitN :: Lang ((Int, [Int]) -> ([Int], [Int]))
 splitN = Fix $ lam $ \f -> lam $ \p ->
   let_ (Fst p) $ \n ->
-  let_ (Snd p) $ \xs ->
-    If
-      (n ==: int 0)
-      (Prod nil xs)
-      (CaseList xs
-        (Prod nil nil)
-        (lam $ \h -> lam $ \t ->
-            let_ (f `app` Prod (n -: int 1) t) $ \recur->
-              Prod
-                (cons h (Fst recur))
-                (Snd recur)
+    let_ (Snd p) $ \xs ->
+      If (n ==: int 0)
+        (Prod nil xs)
+        (CaseList xs
+          (Prod nil nil)
+          (lam $ \h -> lam $ \t ->
+              let_ (f `app` Prod (n -: int 1) t) $ \recur->
+                Prod
+                  (cons h (Fst recur))
+                  (Snd recur)
+          )
         )
-      )
 
 splitHalf :: Lang ([Int] -> ([Int], [Int]))
 splitHalf = lam $ \xs ->
   let_ (lenList `app` xs) $ \n ->
-  let_ (n /: int 2) $ \half ->
-  splitN `app` Prod half xs
+    let_ (n /: int 2) $ \half ->
+      splitN `app` Prod half xs
 
 mergeSort :: Lang ([Int] -> [Int])
 mergeSort = Fix $ lam $ \f -> lam $ \l ->
@@ -389,9 +327,8 @@ mergeSort = Fix $ lam $ \f -> lam $ \l ->
 mergeSortCall :: Lang [Int]
 mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))
 
--- 17. N-queens
+-- 12. N-queens
 
--- appendds two lists
 appendList :: Typeable a => Lang ([a] -> [a] -> [a])
 appendList =
   Fix $ lam $ \f ->
@@ -422,7 +359,6 @@ queenSafe =
               lam $ \t ->
                 Not (queensInterfere `app` newQ `app` h) &&: (f `app` newQ `app` t))
 
--- Try every column for `row`, extending `placed` with valid placements.
 tryCols :: Lang (Int -> Int -> [(Int, Int)] -> Int -> [[(Int, Int)]])
 tryCols = 
   Fix $ lam $ \f ->
@@ -438,7 +374,6 @@ tryCols =
                     (cons (cons newQ placed) rest)
                     rest)
 
--- Extend every partial solution by one row, concatenating.
 extendAll :: Lang (Int -> Int -> [[(Int, Int)]] -> [[(Int, Int)]])
 extendAll = 
   Fix $ lam $ \f ->
@@ -467,7 +402,7 @@ nQueens =
 nQueensCall :: Lang Int
 nQueensCall = lenList `app` (nQueens `app` int 4)
 
--- Drive: extend row by row, starting from one empty partial.
+-- alternative version of nQueens with a lambda as an argument
 nQueens1 :: Lang (Int -> [[(Int, Int)]])
 nQueens1 = 
   lam $ \n ->

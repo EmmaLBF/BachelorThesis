@@ -25,18 +25,18 @@ int v0(Pair_Int_Int v1);
 // closure defitions
 // function implementations
 int v0(Pair_Int_Int v1) {
-  int v6 = 0;
+  int v7 = 0;
   if (((v1).snd == 0)) {
-    v6 = (v1).fst;
+    v7 = 1;
   } else {
-    v6 = v0((Pair_Int_Int){ .fst = (v1).snd, .snd = ((v1).fst % (v1).snd) });
+    v7 = ((v1).fst * v0((Pair_Int_Int){ .fst = (v1).fst, .snd = ((v1).snd - 1) }));
   }
-  return v6;
+  return v7;
 }
 
 // main
 int main(void) {
-  printInt(v0((Pair_Int_Int){ .fst = 30, .snd = 10 }));
+  printInt(v0((Pair_Int_Int){ .fst = 4, .snd = 2 }));
   return 0;
 }
 

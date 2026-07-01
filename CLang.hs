@@ -203,6 +203,10 @@ replaceVarBindingStmt Skip = return Skip
 -- map stores for each var we have unbound what its value is now
 -- so if we had let v8 = v7 in ..., store v8 -> v7 in map
 collectBindings :: CStatement a -> State (Map.Map Int CArg) (CStatement a)
+-- collectBindings (DefVar i (Var i') :: CExpression) = do
+--   modify (Map.insert i (CArg (Var i')))
+--   return Skip
+-- collectBindings (DefVar i x) = DefVar i <$> replaceVarBinding x
 collectBindings (DefVar i x) = do
   x' <- replaceVarBinding x
   modify (Map.insert i (CArg x'))
@@ -382,7 +386,7 @@ showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" 
 
 main :: IO ()
 main = do
-    let (nl, fresh') = runState (NL.translate AL.sumListCall) 0
+    let (nl, fresh') = runState (NL.translate AL.collatzCall) 0
         cl = evalState (translate nl) fresh'
         ev = eval cl Map.empty
     print nl

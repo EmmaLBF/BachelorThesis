@@ -6,19 +6,13 @@ module Main where
 import C ( basicCompile, liftLambdasAndMerge, printCCode )
 import CDefs ( CStatement )
 import qualified AbsLang as AL
-
-import Data.Typeable ( Typeable )
-import System.IO
-
 import AST ( emptyFunctionInfo )
 import InlinePass
 import DemotePass ( demotePairsPass, demoteClosures )
 import DeadCodePass
 
-{-
-gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
-./outputs/mergeSortCall_output
--}
+import Data.Typeable ( Typeable )
+import System.IO
 
 keepOptimising :: CStatement -> CStatement
 keepOptimising body =
@@ -54,7 +48,9 @@ run progPath progCode canMerge canOpt = do
 
 main :: IO ()
 main = do
-    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), ("lenListCall", AL.lenListCall)]
+    let progsInt = [("gcdLangCall", AL.gcdLangCall), ("fibCall", AL.fibCall), ("sumListCall", AL.sumListCall), 
+                    ("lenListCall", AL.lenListCall), ("ackermannCall", AL.ackermannCall), ("fibFastCall", AL.fibFastCall),
+                    ("collatzCall", AL.collatzCall), ("powerCall", AL.powerCall)]
     let progsList = [("mapListCall", AL.mapListCall), ("mergeSortCall", AL.mergeSortCall)]
     let progsQueen = [("nQueensCall1", AL.nQueensCall1), ("nQueensCall", AL.nQueensCall)]
 
@@ -68,7 +64,7 @@ main = do
     mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsList
     mapM_ (\(name, prog) -> run ("mergedLams/" ++ name) prog True False) progsQueen
 
-    -- optimised (with pairs)
+    -- -- optimised (with pairs)
     mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsInt
     mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsList
     mapM_ (\(name, prog) -> run ("optimised/" ++ name) prog True True) progsQueen
