@@ -78,7 +78,7 @@ List* v6(void* env6, void* v7_raw, void* v8_raw) {
 
 // main
 int main(void) {
-  int v5 = 4;
+  int v5 = 10;
   Env_v6* env6 = malloc(sizeof(Env_v6));
   env6->v5 = v5;
   printInt(v0(v6(env6, box_int(0), (void*)(cons(NULL, NULL)))));

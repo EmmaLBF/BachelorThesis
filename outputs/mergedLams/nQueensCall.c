@@ -253,7 +253,7 @@ List* v106(int v5) {
 
 // main
 int main(void) {
-  printInt(v0(v106(4)));
+  printInt(v0(v106(10)));
   return 0;
 }
 

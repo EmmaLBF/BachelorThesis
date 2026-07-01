@@ -22,7 +22,9 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Maybe ( fromMaybe )
 
--- translate
+-- ─────────────────────────────────────────────
+--  Translate from CLang
+-- ─────────────────────────────────────────────
 
 translateValue :: CL.CValue a -> CValue a
 translateValue (CL.IntV x) = IntV x
@@ -84,7 +86,9 @@ translate (CL.If cond x y) = If (translateExpr cond) (translate x) (translate y)
 translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
     DefFun (fromTypeRep (typeRep (Proxy :: Proxy b))) ifun [CParam ip (fromTypeRep (typeRep tp))] (translate body)
 
--- LAMBDA LIFTING
+-- ─────────────────────────────────────────────
+--  Lambda Lifting
+-- ─────────────────────────────────────────────
 
 -- (1) for each def search in its body for the first def you find
 -- if there is one we lift it out (sequence it before) and remove it from the body
@@ -338,17 +342,16 @@ addBoxingExpr :: CExpression -> CExpression
 addBoxingExpr (ApplyClosure tx f x) = ApplyClosure tx (addBoxingExpr f) (Box tx (addBoxingExpr x))
 addBoxingExpr e = mapChildrenExpr addBoxingExpr e
 
---------- LAMBDA LIFTING HELPERS
+-- ─────────────────────────────────────────────
+--  Lambda Lifting Helpers
+-- ─────────────────────────────────────────────
 
-
--- follow closure type through map
 followClosureIFun :: Int -> ClosureFuns -> Int
 followClosureIFun i m =
     case Map.lookup i m of
         Just next -> followClosureIFun next m
         _ -> i
 
--- number of hops through map depends on num of args
 applyWithCast :: CType -> CExpression -> CArgs -> State Int (CStatement, CExpression)
 applyWithCast _ base [] = return (Skip, base)
 applyWithCast retType base [CArg t a] = return (Skip, CastExpr retType (ApplyClosure t base a))
@@ -397,7 +400,9 @@ getNumArgs fId stmt =
     let mergedMap = Map.map length (getFunsWithParams stmt)
     in Map.findWithDefault 1 fId mergedMap
 
--- Generate Structs + Pair Defs
+-- ─────────────────────────────────────────────
+--  Generate Env Structs and Pair Defs
+-- ─────────────────────────────────────────────
 
 genPairDeclaration :: (CType, CType) -> String
 genPairDeclaration (a, b) =
@@ -415,12 +420,14 @@ genPairDeclaration (a, b) =
     ++ "\n  p->fst = fst;\n  p->snd = snd;\n  return p;"
     ++ "\n};\n"
 
-generateEnvStructs :: Int -> FreeVars -> CStatement
-generateEnvStructs ifun freeVars =
+genEnvStructs :: Int -> FreeVars -> CStatement
+genEnvStructs ifun freeVars =
     let envParams = maybe [] Set.toList (Map.lookup ifun freeVars)
     in DefEnvStruct ifun envParams
 
--- MAIN
+-- ─────────────────────────────────────────────
+--  Main 
+-- ─────────────────────────────────────────────
 
 removeFirstReturn :: CStatement -> CStatement
 removeFirstReturn (Return _) = Skip
@@ -445,16 +452,16 @@ splitTopLevel Skip = (Skip, Skip)
 splitTopLevel l@DefFun{} = (l, Skip)
 splitTopLevel x = (Skip, x)
 
-translateALToC :: Typeable a => AL.Lang a -> (CStatement, Int)
-translateALToC progCode =
+basicCompile :: Typeable a => AL.Lang a -> (CStatement, Int)
+basicCompile progCode =
     let (nl, fresh') = runState (NL.translate progCode) 0
         (clBase, fresh'') = runState (CL.translate nl) fresh'
         clOpt = CL.optimizeBindings clBase
         c = translate clOpt
     in (c, fresh'')
 
-runLiftAndMerge :: Bool -> CStatement -> Int -> (CStatement, FreeVars)
-runLiftAndMerge canMerge body freshInt =
+liftLambdasAndMerge :: Bool -> CStatement -> Int -> (CStatement, FreeVars)
+liftLambdasAndMerge canMerge body freshInt =
     let body0 = if canMerge then mergeLambdas body body else body
         (body1, (freeVarsMap, parentMap)) = runState (lambdaLift body0) (Map.empty, Map.empty)
         body2 = addEnvParameters body1 freeVarsMap
@@ -463,13 +470,13 @@ runLiftAndMerge canMerge body freshInt =
         body5 = addBoxing body4
     in (body5, freeVarsMap)
 
-printCode :: CStatement -> FreeVars -> String
-printCode finalBody freeVars =
+printCCode :: CStatement -> FreeVars -> String
+printCCode finalBody freeVars =
     let finalDefs = getDefs finalBody
         finalMergeMap = Map.map length (getFunsWithParams finalBody)
         globalInfo = getGlobalInfo finalBody emptyGlobalInfo
 
-        envStructs = foldr (Seq . (`generateEnvStructs` freeVars)) Skip (Set.toList (usedEnvsGlobal globalInfo))
+        envStructs = foldr (Seq . (`genEnvStructs` freeVars)) Skip (Set.toList (usedEnvsGlobal globalInfo))
         
         imports =   "\n#include <stdbool.h>" ++
                     "\n#include <stdio.h>" ++

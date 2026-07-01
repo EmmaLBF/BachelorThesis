@@ -91,7 +91,7 @@ eval = ev 0 Map.empty
       if ev fresh env c then ev fresh env t else ev fresh env e
     ev fresh env (Not x) = not (ev fresh env x)
     ev fresh env (Abs x) = abs (ev fresh env x)
-    ev fresh env (Apply f x) = (ev fresh env f) (ev fresh env x)
+    ev fresh env (Apply f x) = ev fresh env f (ev fresh env x)
     ev fresh env (LIntOp op l r) = binop op (ev fresh env l) (ev fresh env r)
     ev fresh env (LBoolOp op l r) = boolop op (ev fresh env l) (ev fresh env r)
     ev fresh env (LCmpOp op l r) = cmpop op (ev fresh env l) (ev fresh env r)
@@ -383,7 +383,7 @@ mergeSort = Fix $ lam $ \f -> lam $ \l ->
         CaseList t
           (cons h EmptyList)
           (lam $ \th -> lam $ \tt ->
-            let_ (splitHalf `app` (cons h (cons th tt))) $ \p ->
+            let_ (splitHalf `app` cons h (cons th tt)) $ \p ->
               (mergeList `app` (f `app` Fst p)) `app` (f `app` Snd p)))
 
 mergeSortCall :: Lang [Int]
@@ -483,22 +483,3 @@ nQueens1 =
 
 nQueensCall1 :: Lang Int
 nQueensCall1 = lenList `app` (nQueens1 `app` int 4)
-
-main :: IO ()
-main = do
-  putStrLn "--- Evaluating Examples ---"
-  putStrLn $ "Factorial 5 = " ++ show (eval (fac `app` int 5))
-  putStrLn $ "Fibonacci 10 = " ++ show (eval (fib `app` int 10))
-  let p = Prod (int 56) (int 42)
-  putStrLn $ "GCD 56 42 = " ++ show (eval (gcdLang `app` p))
-  putStrLn $ "Twice Inc 10 = " ++ show (eval (twice `app` inc `app` int 10))
-  let p2 = Prod (int 2) (int 10)
-  putStrLn $ "Power 2^10 = " ++ show (eval (power `app` p2))
-  putStrLn $ "Collatz Steps for 27 = " ++ show (eval (collatzSteps `app` int 27))
-  putStrLn $ "Fast Fibonacci 30 = " ++ show (eval (fibFast `app` int 30))
-  putStrLn $ "Ackermann (3, 4) = " ++ show (eval (ackermann `app` Prod (int 3) (int 4)))
-  putStrLn $ "Integer Sqrt 144 = " ++ show (eval (isqrt `app` int 144))
-  putStrLn $ "Integer Sqrt 1000 = " ++ show (eval (isqrt `app` int 1000))
-  putStrLn $ "Is 42 Even? = " ++ show (eval (isEvenLang `app` int 42))
-  putStrLn $ "Is 42 Odd? = " ++ show (eval (isOddLang `app` int 42))
-  putStrLn $ "N-Queens " ++ show (eval (nQueens `app` int 4))

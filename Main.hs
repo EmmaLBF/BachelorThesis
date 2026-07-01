@@ -3,7 +3,7 @@
 
 module Main where
 
-import C ( translateALToC, runLiftAndMerge, printCode )
+import C ( basicCompile, liftLambdasAndMerge, printCCode )
 import CDefs ( CStatement )
 import qualified AbsLang as AL
 
@@ -23,9 +23,9 @@ gcc ./outputs/mergeSortCall_output.c -o ./outputs/mergeSortCall_output
 keepOptimising :: CStatement -> CStatement
 keepOptimising body =
     let body1 = demoteClosures body emptyFunctionInfo
-        body2 = inlinePass body1
-        body3 = envRemovalPass body2
-        body4 = eliminateAliases body3
+        body2 = inline body1
+        body3 = removeEnvs body2
+        body4 = propagateCopies body3
         body5 = removeSingleVars body4 body4 emptyFunctionInfo
         body6 = removeUselessStmt body5
     in  if body == body6 then body6 else keepOptimising body6
@@ -37,13 +37,13 @@ optimiseRun body = demotePairsPass (keepOptimising body)
 -- should lambdas be merged, should the main opt loop be run, should pairs be demoted
 run :: Typeable a => String -> AL.Lang a -> Bool -> Bool -> IO ()
 run progPath progCode canMerge canOpt = do
-    let (c, fresh'') = C.translateALToC progCode
-    let (cbody, parentParams) = C.runLiftAndMerge canMerge c fresh''
+    let (c, fresh'') = C.basicCompile progCode
+    let (cbody, parentParams) = C.liftLambdasAndMerge canMerge c fresh''
 
     -- optimise
     let cbody' = if canOpt then optimiseRun cbody else cbody
     let finalBody = cleanSkip cbody'
-    let content = printCode finalBody parentParams
+    let content = printCCode finalBody parentParams
     
     -- writing to file
     let fileName = "outputs/" ++ progPath ++ ".c"

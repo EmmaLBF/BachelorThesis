@@ -17,59 +17,48 @@ Pair_Int_Int* makePair_Int_Int(int fst, int snd) {
 };
 
 // lenList
-int v0(List* v1) {
-    int len = 0;
-    while (v1) {
-        len++;
-        v1 = v1->tail;
-    }
-    return len;
+int lenList(List* l) {
+    if (l == NULL) return 0;
+    return 1 + lenList(l->tail);
 }
 
 // appendList
-List* v14(List* v15, List* v16) {
-    List* acc = v16;
-    while (v15) {
-        acc = cons(v15->head, acc);
-        v15 = v15->tail;
-    }
-    return acc;
+List* appendList(List* l1, List* l2) {
+    if ((l1 == NULL)) return l2;
+    return cons(l1->head, appendList(l1->tail, l2));
 }
 
 // queenSafe
-bool v26(Pair_Int_Int* v27, List* v28) {
+bool queenSafe(Pair_Int_Int* q, List* v28) {
     if (v28 == NULL) return true;
     Pair_Int_Int v34 = *(Pair_Int_Int*)v28->head;
-    return (!(v27->snd == v34.snd || (abs(v27->snd - v34.snd) == abs(v27->fst - v34.fst))) && (v26(v27, v28->tail)));
+    return (!(q->snd == v34.snd || (abs(q->snd - v34.snd) == abs(q->fst - v34.fst))) && (queenSafe(q, v28->tail)));
 }
 
 // tryCols
-List* v19(int v20, int v21, List* v22, int v23) {
+List* tryCols(int v20, int v21, List* v22, int v23) {
     if (v23 == v20) return NULL;
     Pair_Int_Int* v24 = makePair_Int_Int(v21, v23);
-    List* rest = v19(v20, v21, v22, (v23 + 1));
-    if (v26(v24, v22)) return (cons(cons(v24, v22), rest));
+    List* rest = tryCols(v20, v21, v22, (v23 + 1));
+    if (queenSafe(v24, v22)) return (cons(cons(v24, v22), rest));
     return rest;
 }
 
 // extendAll
-List* v8(int n, int v10, List* v11) {
-    if (v11 == NULL) return NULL;
-    return v14(v19(n, v10, v11->head, 0), (v8(n, v10, v11->tail)));
+List* extendAll(int n, int row, List* partials) {
+    if (partials == NULL) return NULL;
+    return appendList(tryCols(n, row, partials->head, 0), (extendAll(n, row, partials->tail)));
 }
 
 // nQueens
-List* v55(int n, int v6, List* v7) {
-    while (v6 != n) {
-        v6++;
-        v7 = v8(n, v6, v7);
-    }
-    return v7;
+List* nQueens(int n, int row, List* partials) {
+    if (row == n) return partials;
+    return nQueens(n, row + 1, extendAll(n, row, partials));
 }
 
 int main() {
   int v5 = 10;
-    printInt(v0(v55(v5, 0, cons(NULL, NULL))));
+    printInt(lenList(nQueens(v5, 0, cons(NULL, NULL))));
     return 0;
 }
 

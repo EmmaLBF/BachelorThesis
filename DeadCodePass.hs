@@ -16,8 +16,8 @@ import qualified Data.Set as Set
 -- (1) REMOVE ENV PARAM FROM FUNCTIONS 
 -- collects list of functions that had their envs removed
 -- removes first env params for functions where it is not used
-envRemovalPass :: CStatement -> CStatement
-envRemovalPass body =
+removeEnvs :: CStatement -> CStatement
+removeEnvs body =
     let l = Set.fromList
             [ ifun | fun@(DefFun _ ifun params _) <- getDefs body
                 , let usedEnvs = envUses (getFunctionInfo fun emptyFunctionInfo)
@@ -46,28 +46,28 @@ removeUselessEnvParamExpr (CallExpr tf tx f x) ifun s =
 removeUselessEnvParamExpr e ifun s = mapChildrenExpr (\x -> removeUselessEnvParamExpr x ifun s) e
 
 
--- (2) REMOVING ALIASES
-eliminateAliases :: CStatement -> CStatement
-eliminateAliases stmt =
+-- (2) Propagating Copies
+propagateCopies :: CStatement -> CStatement
+propagateCopies stmt =
     let info = getGlobalInfo stmt emptyGlobalInfo
-        stmt' = replaceAliases stmt (aliasesGlobal info)
-    in  if stmt == stmt' then stmt' else eliminateAliases stmt'
+        stmt' = replaceCopies stmt (aliasesGlobal info)
+    in  if stmt == stmt' then stmt' else propagateCopies stmt'
 
 -- (2a) replaces all var defs of form v2 = v3 or v2 = env5
-replaceAliases :: CStatement -> Map.Map Int CArg -> CStatement
-replaceAliases s m = mapChildrenStmt (`replaceAliases` m) (`replaceAliasesExpr` m) s
+replaceCopies :: CStatement -> Map.Map Int CArg -> CStatement
+replaceCopies s m = mapChildrenStmt (`replaceCopies` m) (`replaceCopiesExpr` m) s
 
-replaceAliasesExpr :: CExpression -> CArgMap -> CExpression
-replaceAliasesExpr (Var t i) m =
+replaceCopiesExpr :: CExpression -> CArgMap -> CExpression
+replaceCopiesExpr (Var t i) m =
     case Map.lookup i m of
-        Just (CArg _ n) -> replaceAliasesExpr n m
+        Just (CArg _ n) -> replaceCopiesExpr n m
         Nothing -> Var t i
-replaceAliasesExpr (GetEnvField t structId fieldId) m =
+replaceCopiesExpr (GetEnvField t structId fieldId) m =
     case Map.lookup structId m of
-        Just (CArg _ (Var _ newId)) -> replaceAliasesExpr (GetEnvField t newId fieldId) m
-        Just (CArg _ (Val (EnvV newId))) -> replaceAliasesExpr (GetEnvField t newId fieldId) m
+        Just (CArg _ (Var _ newId)) -> replaceCopiesExpr (GetEnvField t newId fieldId) m
+        Just (CArg _ (Val (EnvV newId))) -> replaceCopiesExpr (GetEnvField t newId fieldId) m
         _ -> GetEnvField t structId fieldId
-replaceAliasesExpr e m = mapChildrenExpr (`replaceAliasesExpr` m) e
+replaceCopiesExpr e m = mapChildrenExpr (`replaceCopiesExpr` m) e
 
 
 -- (3) REMOVE VARS USED <= 1 TIMES
@@ -117,16 +117,6 @@ removeUselessStmt :: CStatement -> CStatement
 removeUselessStmt = mapChildrenStmt removeUselessStmt removeUselessExpr
 
 -- (5) CLEAN IR (REMOVE SKIPS)
--- cleanSkip :: CStatement -> CStatement
--- cleanSkip (Seq Skip y) = cleanSkip y
--- cleanSkip (Seq y Skip) = cleanSkip y
--- cleanSkip s = mapChildrenStmt cleanSkip id s
--- cleanSkip s =
---     case mapChildrenStmt cleanSkip id s of
---         Seq Skip y -> y
---         Seq y Skip -> y
---         s'         -> s
-
 cleanSkip :: CStatement -> CStatement
 cleanSkip (Seq x y) =
     case (cleanSkip x, cleanSkip y) of

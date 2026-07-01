@@ -300,7 +300,7 @@ QUEENS2 = [
     }
 ]
 
-OUTPUT_CSV = f"pythonScripts/benchmarks/mergeAgain_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+OUTPUT_CSV = f"benchmarking/benchmarks/mergeFinal.csv"
 
 if __name__ == "__main__":
     rows = []

@@ -31,13 +31,8 @@ ListInt* merge(ListInt* list1, ListInt* list2) {
 }
 
 int sizeList(ListInt* l) {
-    ListInt* temp = l;
-    int len = 0;
-    while (temp) {
-        len++;
-        temp = temp->tail;
-    }
-    return len;
+    if (l == NULL) return 0;
+    return 1 + sizeList(l->tail);
 }
 
 ListInt* v0(ListInt* list) { // mergeSort

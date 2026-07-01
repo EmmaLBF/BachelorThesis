@@ -38,11 +38,11 @@ def print_stats(code_name, size, df):
     print(f"    statistic = {mannwhitneyu_res.statistic}")  
 
 
-df_merge = pd.read_csv("pythonScripts/benchmarks/mergeAgain_20260617_171111.csv")
+df_merge = pd.read_csv("benchmarking/benchmarks/mergeFinal.csv")
 print_stats("mergeSortCall", 30000, df_merge)
 
-df_queen1 = pd.read_csv("pythonScripts/benchmarks/Queens1_20260617_162053.csv")
-df_queen2 = pd.read_csv("pythonScripts/benchmarks/Queens2_20260617_163557.csv")
+df_queen1 = pd.read_csv("benchmarking/benchmarks/queensFinal1.csv")
+df_queen2 = pd.read_csv("benchmarking/benchmarks/queensFinal2.csv")
 df_queen =  pd.concat([df_queen1, df_queen2], ignore_index=True)
 print_stats("nQueensCall", 10, df_queen)
 
@@ -65,7 +65,7 @@ stats.probplot(opt_code_queen, dist="norm", plot=ax[3])
 ax[3].set_title(f"Q-Q plot: optimised nQueens")
 
 plt.tight_layout()
-plt.savefig(f"pythonScripts/charts/qplot.png", dpi=150)
+plt.savefig(f"benchmarking/charts/qplot.png", dpi=150)
 plt.close(fig)
 
 
@@ -92,3 +92,7 @@ diff("nQueensCall", nQueensSizes, df_queen, "outputs/basic/", "outputs/mergedLam
 print("DIFF BASIC -> OPT")
 diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/basic/", "outputs/optimised/")
 diff("nQueensCall", nQueensSizes, df_queen, "outputs/basic/", "outputs/optimised/")
+
+print("DIFF OPT -> BASELINE")
+diff("mergeSortCall", mergeSortSizes, df_merge, "outputs/optimised/", "baselines/")
+diff("nQueensCall", nQueensSizes, df_queen, "outputs/optimised/", "baselines/")

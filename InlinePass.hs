@@ -11,8 +11,8 @@ import qualified Data.Map as Map
 -- inlining pass, finds list of functions that are safe to inline (called exactly once)
 -- It then tries to inline all of these functions
 -- It returns a list of the functions that were removed so I can get rid of them later
-inlinePass :: CStatement -> CStatement
-inlinePass body =
+inline :: CStatement -> CStatement
+inline body =
     let globalInfo = getGlobalInfo body emptyGlobalInfo
         safeToInline = Map.keys $ Map.filter (== 1) (funCallsGlobal globalInfo)
         (body', removed') =

@@ -17,10 +17,10 @@ import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 
-CSV_MERGE = "pythonScripts/benchmarks/mergeAgain_20260617_171111.csv"
-CSV_QUEENS1 = "pythonScripts/benchmarks/Queens1_20260617_162053.csv"
-CSV_QUEENS2 = "pythonScripts/benchmarks/Queens2_20260617_163557.csv"
-OUTDIR = "./pythonScripts/charts"
+CSV_MERGE = "benchmarking/benchmarks/mergeFinal.csv"
+CSV_QUEENS1 = "benchmarking/benchmarks/queensFinal1.csv"
+CSV_QUEENS2 = "benchmarking/benchmarks/queensFinal2.csv"
+OUTDIR = "./benchmarking/charts"
 os.makedirs(OUTDIR, exist_ok=True)
 
 # Stable colour per version folder so the legend is learned once.
