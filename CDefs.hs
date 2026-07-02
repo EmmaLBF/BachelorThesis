@@ -1,17 +1,20 @@
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module CDefs where
-    
-import CLang (indentStr)
-import qualified AbsLang as AL
-import qualified CLang as CL
 
-import Data.Typeable
+import qualified AbsLang as AL
+import CLang (indentStr)
+import qualified CLang as CL
 import Data.List
-import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Data.Typeable
+
+-- ─────────────────────────────────────────────
+--  Data Types
+-- ─────────────────────────────────────────────
 
 data CParam where
   CParam :: Int -> CType -> CParam
@@ -101,7 +104,6 @@ data CStatement where
 instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
 
-
 type ClosureFuns = Map.Map Int Int -- maps a function id (that returns a closure) to the function said closure contains
 type ClosureParams = Set.Set Int -- set of params which are closures
 type MergedMap = Map.Map Int Int -- maps a function id to the number of new parameters it has (for later printing calls/apply corretcly)
@@ -110,7 +112,6 @@ type ParentMap = Map.Map Int Int -- maps lambda to the id of its direct parent l
 type RemovedEnvs = Set.Set Int
 type RemovedClos = Set.Set Int
 type VarsByValue = Set.Set Int
-type FunsByValue = Set.Set Int
 type VarUses = Map.Map Int Int -- var id mapped to number of uses
 
 data GlobalInfo = GlobalInfo
@@ -121,11 +122,10 @@ data GlobalInfo = GlobalInfo
     } deriving (Show)
 
 data FunctionInfo = FunctionInfo
-    {
-      escapedVars :: Set.Set Int   -- var ids that flow into heap
+    { escapedVars :: Set.Set Int
     , varUses :: Map.Map Int Int
     , varDefs :: Map.Map Int CArg
-    , escapedEnvs :: Set.Set Int   -- env ids that outlive the frame
+    , escapedEnvs :: Set.Set Int
     , allocedEnvs :: Set.Set Int
     , envUses :: Set.Set Int
     , functionCalls :: Map.Map Int Int
@@ -133,7 +133,9 @@ data FunctionInfo = FunctionInfo
     , allocedClos :: Set.Set Int
     } deriving (Show)
 
--- HELPERS
+-- ─────────────────────────────────────────────
+--  Helpers
+-- ─────────────────────────────────────────────
 
 collectArgs :: CExpression -> (CExpression, CArgs)
 collectArgs (CallExpr _ tx f x) =
@@ -147,7 +149,9 @@ collectArgsApply (ApplyClosure tx f x) =
     in (f', as ++ [CArg tx x])
 collectArgsApply e = (e, [])
 
--- SHOW
+-- ─────────────────────────────────────────────
+--  Printing
+-- ─────────────────────────────────────────────
 
 showCArg :: CArg -> MergedMap -> String
 showCArg (CArg _ x) = showCExpression x

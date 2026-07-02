@@ -2,23 +2,22 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module NamedLang where
-import Data.Dynamic
-import AbsLang (BinOp(..), CmpOp(..), BoolOp(..))
-import qualified AbsLang as AL
-import Data.Typeable
-import Control.Monad.State
 
-fresh :: State Int Int
-fresh = do
-  n <- get
-  modify (+1)
-  return n
+import AbsLang (BinOp (..), BoolOp (..), CmpOp (..))
+import qualified AbsLang as AL
+import Control.Monad.State
+import Data.Dynamic
+import Data.Typeable
+
+-- ─────────────────────────────────────────────
+--  NamedLang IR Data Structure
+-- ─────────────────────────────────────────────
 
 data NamedLang a where
   Var :: (Typeable a) => Int -> NamedLang a
   Lam :: (Typeable a, Typeable b) => Proxy a -> Int -> NamedLang b -> NamedLang (a -> b)
   Apply :: (Typeable a, Typeable b) => NamedLang (a -> b) -> NamedLang a -> NamedLang b
-  Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a 
+  Fix :: (Typeable a) => NamedLang (a -> a) -> NamedLang a
   If :: (Typeable a) => NamedLang Bool -> NamedLang a -> NamedLang a -> NamedLang a
   LInt :: Int -> NamedLang Int
   LBool :: Bool -> NamedLang Bool
@@ -30,9 +29,13 @@ data NamedLang a where
   Prod :: (Typeable a, Typeable b) => NamedLang a -> NamedLang b -> NamedLang (a, b)
   Fst :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang a
   Snd :: (Typeable a, Typeable b) => NamedLang (a, b) -> NamedLang b
-  EmptyList  :: Typeable a => NamedLang [a]
+  EmptyList :: Typeable a => NamedLang [a]
   ConsList :: Typeable a => NamedLang a -> NamedLang [a] -> NamedLang [a]
   CaseList :: (Typeable a, Typeable b) => NamedLang [a] -> NamedLang b -> NamedLang (a -> [a] -> b) -> NamedLang b
+
+-- ─────────────────────────────────────────────
+--  Translation from AbsLang
+-- ─────────────────────────────────────────────
 
 translate :: AL.Lang a -> State Int (NamedLang a)
 translate (AL.Lam f) = do
@@ -54,8 +57,8 @@ translate (AL.Apply x@(AL.Lam f) y) = do
   s <- get
   let probed = evalState (translate (f (AL.Var c))) s
   if countVarUses c probed == 1
-      then translate (f y) -- beta reduction step if its only used once, otherwise we duplicate work
-      else Apply <$> translate x <*> translate y
+    then translate (f y) -- beta reduction step if its only used once, otherwise we duplicate work
+    else Apply <$> translate x <*> translate y
 translate (AL.Apply x y) = Apply <$> translate x <*> translate y
 translate (AL.ConsList x y) = ConsList <$> translate x <*> translate y
 translate (AL.LCmpOp op x y) = LCmpOp op <$> translate x <*> translate y
@@ -64,8 +67,39 @@ translate (AL.LBoolOp op x y) = LBoolOp op <$> translate x <*> translate y
 translate (AL.If x y z) = If <$> translate x <*> translate y <*> translate z
 translate (AL.CaseList x y z) = CaseList <$> translate x <*> translate y <*> translate z
 
+-- ─────────────────────────────────────────────
+--  Helpers
+-- ─────────────────────────────────────────────
+
+fresh :: State Int Int
+fresh = do
+  n <- get
+  modify (+ 1)
+  return n
+
+countVarUses :: Int -> NamedLang a -> Int
+countVarUses i (Var j) | i == j = 1
+countVarUses i (Fst p) = countVarUses i p
+countVarUses i (Snd p) = countVarUses i p
+countVarUses i (Not p) = countVarUses i p
+countVarUses i (Abs p) = countVarUses i p
+countVarUses i (Lam _ _ p) = countVarUses i p
+countVarUses i (Prod x y) = countVarUses i x + countVarUses i y
+countVarUses i (Apply x y) = countVarUses i x + countVarUses i y
+countVarUses i (ConsList x y) = countVarUses i x + countVarUses i y
+countVarUses i (LIntOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (LCmpOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (LBoolOp _ x y) = countVarUses i x + countVarUses i y
+countVarUses i (If x y z) = countVarUses i x + countVarUses i y + countVarUses i z
+countVarUses i (CaseList x y z) = countVarUses i x + countVarUses i y + countVarUses i z
+countVarUses _ _ = 0
+
+-- ─────────────────────────────────────────────
+--  Printing
+-- ─────────────────────────────────────────────
+
 instance Show (NamedLang a) where
-  show e = 
+  show e =
     case e of
       Var x -> "x" ++ show x
       Lam _ i f -> "(\\x" ++ show i ++ " ->\n\t " ++ show f ++ ")"
@@ -85,20 +119,3 @@ instance Show (NamedLang a) where
       EmptyList -> "[]"
       ConsList x l -> show x ++ ":" ++ show l
       CaseList l nilCase consCase -> "case " ++ show l ++ " of\n  [] -> " ++ show nilCase ++ "\n  (h:t) ->" ++ show consCase
-
-countVarUses :: Int -> NamedLang a -> Int
-countVarUses i (Var j) | i == j = 1
-countVarUses i (Fst p) = countVarUses i p
-countVarUses i (Snd p) = countVarUses i p
-countVarUses i (Not p) = countVarUses i p
-countVarUses i (Abs p) = countVarUses i p
-countVarUses i (Lam _ _ p) = countVarUses i p
-countVarUses i (Prod x y) = countVarUses i x + countVarUses i y 
-countVarUses i (Apply x y) = countVarUses i x + countVarUses i y
-countVarUses i (ConsList x y) = countVarUses i x + countVarUses i y
-countVarUses i (LIntOp _ x y) = countVarUses i x + countVarUses i y
-countVarUses i (LCmpOp _ x y) = countVarUses i x + countVarUses i y
-countVarUses i (LBoolOp _ x y) = countVarUses i x + countVarUses i y
-countVarUses i (If x y z) = countVarUses i x + countVarUses i y + countVarUses i z
-countVarUses i (CaseList x y z) = countVarUses i x + countVarUses i y + countVarUses i z
-countVarUses _ _ = 0

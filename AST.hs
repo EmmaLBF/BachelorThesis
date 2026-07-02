@@ -102,8 +102,6 @@ getGlobalInfoExpr (Not x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (Abs x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr _ m = m
 
--- Per function body AST info traversal
-
 emptyFunctionInfo :: FunctionInfo
 emptyFunctionInfo = FunctionInfo Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty Set.empty
 

@@ -332,7 +332,6 @@ paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t p
 paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
 paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
 
-
 ------ (5) Pass to add box/unbox
 
 addBoxing :: CStatement -> CStatement
