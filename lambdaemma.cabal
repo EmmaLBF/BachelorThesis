@@ -3,17 +3,15 @@ name:               lambdaemma
 version:            0.1.0.0
 
 executable lambdaemma
-    main-is:          Main.hs
-    other-modules:    AbsLang, NamedLang, CLang, C, OtherCode.IOpractice,
-                        OtherCode.CLang, OtherCode.FirstOrderLang, Optimiser
+    main-is: Main.hs
+    other-modules: AbsLang, NamedLang, CLang, C, CDefs, InlinePass, DemotePass, DeadCodePass, Utils, AST, LambdaMergePass
 
     build-depends:
-        base >= 4.14 && < 4.15,
+        base >= 4.14 && < 5,
         containers ^>=0.6.7,
-        mtl ^>=2.2.2,
-        llvm-hs-pure >= 12.0 && < 13
+        mtl ^>=2.2.2
 
     default-language: Haskell2010
     ghc-options:      -Wall -g -O0
 
--- LLVM_CONFIG=llvm-config-14 cabal build --ghc-options="-g -fbreak-on-exception"
+-- LLVM_CONFIG=llvm-config-14 LLVM_CONFIG=llvm-config-14 cabal build --ghc-options="-g -fbreak-on-exception"

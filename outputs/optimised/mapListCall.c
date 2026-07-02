@@ -1,0 +1,30 @@
+
+// imports
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include "../lib.c"
+
+// pair type defitions
+// function defitions
+ListInt* v0(int (*v1)(int), ListInt* v2);
+int v14(int v5);
+
+// closure defitions
+// function implementations
+ListInt* v0(int (*v1)(int), ListInt* v2) {
+  if (((v2) == NULL)) return NULL;
+  return consInt(v1((v2)->head), v0(v1, (v2)->tail));
+}
+
+int v14(int v5) {
+  return (v5 * 2);
+}
+
+// main
+int main(void) {
+  printListInt(v0(v14, consInt(1, consInt(2, consInt(3, NULL)))));
+  return 0;
+}
+

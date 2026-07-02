@@ -4,25 +4,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "../listLib.c"
+#include "../lib.c"
 
+// pair type defitions
 // function defitions
-int v5(int v2, Node* v3);
-int v0(Node* v1);
+int v6(void* env6, void* v2_raw, void* v3_raw);
+int v0(ListInt* v1);
 
 // closure defitions
+typedef struct {
+} Env_v0;
+
+typedef struct {
+} Env_v6;
+
 // function implementations
-int v5(int v2, Node* v3) {
+int v6(void* env6, void* v2_raw, void* v3_raw) {
+  int v2 = *(int*)v2_raw;
+  ListInt* v3 = (ListInt*)v3_raw;
   return (1 + v0(v3));
 }
 
-int v0(Node* v1) {
-  return ((isEmpty(v1)) ? (0) : (v5(*(int*)(head(v1)), tail(v1))));
+int v0(ListInt* v1) {
+  Env_v6* env6 = malloc(sizeof(Env_v6));
+  if (((v1) == NULL)) return 0;
+  return v6(env6, box_int((v1)->head), (void*)((v1)->tail));
 }
 
 // main
 int main(void) {
-  printInt(v0(cons(box_int(1), cons(box_int(2), cons(box_int(3), NULL)))));
+  printInt(v0(consInt(1, consInt(2, consInt(3, NULL)))));
   return 0;
 }
 
