@@ -12,7 +12,9 @@ import Data.Typeable as DType
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Map as Map
 
--- TODO add algebraic datatypes
+-- ─────────────────────────────────────────────
+--  Data Types
+-- ─────────────────────────────────────────────
 
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
@@ -24,6 +26,8 @@ data CVal where
   CVal :: Typeable a => CValue a -> CVal
   
 type CParams = [CParam]
+type CArgMap = Map.Map Int CArg
+type CValMap = Map.Map Int CVal
 
 data CValue a where
   IntV :: Int -> CValue Int
@@ -69,11 +73,53 @@ data ExecResult a where
   Continue  :: Map.Map Int CVal -> ExecResult a
   ReturnVal :: Typeable a => CValue a -> Map.Map Int CVal -> ExecResult a
 
+-- ─────────────────────────────────────────────
+--  Helpers
+-- ─────────────────────────────────────────────
+
 fresh :: State Int Int
 fresh = do
   n <- get
   modify (+1)
   return n
+
+-- ─────────────────────────────────────────────
+--  Translate from NamedLang
+-- ─────────────────────────────────────────────
+
+translate :: Typeable a => NL.NamedLang a -> State Int (CStatement a)
+translate (NL.Apply f x) = do
+  (fs, fE) <- translateSub f
+  (xs, xE) <- translateSub x
+  return $ foldr Seq (Return (CallExpr fE xE)) (fs ++ xs)
+translate (NL.If cond t f) = do
+    (cs, condE) <- translateSub cond
+    (ts, tE) <- translateSub t
+    (fs, fE) <- translateSub f
+    case (ts, fs) of
+        ([], []) -> return $ foldr Seq (Return (Ternary condE tE fE)) cs -- if both branches return a value
+        _ -> do
+            ct <- translate t
+            cf <- translate f
+            return $ foldr Seq (If condE ct cf) cs
+translate (NL.Lam arg i f) = do
+  cf <- translate f
+  ifun <- fresh
+  return (unsafeCoerce (DefFun ifun (i, arg) (ensureReturn cf)))
+translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 f))) = do
+  cf <- translate f
+  return (unsafeCoerce (DefFun i (i1, targ1) (ensureReturn cf)))
+translate (NL.CaseList l nilCase consCase) = do
+  (ns, nilE) <- translateSub nilCase
+  consStmt <- translate consCase
+  (ls, listE) <- translateSub l
+  cId <- fresh
+  let callExpr = CallExpr (CallExpr (Var cId) (HeadList listE)) (TailList listE)
+      caseBody = If (IsEmpty listE) (foldr Seq (Return nilE) ns) (Return callExpr)
+  return $ foldr Seq caseBody (unsafeCoerce (bindResult cId consStmt) : ls)
+translate x = do
+  (xs, xE) <- translateSub x
+  return $ foldr Seq (Return xE) xs
 
 -- Translate a sub-expression. Returns the statements that need to run
 -- first, and the expression to use afterwards.
@@ -135,95 +181,75 @@ ensureReturn stmt = case stmt of
   Seq x y -> Seq x (ensureReturn y)
   _ -> stmt
 
-translate :: Typeable a => NL.NamedLang a -> State Int (CStatement a)
-translate (NL.Apply f x) = do
-  (fs, fE) <- translateSub f
-  (xs, xE) <- translateSub x
-  return $ foldr Seq (Return (CallExpr fE xE)) (fs ++ xs)
-translate (NL.If cond t f) = do
-  (cs, condE) <- translateSub cond
-  ct <- translate t
-  cf <- translate f
-  return $ foldr Seq (If condE ct cf) cs
-translate (NL.Lam arg i f) = do
-  cf <- translate f
-  ifun <- fresh
-  return (unsafeCoerce (DefFun ifun (i, arg) (ensureReturn cf)))
-translate (NL.Fix (NL.Lam _ i (NL.Lam targ1 i1 f))) = do
-  cf <- translate f
-  return (unsafeCoerce (DefFun i (i1, targ1) (ensureReturn cf)))
-translate (NL.CaseList l nilCase consCase) = do
-  (ns, nilE) <- translateSub nilCase
-  consStmt <- translate consCase
-  (ls, listE) <- translateSub l
-  cId <- fresh
-  let callExpr = CallExpr (CallExpr (Var cId) (HeadList listE)) (TailList listE)
-      caseBody = If (IsEmpty listE) (foldr Seq (Return nilE) ns) (Return callExpr)
-  return $ foldr Seq caseBody (unsafeCoerce (bindResult cId consStmt) : ls)
-translate x = do
-  (xs, xE) <- translateSub x
-  return $ foldr Seq (Return xE) xs
+-- ─────────────────────────────────────────────
+--  Replace Bindings
+-- ─────────────────────────────────────────────
 
-
--- REPLACE BINDINGS
-
-replaceVarBinding :: CExpression a -> State (Map.Map Int CArg) (CExpression a)
-replaceVarBinding (Var i) = do
-  m <- get
-  return $ case Map.lookup i m of
-    Just (CArg n) -> unsafeCoerce n
+replaceVarBinding :: CExpression a -> CArgMap -> CExpression a
+replaceVarBinding (Var i) m = 
+  case Map.lookup i m of
+    Just (CArg n) -> replaceVarBinding (unsafeCoerce n) m
     Nothing -> Var i
-replaceVarBinding (Not x) = Not <$> replaceVarBinding x
-replaceVarBinding (Abs x) = Abs <$> replaceVarBinding x
-replaceVarBinding (LIntOp op x y) = LIntOp op <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding (LCmpOp op x y) = LCmpOp op <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding (LBoolOp op x y) = LBoolOp op <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding (Ternary x y z) = Ternary <$> replaceVarBinding x <*> replaceVarBinding y <*> replaceVarBinding z
-replaceVarBinding (CallExpr x y) = CallExpr <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding (Prod x y) = Prod <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding (Fst x) = Fst <$> replaceVarBinding x
-replaceVarBinding (Snd x) = Snd <$> replaceVarBinding x
-replaceVarBinding (HeadList x) = HeadList <$> replaceVarBinding x
-replaceVarBinding (TailList x) = TailList <$> replaceVarBinding x
-replaceVarBinding (IsEmpty x) = IsEmpty <$> replaceVarBinding x
-replaceVarBinding (IndexList i x) = IndexList i <$> replaceVarBinding x
-replaceVarBinding (ConsList x y) = ConsList <$> replaceVarBinding x <*> replaceVarBinding y
-replaceVarBinding expr = return expr
+replaceVarBinding (Not x) m = Not (replaceVarBinding x m)
+replaceVarBinding (Abs x) m = Abs (replaceVarBinding x m)
+replaceVarBinding (LIntOp op x y) m = LIntOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (LCmpOp op x y) m = LCmpOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (LBoolOp op x y) m = LBoolOp op (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Ternary x y z) m = Ternary (replaceVarBinding x m) (replaceVarBinding y m) (replaceVarBinding z m)
+replaceVarBinding (CallExpr x y) m = CallExpr (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Prod x y) m = Prod (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding (Fst x) m = Fst (replaceVarBinding x m)
+replaceVarBinding (Snd x) m = Snd (replaceVarBinding x m)
+replaceVarBinding (HeadList x) m = HeadList (replaceVarBinding x m)
+replaceVarBinding (TailList x) m = TailList (replaceVarBinding x m)
+replaceVarBinding (IsEmpty x) m = IsEmpty (replaceVarBinding x m)
+replaceVarBinding (IndexList i x) m = IndexList i (replaceVarBinding x m)
+replaceVarBinding (ConsList x y) m = ConsList (replaceVarBinding x m) (replaceVarBinding y m)
+replaceVarBinding expr _ = expr
 
-replaceVarBindingStmt :: CStatement a -> State (Map.Map Int CArg) (CStatement a)
-replaceVarBindingStmt (Seq x y) = Seq <$> replaceVarBindingStmt x <*> replaceVarBindingStmt y
-replaceVarBindingStmt (If cond x y) = If <$> replaceVarBinding cond <*> replaceVarBindingStmt x <*> replaceVarBindingStmt y
-replaceVarBindingStmt (While cond x) = While <$> replaceVarBinding cond <*> replaceVarBindingStmt x
-replaceVarBindingStmt (DefFun ifun param body) = DefFun ifun param <$> replaceVarBindingStmt body
-replaceVarBindingStmt (Return x) = Return <$> replaceVarBinding x
-replaceVarBindingStmt (DefVar i x) = DefVar i <$> replaceVarBinding x
-replaceVarBindingStmt (UpdateVar i x) = UpdateVar i <$> replaceVarBinding x
-replaceVarBindingStmt Skip = return Skip
+replaceVarBindingStmt :: CStatement a -> CArgMap -> CStatement a
+replaceVarBindingStmt (Seq x y) m = Seq (replaceVarBindingStmt x m) (replaceVarBindingStmt y m)
+replaceVarBindingStmt (If cond x y) m = If (replaceVarBinding cond m) (replaceVarBindingStmt x m) (replaceVarBindingStmt y m)
+replaceVarBindingStmt (While cond x) m = While (replaceVarBinding cond m) (replaceVarBindingStmt x m)
+replaceVarBindingStmt (DefFun ifun param body) m = DefFun ifun param (replaceVarBindingStmt body m)
+replaceVarBindingStmt (Return x) m = Return (replaceVarBinding x m)
+replaceVarBindingStmt (DefVar i x) m = 
+  case Map.lookup i m of
+    Just _ -> Skip
+    _ -> DefVar i (replaceVarBinding x m)
+replaceVarBindingStmt (UpdateVar i x) m = UpdateVar i (replaceVarBinding x m)
+replaceVarBindingStmt Skip _ = Skip
+
+collectVarDefs :: CStatement a -> Map.Map Int Int -> Map.Map Int Int
+collectVarDefs (DefVar i _) m = Map.insertWith (+) i 1 m
+collectVarDefs (Seq x y) m = collectVarDefs x (collectVarDefs y m)
+collectVarDefs (If _ x y) m = collectVarDefs x (collectVarDefs y m)
+collectVarDefs (While _ x) m = collectVarDefs x m
+collectVarDefs (DefFun _ _ body) m = collectVarDefs body m
+collectVarDefs _ m = m
 
 -- map stores for each var we have unbound what its value is now
 -- so if we had let v8 = v7 in ..., store v8 -> v7 in map
-collectBindings :: CStatement a -> State (Map.Map Int CArg) (CStatement a)
--- collectBindings (DefVar i (Var i') :: CExpression) = do
---   modify (Map.insert i (CArg (Var i')))
---   return Skip
--- collectBindings (DefVar i x) = DefVar i <$> replaceVarBinding x
-collectBindings (DefVar i x) = do
-  x' <- replaceVarBinding x
-  modify (Map.insert i (CArg x'))
-  return Skip
-collectBindings (Seq x y) = Seq <$> collectBindings x <*> collectBindings y
-collectBindings (If cond x y) = If cond <$> collectBindings x <*> collectBindings y
-collectBindings (While cond x) = While cond <$> collectBindings x
-collectBindings (DefFun ifun param body) = DefFun ifun param <$> collectBindings body
-collectBindings x = return x
+collectBindings :: CStatement a -> CArgMap -> CArgMap
+collectBindings (DefVar i x) m = Map.insert i (CArg x) m
+collectBindings (Seq x y) m = collectBindings x (collectBindings y m)
+collectBindings (If _ x y) m = collectBindings x (collectBindings y m)
+collectBindings (While _ x) m = collectBindings x m
+collectBindings (DefFun _ _ body) m = collectBindings body m
+collectBindings _ m = m
 
+-- remove var definitions for variables that are defined exactly once
+-- by replacing references to them with their value
 optimizeBindings :: CStatement a -> CStatement a
 optimizeBindings stmt =
-  let (stmt', bindings) = runState (collectBindings stmt) Map.empty
-  in evalState (replaceVarBindingStmt stmt') bindings
+  let varDefs = collectBindings stmt Map.empty
+      varDefCount = collectVarDefs stmt Map.empty
+      bindings = Map.filterWithKey (\i _ -> Map.lookup i varDefCount == Just 1) varDefs
+  in replaceVarBindingStmt stmt bindings
 
-
--- EVALUATION
+-- ─────────────────────────────────────────────
+--  Evaluation
+-- ─────────────────────────────────────────────
 
 unInt :: CValue Int -> Int
 unInt (IntV x) = x
@@ -234,13 +260,13 @@ unBool (BoolV x) = x
 unList :: CValue [a] -> [CValue a]
 unList (ListV x) = x
 
-lookupEnv :: forall a. Typeable a => Int -> Map.Map Int CVal -> Maybe (CValue a)
-lookupEnv i1 m =
-  case Map.lookup i1 m of
+lookupEnv :: Int -> CValMap -> Maybe (CValue a)
+lookupEnv i m =
+  case Map.lookup i m of
     Just (CVal x) -> unsafeCoerce Just x
     _ -> Nothing
 
-evalExpr :: forall a. Typeable a => CExpression a -> Map.Map Int CVal -> CValue a
+evalExpr :: CExpression a -> CValMap -> CValue a
 evalExpr (Val x) _ = x
 evalExpr (Var i) m =
   case lookupEnv i m of
@@ -280,7 +306,7 @@ evalExpr (IndexList l i) m =
       IntV idx = evalExpr i m
   in vs !! idx
 
-evalStmt :: CStatement c -> Map.Map Int CVal -> ExecResult c
+evalStmt :: CStatement c -> CValMap -> ExecResult c
 evalStmt (DefVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (UpdateVar i x) m = Continue (Map.insert i (CVal (evalExpr x m)) m)
 evalStmt (Return x) m = ReturnVal (evalExpr x m) m
@@ -305,12 +331,14 @@ evalStmt (DefFun ifun (iparam, _ :: Proxy d) (body :: CStatement c)) m =
       m' = Map.insert ifun (CVal (FunV fn)) m
   in Continue m'
 
-eval :: Typeable a => CStatement a -> Map.Map Int CVal -> CValue a
+eval :: CStatement a -> CValMap -> CValue a
 eval x m = case evalStmt x m of
   Continue _ -> error "Eval did not return anything"
   ReturnVal v _ -> v
 
--- PRINTING
+-- ─────────────────────────────────────────────
+--  Printing
+-- ─────────────────────────────────────────────
 
 indentStr :: Int -> String
 indentStr n = replicate (2 * n) ' '
@@ -383,18 +411,3 @@ showCExpression (HeadList l) = "*(" ++ show (typeRep l) ++ ")" ++ "head(" ++ sho
 showCExpression (TailList l) = "tail(" ++ showCExpression l ++ ")"
 showCExpression (IndexList l i) = showCExpression l ++ "[" ++ showCExpression i ++ "]"
 showCExpression (Ternary cond thn els) = "(" ++ showCExpression cond ++ ") ? (" ++ showCExpression thn ++ ") : (" ++ showCExpression els ++ ")"
-
-main :: IO ()
-main = do
-    let (nl, fresh') = runState (NL.translate AL.collatzCall) 0
-        cl = evalState (translate nl) fresh'
-        ev = eval cl Map.empty
-    print nl
-    putStrLn "--- Translating ---"
-    putStrLn $ showCStmt 0 cl
-    putStrLn "--- Opt ---"
-    let opt = optimizeBindings cl
-    putStrLn $ showCStmt 0 opt
-    let _ = eval opt Map.empty
-    putStrLn "\n--- Evaluating ---"
-    putStrLn $ showCValue ev

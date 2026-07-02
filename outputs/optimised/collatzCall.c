@@ -14,10 +14,7 @@ int v0(int v1);
 // function implementations
 int v0(int v1) {
   if ((v1 == 1)) return 0;
-  if (((v1 % 2) == 0)) {
-  } else {
-  }
-  return (1 + v0(((3 * v1) + 1)));
+  return (1 + v0(((((v1 % 2) == 0)) ? ((v1 / 2)) : (((3 * v1) + 1)))));
 }
 
 // main

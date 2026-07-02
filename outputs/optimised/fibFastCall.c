@@ -37,13 +37,13 @@ Pair_Int_Int* v1(Pair_Int_PairPtr v2);
 // closure defitions
 // function implementations
 Pair_Int_Int* v1(Pair_Int_PairPtr v2) {
-  Pair_Int_Int *v10 = NULL;
+  Pair_Int_Int *v11 = NULL;
   if (((v2).fst == 0)) {
-    v10 = (v2).snd;
+    v11 = (v2).snd;
   } else {
-    v10 = v1((Pair_Int_PairPtr){ .fst = ((v2).fst - 1), .snd = makePair_Int_Int(((v2).snd)->snd, (((v2).snd)->fst + ((v2).snd)->snd)) });
+    v11 = v1((Pair_Int_PairPtr){ .fst = ((v2).fst - 1), .snd = makePair_Int_Int(((v2).snd)->snd, (((v2).snd)->fst + ((v2).snd)->snd)) });
   }
-  return v10;
+  return v11;
 }
 
 // main

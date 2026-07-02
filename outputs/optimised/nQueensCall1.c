@@ -33,7 +33,7 @@ typedef struct {
 } Env_v7;
 
 typedef struct {
-} Env_v107;
+} Env_v217;
 
 // function implementations
 int v0(List* v1) {
@@ -55,13 +55,8 @@ bool v30(Pair_Int_Int *v31, List* v32) {
 List* v21(int v22, int v23, List* v24, int v25) {
   if ((v25 == v22)) return NULL;
   Pair_Int_Int *v27 = makePair_Int_Int(v23, v25);
-  List* v75 = NULL;
-  if (v30(v27, v24)) {
-    v75 = cons(cons(v27, v24), v21(v22, v23, v24, (v25 + 1)));
-  } else {
-    v75 = v21(v22, v23, v24, (v25 + 1));
-  }
-  return v75;
+  List* v29 = v21(v22, v23, v24, (v25 + 1));
+  return ((v30(v27, v24)) ? (cons(cons(v27, v24), v29)) : (v29));
 }
 
 List* v10(int v11, int v12, List* v13) {

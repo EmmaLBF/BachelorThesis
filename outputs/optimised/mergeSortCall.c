@@ -41,34 +41,34 @@ ListInt* v0(ListInt* v1);
 // function implementations
 ListInt* v8(ListInt* v9, ListInt* v10) {
   if (((v9) == NULL)) return v10;
-  ListInt* v41 = NULL;
+  ListInt* v45 = NULL;
   if (((v10) == NULL)) {
-    v41 = v9;
+    v45 = v9;
   } else {
-    ListInt* v38 = NULL;
+    ListInt* v42 = NULL;
     if (((v9)->head < (v10)->head)) {
-      v38 = consInt((v9)->head, v8((v9)->tail, v10));
+      v42 = consInt((v9)->head, v8((v9)->tail, v10));
     } else {
-      v38 = consInt((v10)->head, v8((v10)->tail, v9));
+      v42 = consInt((v10)->head, v8((v10)->tail, v9));
     }
-    v41 = v38;
+    v45 = v42;
   }
-  return v41;
+  return v45;
 }
 
 Pair_ListInt_ListInt v19(Pair_Int_ListInt v20) {
-  Pair_ListInt_ListInt v56 = { .fst = NULL, .snd = NULL};
+  Pair_ListInt_ListInt v67 = { .fst = NULL, .snd = NULL};
   if (((v20).fst == 0)) {
-    v56 = (Pair_ListInt_ListInt){ .fst = NULL, .snd = (v20).snd };
+    v67 = (Pair_ListInt_ListInt){ .fst = NULL, .snd = (v20).snd };
   } else {
     if ((((v20).snd) == NULL)) {
-      v56 = (Pair_ListInt_ListInt){ .fst = NULL, .snd = NULL };
+      v67 = (Pair_ListInt_ListInt){ .fst = NULL, .snd = NULL };
     } else {
       Pair_ListInt_ListInt v28 = v19((Pair_Int_ListInt){ .fst = ((v20).fst - 1), .snd = ((v20).snd)->tail });
-      v56 = (Pair_ListInt_ListInt){ .fst = consInt(((v20).snd)->head, (v28).fst), .snd = (v28).snd };
+      v67 = (Pair_ListInt_ListInt){ .fst = consInt(((v20).snd)->head, (v28).fst), .snd = (v28).snd };
     }
   }
-  return v56;
+  return v67;
 }
 
 int v29(ListInt* v30) {
@@ -78,14 +78,14 @@ int v29(ListInt* v30) {
 
 ListInt* v0(ListInt* v1) {
   if (((v1) == NULL)) return NULL;
-  ListInt* v74 = NULL;
+  ListInt* v85 = NULL;
   if ((((v1)->tail) == NULL)) {
-    v74 = consInt((v1)->head, NULL);
+    v85 = consInt((v1)->head, NULL);
   } else {
     Pair_ListInt_ListInt v7 = v19((Pair_Int_ListInt){ .fst = (v29(v1) / 2), .snd = v1 });
-    v74 = v8(v0((v7).fst), v0((v7).snd));
+    v85 = v8(v0((v7).fst), v0((v7).snd));
   }
-  return v74;
+  return v85;
 }
 
 // main

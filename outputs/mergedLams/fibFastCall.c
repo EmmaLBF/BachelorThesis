@@ -32,9 +32,9 @@ Pair_Int_PairPtr* makePair_Int_PairPtr(int fst, Pair_Int_Int* snd) {
 };
 
 // function defitions
-Pair_Int_Int* v10(void* env10, void* v9_raw);
-Pair_Int_Int* v12(void* env12, void* v6_raw);
-Pair_Int_Int* v14(void* env14, void* v4_raw);
+Pair_Int_Int* v11(void* env11, void* v9_raw);
+Pair_Int_Int* v13(void* env13, void* v6_raw);
+Pair_Int_Int* v15(void* env15, void* v4_raw);
 Pair_Int_Int* v1(Pair_Int_PairPtr *v2);
 
 // closure defitions
@@ -44,42 +44,42 @@ typedef struct {
 typedef struct {
     int v4;
     Pair_Int_Int *v6;
-} Env_v10;
+} Env_v11;
 
 typedef struct {
     int v4;
-} Env_v12;
+} Env_v13;
 
 typedef struct {
     Pair_Int_PairPtr *v2;
-} Env_v14;
+} Env_v15;
 
 // function implementations
-Pair_Int_Int* v10(void* env10, void* v9_raw) {
+Pair_Int_Int* v11(void* env11, void* v9_raw) {
   int v9 = *(int*)v9_raw;
-  if ((((Env_v10*)env10)->v4 == 0)) return ((Env_v10*)env10)->v6;
-  return v1(makePair_Int_PairPtr((((Env_v10*)env10)->v4 - 1), makePair_Int_Int(v9, ((((Env_v10*)env10)->v6)->fst + v9))));
+  if ((((Env_v11*)env11)->v4 == 0)) return ((Env_v11*)env11)->v6;
+  return v1(makePair_Int_PairPtr((((Env_v11*)env11)->v4 - 1), makePair_Int_Int(v9, ((((Env_v11*)env11)->v6)->fst + v9))));
 }
 
-Pair_Int_Int* v12(void* env12, void* v6_raw) {
+Pair_Int_Int* v13(void* env13, void* v6_raw) {
   Pair_Int_Int *v6 = (Pair_Int_Int*)v6_raw;
-  Env_v10* env10 = malloc(sizeof(Env_v10));
-  env10->v4 = ((Env_v12*)env12)->v4;
-  env10->v6 = v6;
-  return v10(env10, box_int((v6)->snd));
+  Env_v11* env11 = malloc(sizeof(Env_v11));
+  env11->v4 = ((Env_v13*)env13)->v4;
+  env11->v6 = v6;
+  return v11(env11, box_int((v6)->snd));
 }
 
-Pair_Int_Int* v14(void* env14, void* v4_raw) {
+Pair_Int_Int* v15(void* env15, void* v4_raw) {
   int v4 = *(int*)v4_raw;
-  Env_v12* env12 = malloc(sizeof(Env_v12));
-  env12->v4 = v4;
-  return v12(env12, (void*)((((Env_v14*)env14)->v2)->snd));
+  Env_v13* env13 = malloc(sizeof(Env_v13));
+  env13->v4 = v4;
+  return v13(env13, (void*)((((Env_v15*)env15)->v2)->snd));
 }
 
 Pair_Int_Int* v1(Pair_Int_PairPtr *v2) {
-  Env_v14* env14 = malloc(sizeof(Env_v14));
-  env14->v2 = v2;
-  return v14(env14, box_int((v2)->fst));
+  Env_v15* env15 = malloc(sizeof(Env_v15));
+  env15->v2 = v2;
+  return v15(env15, box_int((v2)->fst));
 }
 
 // main

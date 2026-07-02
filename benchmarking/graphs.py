@@ -23,10 +23,8 @@ CSV_QUEENS2 = "benchmarking/benchmarks/queensFinal2.csv"
 OUTDIR = "./benchmarking/charts"
 os.makedirs(OUTDIR, exist_ok=True)
 
-# Stable colour per version folder so the legend is learned once.
 VERSION_COLOURS = {}
 _PALETTE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
 
 def colour_for(version):
     if version not in VERSION_COLOURS:

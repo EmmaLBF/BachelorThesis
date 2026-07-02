@@ -25,17 +25,17 @@ int v0(Pair_Int_Int v1);
 // closure defitions
 // function implementations
 int v0(Pair_Int_Int v1) {
-  int v7 = 0;
+  int v15 = 0;
   if (((v1).fst == 0)) {
-    v7 = ((v1).snd + 1);
+    v15 = ((v1).snd + 1);
   } else {
     if (((v1).snd == 0)) {
-      v7 = v0((Pair_Int_Int){ .fst = ((v1).fst - 1), .snd = 1 });
+      v15 = v0((Pair_Int_Int){ .fst = ((v1).fst - 1), .snd = 1 });
     } else {
-      v7 = v0((Pair_Int_Int){ .fst = ((v1).fst - 1), .snd = v0((Pair_Int_Int){ .fst = (v1).fst, .snd = ((v1).snd - 1) }) });
+      v15 = v0((Pair_Int_Int){ .fst = ((v1).fst - 1), .snd = v0((Pair_Int_Int){ .fst = (v1).fst, .snd = ((v1).snd - 1) }) });
     }
   }
-  return v7;
+  return v15;
 }
 
 // main

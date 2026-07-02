@@ -25,13 +25,13 @@ int v0(Pair_Int_Int v1);
 // closure defitions
 // function implementations
 int v0(Pair_Int_Int v1) {
-  int v7 = 0;
+  int v8 = 0;
   if (((v1).snd == 0)) {
-    v7 = 1;
+    v8 = 1;
   } else {
-    v7 = ((v1).fst * v0((Pair_Int_Int){ .fst = (v1).fst, .snd = ((v1).snd - 1) }));
+    v8 = ((v1).fst * v0((Pair_Int_Int){ .fst = (v1).fst, .snd = ((v1).snd - 1) }));
   }
-  return v7;
+  return v8;
 }
 
 // main
