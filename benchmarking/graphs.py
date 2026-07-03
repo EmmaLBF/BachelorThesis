@@ -1,19 +1,4 @@
-"""
-Generate comparison charts from benchmark_results.csv.
-
-Produces, per program:
-  - line plots vs input size n, one line per version, for the key metrics
-    (instruction count, allocations, median time) with variance shown on time
-  - box plots of the raw timing samples per version at the largest n
-And across programs:
-  - grouped bar charts for fixed-size metrics (binary size, symbol count)
-
-Deterministic metrics (instruction count, allocs) are the headline; timing is
-shown with its distribution so the comparison is honest about noise.
-"""
-
 import os
-import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -31,7 +16,6 @@ def colour_for(version):
         VERSION_COLOURS[version] = _PALETTE[len(VERSION_COLOURS) % len(_PALETTE)]
     return VERSION_COLOURS[version]
 
-
 def short_version(folder):
     if folder == "outputs/optimised/":
         return "Optimised"
@@ -43,15 +27,13 @@ def short_version(folder):
         return "Baseline"
     return "nothing"
 
-
 def parse_samples(cell):
     if not isinstance(cell, str) or not cell:
         return []
     return [float(x) for x in cell.split(";") if x]
 
-
 # ---------------------------------------------------------------------------
-# Line plots vs n  (one figure per program per metric)
+# Line plots vs n
 # ---------------------------------------------------------------------------
 
 def line_plot(df, program, metric, ylabel, ax, logy=False, errcol=None):
@@ -74,9 +56,8 @@ def line_plot(df, program, metric, ylabel, ax, logy=False, errcol=None):
     ax.set_title(f"{program}: {ylabel} vs n")
     ax.grid(True, alpha=0.3)
 
-
 # ---------------------------------------------------------------------------
-# Box plots of raw timing samples at the largest n  (one figure per program)
+# Box plots of raw timing samples at the largest n
 # ---------------------------------------------------------------------------
 
 def timing_boxplot(df, program):
@@ -107,7 +88,6 @@ def timing_boxplot(df, program):
     plt.close(fig)
     print("wrote", path)
 
-
 # ---------------------------------------------------------------------------
 # Grouped bar chart for a fixed-size metric across programs
 # ---------------------------------------------------------------------------
@@ -115,7 +95,6 @@ def timing_boxplot(df, program):
 def grouped_bar(df, ax, metric, ylabel):
     if metric not in df.columns:
         return
-    # one value per (program, version): take the row at the largest n
     rows = []
     for (program, folder), g in df.groupby(["program", "folder"]):
         g = g.sort_values("n")
@@ -124,7 +103,6 @@ def grouped_bar(df, ax, metric, ylabel):
         return
     pivot = pd.DataFrame(rows, columns=["program", "version", "value"])
     programs = sorted(pivot["program"].unique())
-    # versions = list(dict.fromkeys(pivot["version"]))
     versions = ["Baseline", "Optimised", "Merged Lambdas", "Basic"]
     width = 0.8 / max(len(versions), 1)
 
@@ -138,14 +116,11 @@ def grouped_bar(df, ax, metric, ylabel):
     ax.set_ylabel(ylabel)
     ax.set_title(f"{ylabel} by program and version")
     
-
-
 def main():
     df_merge = pd.read_csv(CSV_MERGE)
     df_queens1 = pd.read_csv(CSV_QUEENS1)
     df_queens2 = pd.read_csv(CSV_QUEENS2)
     df = pd.concat([df_merge, df_queens1, df_queens2], ignore_index=True)
-    # numeric coercion for safety
     for col in ["n", "InstructionCount", "Allocs", "Frees", "BytesAlloced",
                 "Time_median(s)", "Time_stdev(s)", "BinarySize(bytes)", "SymbolCount"]:
         if col in df.columns:
@@ -175,7 +150,6 @@ def main():
     path = os.path.join(OUTDIR, f"bars.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
-
 
 if __name__ == "__main__":
     main()

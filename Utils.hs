@@ -245,3 +245,6 @@ mapChildrenStmtM fs fe stmt = case stmt of
   Return x -> Return <$> fe x
   AllocEnv e p params -> AllocEnv e p <$> traverse (\(CArg t x) -> CArg t <$> fe x) params
   s -> return s
+
+mapCArg :: (CExpression -> CExpression) -> CArg -> CArg
+mapCArg f (CArg t x) = CArg t (f x)

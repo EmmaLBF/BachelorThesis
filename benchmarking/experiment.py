@@ -10,49 +10,34 @@ import statistics
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Number of times each binary is re-run to measure (noisy) wall-clock timing.
-# Deterministic metrics (instruction count, allocs) are measured once.
 TIMING_REPS = 30
-# How many leading timing runs to discard as warm-up (cache / page-in effects).
 WARMUP_REPS = 3
-
-# Optimisation level for gcc. Be deliberate: -O0 keeps the generated C close to
-# what your compiler emitted (best for comparing YOUR passes); -O2 shows what
-# survives a production C compiler. Pick one and report it.
 GCC_OPT = "-O0"
-
-# Pin to a single core to cut scheduler noise. Set to None to disable.
 PIN_CORE = 0
 
-# ANSI colours (optional, cosmetic)
+OUTPUT_CSV = f"benchmarking/benchmarks/mergeFinal.csv"
+
 BOLD = "\033[1m"
 RED = "\033[31m"
 RESET = "\033[0m"
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _run_prefix():
-    """Command prefix to pin the process to one core, if requested + available."""
     if PIN_CORE is not None and os.name != "nt" and shutil.which("taskset"):
         return ["taskset", "-c", str(PIN_CORE)]
     return []
 
-
 def _have(tool):
     return shutil.which(tool) is not None
 
-
 def compile_c(path, path_out):
-    """Compile a single C file at the configured optimisation level."""
     compile_cmd = ["gcc", GCC_OPT, path, "-o", path_out]
     subprocess.run(compile_cmd, check=True)
 
-
 def patch_last_lines(path, index_to_remove, new_line):
-    """Replace a line near the bottom of the file (used to set input size n)."""
     if index_to_remove <= 0:
         return
     with open(path) as f:
@@ -62,18 +47,11 @@ def patch_last_lines(path, index_to_remove, new_line):
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-
 # ---------------------------------------------------------------------------
-# Deterministic metrics  (measured ONCE -- repeatable, machine-independent)
+# Deterministic metrics
 # ---------------------------------------------------------------------------
 
 def deterministic_stats(path_out):
-    """Instruction count (callgrind) and heap alloc/free/bytes (valgrind).
-
-    These are deterministic: re-running gives (essentially) identical numbers,
-    so a single measurement is enough. They are the headline metrics for
-    comparing compiler-optimisation versions.
-    """
     out = {}
     run_target = _run_prefix() + [f"./{path_out}"]
 
@@ -110,18 +88,11 @@ def deterministic_stats(path_out):
 
     return out
 
-
 # ---------------------------------------------------------------------------
-# Timing metrics  (measured MANY TIMES -- noisy, need statistics)
+# Timing metrics
 # ---------------------------------------------------------------------------
 
 def timing_stats(path_out, reps=TIMING_REPS, warmup=WARMUP_REPS):
-    """Run the binary `reps` times, discard `warmup`, and summarise wall-clock.
-
-    Reports median (robust), minimum (least-disturbed run) and stdev. Timing is
-    done in its OWN loop, never alongside valgrind, and pinned to one core.
-    Peak RSS is taken from /usr/bin/time -v on a single representative run.
-    """
     times = []
     run_target = _run_prefix() + [f"./{path_out}"]
     for i in range(reps):
@@ -139,7 +110,6 @@ def timing_stats(path_out, reps=TIMING_REPS, warmup=WARMUP_REPS):
         "Time_samples(s)": ";".join(f"{t:.9f}" for t in times)
     }
 
-    # Peak resident memory from one /usr/bin/time -v run (deterministic-ish).
     if os.name != "nt" and os.path.exists("/usr/bin/time"):
         tr = subprocess.run(
             ["/usr/bin/time", "-v"] + run_target,
@@ -151,9 +121,8 @@ def timing_stats(path_out, reps=TIMING_REPS, warmup=WARMUP_REPS):
                 out["MaxRSS(kb)"] = line.split(":", 1)[1].strip()
     return out
 
-
 # ---------------------------------------------------------------------------
-# Code-size metrics  (measured ONCE per version, independent of input size)
+# Code-size metrics
 # ---------------------------------------------------------------------------
 
 def code_stats(path, path_out):
@@ -171,17 +140,11 @@ def code_stats(path, path_out):
         "SymbolCount": symbol_count,
     }
 
-
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
 def measure_one(folder, c_file, distance_from_bottom, new_line):
-    """Full measurement for one (program, input-size) point.
-
-    Compiles once, takes deterministic metrics once, then runs the timing loop
-    separately. Returns a merged dict of metrics.
-    """
     path = folder + c_file + ".c"
     path_out = folder + c_file
 
@@ -189,20 +152,12 @@ def measure_one(folder, c_file, distance_from_bottom, new_line):
     compile_c(path, path_out)
 
     result = {}
-    # Deterministic first (under valgrind) ...
     result.update(deterministic_stats(path_out))
-    # ... then timing in its own clean loop (no valgrind running).
     result.update(timing_stats(path_out))
     return result
 
-
 def run_trials(path_half, folder, distance_from_bottom,
                new_line_first, new_line_second, sizes, csv_writer=None):
-    """Sweep input sizes for one program/version and print a results table.
-
-    If `csv_writer` is given, one row per (program, folder, size) is appended,
-    including the code-size metrics so every row is self-describing.
-    """
     path_out = folder + path_half
     path = path_out + ".c"
 
@@ -244,7 +199,6 @@ def run_trials(path_half, folder, distance_from_bottom,
 
     return all_outputs
 
-
 def only_run(c_file, folder="outputs/"):
     """Just compile and run once (no measurement)."""
     path = folder + c_file + ".c"
@@ -256,15 +210,10 @@ def only_run(c_file, folder="outputs/"):
     except subprocess.CalledProcessError as e:
         print(f"Compilation/Execution failed: {e}")
 
-
 # ---------------------------------------------------------------------------
-# Per-program configuration. Each logical program may exist in SEVERAL folders
-# (one per compiler version compared). If a version needs a different patch
-# rule (e.g. the entry point differs), give it its own entry.
-#
-# For a given program and size n, the patched line becomes:
+# Patched line becomes:
 #     prefix + str(n) + suffix
-# replacing the line at  len(lines) - distance_from_bottom.
+# replacing the line at  len(lines) - distance_from_bottom
 # ---------------------------------------------------------------------------
 
 MERGESORT = [
@@ -300,11 +249,8 @@ QUEENS2 = [
     }
 ]
 
-OUTPUT_CSV = f"benchmarking/benchmarks/mergeFinal.csv"
-
 if __name__ == "__main__":
     rows = []
-    # A tiny adapter so run_trials can "write" rows into our list via .writerow.
     collector = type("RowCollector", (), {"writerow": staticmethod(rows.append)})()
 
     for prog in MERGESORT:
@@ -319,7 +265,6 @@ if __name__ == "__main__":
                 csv_writer=collector,
             )
 
-    # Write everything with a unified header (union of keys, first-seen order).
     if rows:
         header = []
         for r in rows:

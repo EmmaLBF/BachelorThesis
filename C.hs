@@ -180,14 +180,20 @@ makeClosureFactories (DefFun tret ifun params body) m parents =
     let funRet = findReturn body
         retId = case funRet of (Var _ i) -> i; (Val (ClosureV i)) -> i; _ -> (-1)
         returnsClosure = case funRet of (Val (ClosureV _)) -> True; _ -> False
-    in  if Map.member retId m && isParentOf retId ifun parents then -- returns a lifted function (must be made a closure to capture env) and curr fun is parent
+    in  -- returns a lifted function (must be made a closure to capture env) and current function is its parent
+        if Map.member retId m && isParentOf retId ifun parents then
             let allocEnv = allocateEnvironment retId ifun m params
-                allocClos = if not returnsClosure then AllocClosure retId else Skip -- if its retun is alsready a closure we don't need to reallocate it
+                -- if it already returns a closure we don't need to reallocate it
+                allocClos = if not returnsClosure then AllocClosure retId else Skip
                 newBody = Seq allocEnv (Seq allocClos (replaceReturnClosure body retId))
             in DefFun CTClosure ifun params newBody <$ modify (Map.insert ifun retId)
         else return (DefFun tret ifun params body)
 makeClosureFactories (Seq x y) m parents = Seq <$> makeClosureFactories x m parents <*> makeClosureFactories y m parents
 makeClosureFactories x _ _ = return x
+
+getClosureFnType :: CStatement -> Int -> ClosureFuns -> CType
+getClosureFnType stmt innerFun closureFuns = 
+    fromMaybe (CTPtr CTVoid) (getFunType stmt (followClosureIFun innerFun closureFuns))
 
 -- (3b) change calls to closures to applications
 -- the callexpr needs to be with the number of args it actually has
@@ -205,7 +211,7 @@ applyClosuresExpr (CallExpr tf tx f x) stmt closureFuns =
         fId = case f' of Var _ i -> i ; _ -> -1
     in case Map.lookup fId closureFuns of
         Just innerFun -> do -- the called function returns a closure
-            let newType = fromMaybe (CTPtr CTVoid) (getFunType stmt (followClosureIFun innerFun closureFuns))
+            let newType = getClosureFnType stmt innerFun closureFuns
             let (currArgs, otherArgs) = splitAt (getNumArgs fId stmt) args -- direct args are called, others are applied
             (pre, currArgs') <- applyClosuresArgs currArgs stmt closureFuns
             (pre', otherArgs') <- applyClosuresArgs otherArgs stmt closureFuns
@@ -308,7 +314,9 @@ allocateEnvironment i ifun freeVarsMap params =
         Just freeVars ->
             let parentParams = (Set.toList freeVars \\ params)
                 directParams = Set.toList freeVars \\ parentParams
-            in  AllocEnv i ifun (Map.union (paramsToArgVars directParams) (paramsToArgGetEnv parentParams ifun))
+                parentParams' = paramsToArgGetEnv parentParams ifun
+                directParams' = paramsToArgVars directParams
+            in  AllocEnv i ifun (Map.union directParams' parentParams')
         _ -> Skip
 
 -- follow the id of the current function in the parent map so see if the first int is the parent of the second
