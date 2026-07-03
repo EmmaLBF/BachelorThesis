@@ -14,25 +14,28 @@ This repository contains the files and materials for my bachelor thesis project 
 
 ## Main Compiler Components
 
-- `AbsLang.hs`: Add a short description here.
-- `NamedLang.hs`: Add a short description here.
-- `CLang.hs`: Add a short description here.
-- `CDefs.hs`: 
-- `C.hs`: 
+- `AbsLang.hs`: The embedded functional language + and evaluator to run programs in the language. Holds all the test input programs.
+- `NamedLang.hs`: The first-order language, translation to name lambdas with globally unique integers. Does some beta reduction to get rid of higher-order function arguments.
+- `CLang.hs`: The imperative IR level, splits NamedLang into statements and expressions. Adds mutable variables, conditional branching and return statements. Has a pass to remove excess copies.
+- `CDefs.hs`: The final C IR, has functions for printing actual C code. Also holds some helper functions and data structures.
+- `C.hs`: Lambda lifting pass to create environments and closures.s
 
 ## Main Optimisation Components
 
-- `LambdaMergePass.hs`: 
-- `DeadCodePass.hs`: 
-- `DemotePass.hs`: 
-- `InlinePass.hs`: 
+- `LambdaMergePass.hs`: Called on CLang IR, merges lambdas which only exist to nest inner lambdas and are always called with sufficient parameters.
+- `DeadCodePass.hs`: Removes dead code and propagates copies.
+- `DemotePass.hs`: Demotes objects (environments, closures, pairs) which are allocated on the heap, but never escape the current scope, to the stack.
+- `InlinePass.hs`: Inlines functions which are called exactly once.
+
+## Helper Components
+
+- `AST.hs`: Information collecting traversals over the C IR AST
+- `Util.hs`: Helper functions
 
 ## How to Run
 
-Build the cabal file, load `Main.hs` in ghci and then run `main` to compile all of the example programs.
+This project was made with GHC version 8.10.7
 
-## Notes
-
-- Add any important context here.
-- Add any assumptions or limitations here.
-- Add references or external resources here.
+1. Build the cabal file with `cabal build --ghc-options="-g -fbreak-on-exception"`.
+2. Load `Main.hs` in ghci.
+3. Run `main` to compile all of the example programs.

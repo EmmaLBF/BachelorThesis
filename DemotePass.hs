@@ -30,7 +30,6 @@ rewriteClosureUse :: RemovedClos -> CStatement -> CStatement
 rewriteClosureUse r (AllocClosure i) | i `elem` r = Skip
 rewriteClosureUse r s = mapChildrenStmt (rewriteClosureUse r) (rewriteClosureUseExpr r) s
 
--- closure id, parent id, aplly to rewrite
 -- turn the application of a heap allocated closure into the call of a stack allocated one
 -- We call the fn stored in the closure directly with the env and its args
 -- i is the id of the closureAlloc were getting rid of
@@ -39,11 +38,11 @@ rewriteClosureUseExpr :: RemovedClos -> CExpression -> CExpression
 rewriteClosureUseExpr removed e@ApplyClosure {} =
   let (f', args) = collectArgsApply e
    in case f' of
-        Val (ClosureV i')
-          | i' `elem` removed ->
-            let args' = map (\(CArg t x) -> CArg t (rewriteClosureUseExpr removed x)) args
-                envArg = CArg (CTPtr CTVoid) (Val (EnvV i'))
-             in rebuildCall (CTPtr CTVoid) (Var (CTPtr CTVoid) i') (envArg : args') -- call the closure function directly
+        Val (ClosureV i)
+          | i `elem` removed ->
+            let args' = map (mapCArg (rewriteClosureUseExpr removed)) args
+                env = CArg (CTPtr CTVoid) (Val (EnvV i))
+             in rebuildCall (CTPtr CTVoid) (Var (CTPtr CTVoid) i) (env : args')
         _ -> mapChildrenExpr (rewriteClosureUseExpr removed) e
 rewriteClosureUseExpr i e = mapChildrenExpr (rewriteClosureUseExpr i) e
 
