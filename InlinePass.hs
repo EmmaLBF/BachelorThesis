@@ -9,7 +9,7 @@ import CDefs
 import qualified Data.Map as Map
 import Utils
 
--- inlining pass, finds list of functions that are safe to inline (called exactly once)
+-- Inlining pass, finds list of functions that are safe to inline (called exactly once)
 -- It then tries to inline all of these functions
 -- It returns a list of the functions that were removed so I can get rid of them later
 inline :: CStatement -> CStatement
@@ -26,7 +26,7 @@ inline body =
           safeToInline
    in removeDeadFuns removed' body'
 
--- replace return statement inside both branches of an if statement
+-- Replace return statement inside both branches of an if statement
 -- so that we can then inline that if statement
 -- using id of inlined function as fresh var to hold result
 replaceReturn :: Int -> CType -> CStatement -> CStatement
@@ -34,7 +34,7 @@ replaceReturn i t (Return x) = UpdateVar t i x
 replaceReturn i t s = mapChildrenStmt (replaceReturn i t) id s
 
 -- Inline all calls to function i throughout body
--- if the function body ends in if we need to handle two returns
+-- if the function body ends in 'if' we need to handle two returns
 -- replace the returns with an accumulator var, can have same id as original function
 -- since functions are only inlined if they are called once, so no chance of duplicate var
 inlineOne :: Int -> CStatement -> CStatement
@@ -51,7 +51,7 @@ inlineOne i body =
        in inlineCallsTo i params retExpr bodyNoRet body
     _ -> body
 
--- takes a pair of cparam and arg and turns them into a var definition
+-- Takes a pair of cparam and arg and turns them into a var definition
 -- so that the inlined body can still use its arguments
 -- do not redefine env vars which are already defined, we don't want Env66* env66 = env66;
 inlineArgs :: (CParam, CArg) -> CStatement -> CStatement
@@ -81,7 +81,7 @@ inlineCallsToExpr i params retExpr fbody e =
   let pre = foldr ((Seq . fst) . inlineCallsToExpr i params retExpr fbody) Skip (childrenExpr e)
    in (pre, mapChildrenExpr (snd . inlineCallsToExpr i params retExpr fbody) e)
 
--- pass list of called funs
+-- Pass list of inlined functions to remove
 removeDeadFuns :: [Int] -> CStatement -> CStatement
 removeDeadFuns removedFuns (DefFun _ ifun _ _) | ifun `elem` removedFuns = Skip
 removeDeadFuns m (Seq x y) = Seq (removeDeadFuns m x) (removeDeadFuns m y)

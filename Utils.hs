@@ -60,7 +60,7 @@ stripWrap (CastExpr _ r) = stripWrap r
 stripWrap (Box _ r) = stripWrap r
 stripWrap r = r
 
--- get a default value to init the new var before the if statement
+-- Get a default value to init the new var before the if statement
 defaultVal :: CType -> CValue a
 defaultVal CTInt = unsafeCoerce (IntV 0)
 defaultVal CTBool = unsafeCoerce (BoolV False)
@@ -73,7 +73,7 @@ defaultVal _ = unsafeCoerce UnitV
 --  DefFun Helpers
 -- ─────────────────────────────────────────────
 
--- returns the deffun of fun i from the list of defs
+-- Returns the deffun of fun i from the list of defs
 findFunDef :: Int -> CStatement -> Maybe CStatement
 findFunDef toFind stmt =
   let defs = getDefs stmt
@@ -86,7 +86,7 @@ findFunDef toFind stmt =
         else findDef i rest
     findDef _ _ = error "not valid def"
 
--- collects a list of defs from the whole ast
+-- Collects a list of defs from the whole ast
 getDefs :: CStatement -> [CStatement]
 getDefs stmt@DefFun {} = [stmt]
 getDefs (Seq x y) = getDefs x ++ getDefs y
@@ -119,14 +119,14 @@ getFunType (Seq x y) i =
     Just t -> Just t
 getFunType _ _ = Nothing
 
--- collects a map of each fun id with the ids of its params from the whole ast
+-- Collects a map of each fun id with the ids of its params from the whole ast
 getFunsWithParams :: CStatement -> Map.Map Int [Int]
 getFunsWithParams (DefFun _ ifun params _) =
   Map.insert ifun (paramsToList params) Map.empty
 getFunsWithParams (Seq x y) = Map.union (getFunsWithParams x) (getFunsWithParams y)
 getFunsWithParams _ = Map.empty
 
--- returns true if a function body ends in an if
+-- Returns true if a function body ends in an if
 endsInIf :: CStatement -> Bool
 endsInIf If {} = True
 endsInIf (Seq _ y) = endsInIf y

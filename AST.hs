@@ -9,39 +9,9 @@ import qualified Data.Map as Map
 import Utils (childrenExpr)
 import Data.List (foldl')
 
--- Global AST info traversal
-
-addPairType :: CType -> GlobalInfo -> GlobalInfo
-addPairType t m =
-    case t of
-        CTPtr (CTPair tx ty) -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
-        CTPair tx ty -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
-        _ -> m
-
-addEnvUse :: Int -> FunctionInfo -> FunctionInfo
-addEnvUse i f = f { envUses = Set.insert i (envUses f) }
-addEnvEscape :: Int -> FunctionInfo -> FunctionInfo
-addEnvEscape i f = f { escapedEnvs = Set.insert i (escapedEnvs f) }
-addEnvAlloc :: Int -> FunctionInfo -> FunctionInfo
-addEnvAlloc i f = f { allocedEnvs = Set.insert i (allocedEnvs f) }
-addClosEscape :: Int -> FunctionInfo -> FunctionInfo
-addClosEscape i f = f { escapedClos = Set.insert i (escapedClos f) }
-addVarEscape :: Int -> FunctionInfo -> FunctionInfo
-addVarEscape i f = f { escapedVars = Set.insert i (escapedVars f) }
-addVarUse :: Int -> FunctionInfo -> FunctionInfo
-addVarUse i f = f { varUses =  Map.insertWith (+) i 1 (varUses f) }
-
-addAlias :: CExpression -> Int -> CType -> GlobalInfo -> GlobalInfo
-addAlias x i t m =
-    case x of
-        Val (EnvV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (EnvV j))) (aliasesGlobal m)}
-        Val (ClosureV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (ClosureV j))) (aliasesGlobal m)}
-        HeadList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (HeadList t2 var)) (aliasesGlobal m)}
-        TailList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (TailList t2 var)) (aliasesGlobal m)}
-        expr@Var{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
-        expr@Fst{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
-        expr@Snd{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
-        _ -> m
+-- ─────────────────────────────────────────────
+--  Global Information (Traverse entire AST)
+-- ─────────────────────────────────────────────
 
 emptyGlobalInfo :: GlobalInfo
 emptyGlobalInfo = GlobalInfo Set.empty Map.empty Map.empty Set.empty
@@ -53,6 +23,8 @@ mergeGlobalInfo a b = GlobalInfo
     (Map.union (aliasesGlobal a) (aliasesGlobal b))
     (Set.union (pairTypesGlobal a) (pairTypesGlobal b))
 
+-- | Walk the entire AST and collect global analysis information.
+-- This includes env usage, aliasing, pair type registration, and call info.
 getGlobalInfo :: CStatement -> GlobalInfo -> GlobalInfo
 getGlobalInfo (AllocEnv _ i params ) m =
     let m' = m { usedEnvsGlobal = Set.insert i (usedEnvsGlobal m) }
@@ -102,6 +74,10 @@ getGlobalInfoExpr (Not x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr (Abs x) m = getGlobalInfoExpr x m
 getGlobalInfoExpr _ m = m
 
+-- ─────────────────────────────────────────────
+--  Local Information (Traverse single function body)
+-- ─────────────────────────────────────────────
+
 emptyFunctionInfo :: FunctionInfo
 emptyFunctionInfo = FunctionInfo Set.empty Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Set.empty Set.empty
 
@@ -117,6 +93,23 @@ mergeFunctionInfo a b = FunctionInfo
     (Set.union (escapedClos a) (escapedClos b))
     (Set.union (allocedClos a) (allocedClos b))
 
+getFunctionInfo :: CStatement -> FunctionInfo -> FunctionInfo
+getFunctionInfo (DefFun _ _ _ body) r = getFunctionInfo body r
+getFunctionInfo (Seq x y) r = getFunctionInfo y (getFunctionInfo x r)
+getFunctionInfo (Return x) r = getFunctionInfoExpr True x r
+getFunctionInfo (If c t e) r =
+    let r' = getFunctionInfoExpr False c r
+    in mergeFunctionInfo (getFunctionInfo t r') (getFunctionInfo e r')
+getFunctionInfo (UpdateVar t i x) r = addVarUse i (getFunctionInfoExpr False x (r {varDefs = Map.insert i (CArg t x) (varDefs r)}))
+getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
+getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
+getFunctionInfo (AllocEnv i _ params) r =
+    foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) (addEnvUse i (addEnvAlloc i r)) params
+getFunctionInfo (AllocClosure i) r = addEnvEscape i (addEnvUse i (r {allocedClos = Set.insert i (allocedClos r)}))
+getFunctionInfo _ r = r
+
+-- | Gather function-local usage and escape analysis information.
+-- The boolean flag indicates whether the expression is in an escaping context.
 getFunctionInfoExpr :: Bool -> CExpression -> FunctionInfo -> FunctionInfo
 getFunctionInfoExpr _ (GetEnvField _ envId _) r = addEnvUse envId r
 getFunctionInfoExpr escapes (Var _ i) r =
@@ -134,17 +127,43 @@ getFunctionInfoExpr escapes (CallExpr tf tx f x) m =
 getFunctionInfoExpr escapes (ApplyClosure _ f x) m = getFunctionInfoExpr False f (getFunctionInfoExpr escapes x m)
 getFunctionInfoExpr escape e m = foldl' (flip (getFunctionInfoExpr escape)) m (childrenExpr e)
 
-getFunctionInfo :: CStatement -> FunctionInfo -> FunctionInfo
-getFunctionInfo (DefFun _ _ _ body) r = getFunctionInfo body r
-getFunctionInfo (Seq x y) r = getFunctionInfo y (getFunctionInfo x r)
-getFunctionInfo (Return x) r = getFunctionInfoExpr True x r
-getFunctionInfo (If c t e) r =
-    let r' = getFunctionInfoExpr False c r
-    in mergeFunctionInfo (getFunctionInfo t r') (getFunctionInfo e r')
-getFunctionInfo (UpdateVar t i x) r = addVarUse i (getFunctionInfoExpr False x (r {varDefs = Map.insert i (CArg t x) (varDefs r)}))
-getFunctionInfo (DefVar t i x) r = getFunctionInfoExpr False x (r { varUses = Map.insert i 0 (varUses r), varDefs = Map.insert i (CArg t x) (varDefs r) })
-getFunctionInfo (While c x) r = getFunctionInfo x (getFunctionInfoExpr False c r)
-getFunctionInfo (AllocEnv i _ params) r =
-    foldr (\(CArg _ x) acc -> getFunctionInfoExpr False x acc) (addEnvUse i (addEnvAlloc i r)) params
-getFunctionInfo (AllocClosure i) r = addEnvEscape i (addEnvUse i (r {allocedClos = Set.insert i (allocedClos r)}))
-getFunctionInfo _ r = r
+-- ─────────────────────────────────────────────
+--  Helpers for adding information
+-- ─────────────────────────────────────────────
+
+addPairType :: CType -> GlobalInfo -> GlobalInfo
+addPairType t m =
+    case t of
+        CTPtr (CTPair tx ty) -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
+        CTPair tx ty -> m {pairTypesGlobal = Set.insert (tx, ty) (pairTypesGlobal m)}
+        _ -> m
+
+addEnvUse :: Int -> FunctionInfo -> FunctionInfo
+addEnvUse i f = f { envUses = Set.insert i (envUses f) }
+
+addEnvEscape :: Int -> FunctionInfo -> FunctionInfo
+addEnvEscape i f = f { escapedEnvs = Set.insert i (escapedEnvs f) }
+
+addEnvAlloc :: Int -> FunctionInfo -> FunctionInfo
+addEnvAlloc i f = f { allocedEnvs = Set.insert i (allocedEnvs f) }
+
+addClosEscape :: Int -> FunctionInfo -> FunctionInfo
+addClosEscape i f = f { escapedClos = Set.insert i (escapedClos f) }
+
+addVarEscape :: Int -> FunctionInfo -> FunctionInfo
+addVarEscape i f = f { escapedVars = Set.insert i (escapedVars f) }
+
+addVarUse :: Int -> FunctionInfo -> FunctionInfo
+addVarUse i f = f { varUses =  Map.insertWith (+) i 1 (varUses f) }
+
+addAlias :: CExpression -> Int -> CType -> GlobalInfo -> GlobalInfo
+addAlias x i t m =
+    case x of
+        Val (EnvV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (EnvV j))) (aliasesGlobal m)}
+        Val (ClosureV j) -> m { aliasesGlobal = Map.insert i (CArg t (Val (ClosureV j))) (aliasesGlobal m)}
+        HeadList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (HeadList t2 var)) (aliasesGlobal m)}
+        TailList t2 var@Var{} -> m { aliasesGlobal = Map.insert i (CArg t (TailList t2 var)) (aliasesGlobal m)}
+        expr@Var{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        expr@Fst{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        expr@Snd{} -> m { aliasesGlobal = Map.insert i (CArg t expr) (aliasesGlobal m)}
+        _ -> m

@@ -20,6 +20,7 @@ data CmpOp = Eq | Lt | Gt
 data BoolOp = Or | And
   deriving Show
 
+-- | the simple functional embedded language with GADTs and HOAS
 data Lang a where
   -- | Free variable – looked up in the environment at eval time
   Var :: (Typeable a) => Int -> Lang a
@@ -72,6 +73,7 @@ cmpop Lt = (<)
 cmpop Eq = (==)
 cmpop Gt = (>)
 
+-- | evaluator for Lang directly in Haskell
 eval :: Lang a -> a
 eval = ev 0 Map.empty
   where
@@ -150,7 +152,7 @@ cons = ConsList
 --  Examples
 -- ─────────────────────────────────────────────
 
--- 1. Factorial
+-- | 1. Factorial
 fac :: Lang (Int -> Int)
 fac = Fix $ lam $ \f -> lam $ \n ->
   If (n ==: int 0)
@@ -160,7 +162,7 @@ fac = Fix $ lam $ \f -> lam $ \n ->
 facCall :: Lang Int
 facCall = fac `app` int 5
 
--- 2. Fibonacci
+-- | 2. Fibonacci
 fib :: Lang (Int -> Int)
 fib = Fix $ lam $ \f -> lam $ \n ->
   If (n <: int 2)
@@ -170,7 +172,7 @@ fib = Fix $ lam $ \f -> lam $ \n ->
 fibCall :: Lang Int
 fibCall = fib `app` int 5
 
--- 3. GCD (using tuples to pass two arguments recursively)
+-- | 3. GCD (using tuples to pass two arguments recursively)
 gcdLang :: Lang ((Int, Int) -> Int)
 gcdLang = Fix $ lam $ \f -> lam $ \p ->
   let_ (Fst p) $ \a ->
@@ -182,7 +184,7 @@ gcdLang = Fix $ lam $ \f -> lam $ \p ->
 gcdLangCall :: Lang Int
 gcdLangCall = gcdLang `app` Prod (int 30) (int 10)
 
--- 4. Power Function
+-- | 4. Power Function
 power :: Lang ((Int, Int) -> Int)
 power = Fix $ lam $ \f -> lam $ \p ->
   let_ (Fst p) $ \b ->
@@ -194,7 +196,7 @@ power = Fix $ lam $ \f -> lam $ \p ->
 powerCall :: Lang Int
 powerCall = power `app` Prod (int 4) (int 2)
 
--- 5. Collatz Conjecture (count steps to reach 1)
+-- | 5. Collatz Conjecture (count steps to reach 1)
 collatzSteps :: Lang (Int -> Int)
 collatzSteps = Fix $ lam $ \f -> lam $ \n ->
   If (n ==: int 1)
@@ -209,7 +211,7 @@ collatzSteps = Fix $ lam $ \f -> lam $ \n ->
 collatzCall :: Lang Int
 collatzCall = collatzSteps `app` int 8
 
--- 6. Efficient Fibonacci (O(n) using tuples as state)
+-- | 6. Efficient Fibonacci (O(n) using tuples as state)
 -- fibFastHelper computes (a, b) after n steps
 fibFastHelper :: Lang ((Int, (Int, Int)) -> (Int, Int))
 fibFastHelper = Fix $ lam $ \f -> lam $ \p ->
@@ -229,7 +231,7 @@ fibFast = lam $ \n ->
 fibFastCall :: Lang Int
 fibFastCall = fibFast `app` int 6
 
--- 7. Ackermann Function (Deep Recursion Test)
+-- | 7. Ackermann Function (Deep Recursion Test)
 ackermann :: Lang ((Int, Int) -> Int)
 ackermann = Fix $ lam $ \f -> lam $ \p ->
   let_ (Fst p) $ \m ->
@@ -245,7 +247,7 @@ ackermann = Fix $ lam $ \f -> lam $ \p ->
 ackermannCall :: Lang Int
 ackermannCall = ackermann `app` Prod (int 2) (int 6)
 
--- 8. Sum List
+-- | 8. Sum List
 sumList :: Lang ([Int] -> Int)
 sumList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
@@ -255,7 +257,7 @@ sumList = Fix $ lam $ \f -> lam $ \xs ->
 sumListCall :: Lang Int
 sumListCall = sumList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- 9. length of a list
+-- | 9. length of a list
 lenList :: Typeable a => Lang ([a] -> Int)
 lenList = Fix $ lam $ \f -> lam $ \xs ->
   CaseList xs
@@ -265,7 +267,7 @@ lenList = Fix $ lam $ \f -> lam $ \xs ->
 lenListCall :: Lang Int
 lenListCall = lenList `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- 10. map over a list
+-- | 10. map over a list
 mapList :: Lang ((Int -> Int) -> [Int] -> [Int])
 mapList = Fix $ lam $ \f -> lam $ \g -> lam $ \xs ->
   CaseList xs
@@ -276,7 +278,7 @@ mapListCall :: Lang [Int]
 mapListCall = (mapList `app` (lam $ \x -> x *: int 2))
                       `app` (int 1 `cons` (int 2 `cons` (int 3 `cons` nil)))
 
--- 11. mergesort
+-- | 11. mergesort
 mergeList :: Lang ([Int] -> [Int] -> [Int])
 mergeList = Fix $ lam $ \f -> lam $ \first -> lam $ \second ->
   CaseList first
@@ -327,8 +329,7 @@ mergeSort = Fix $ lam $ \f -> lam $ \l ->
 mergeSortCall :: Lang [Int]
 mergeSortCall = mergeSort `app` (int 4 `cons` (int 6 `cons` (int 3 `cons` nil)))
 
--- 12. N-queens
-
+-- | 12. N-queens
 appendList :: Typeable a => Lang ([a] -> [a] -> [a])
 appendList =
   Fix $ lam $ \f ->

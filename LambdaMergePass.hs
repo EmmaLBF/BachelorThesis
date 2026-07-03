@@ -6,6 +6,8 @@ module LambdaMergePass where
 import CDefs
 import Utils
 
+-- Merge two lambdas if the outer lambda simply nests the inner
+-- and the outer always gets called with enough arguments
 mergeLambdas :: CStatement -> CStatement -> CStatement
 mergeLambdas prog (DefFun tret ifun params body) =
   case body of

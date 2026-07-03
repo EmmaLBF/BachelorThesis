@@ -1,7 +1,5 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use bimap" #-}
 
 module C where
 
@@ -73,6 +71,7 @@ translateExpr (CL.LIntOp op e1 e2) = LIntOp op (translateExpr e1) (translateExpr
 translateExpr (CL.LCmpOp op e1 e2) = LCmpOp op (translateExpr e1) (translateExpr e2)
 translateExpr (CL.LBoolOp op e1 e2) = LBoolOp op (translateExpr e1) (translateExpr e2)
 
+-- | Converts Haskell types to CType for easier optimizations later
 translate :: CL.CStatement a -> CStatement
 translate CL.Skip = Skip
 translate (CL.Return x) = Return (translateExpr x)
@@ -90,11 +89,13 @@ translate (CL.DefFun ifun (ip, tp) (body:: CL.CStatement b)) =
 --  Lambda Lifting
 -- ─────────────────────────────────────────────
 
--- (1) for each def search in its body for the first def you find
--- if there is one we lift it out (sequence it before) and remove it from the body
--- the lifted function needs an env as a parameter with the params of all its parents
--- this only lifts one def at a time
--- also returns map of which function is which parent
+-- | 1. For each DefFun search its body for the first DefFun
+-- If there is one lift it out (sequence it before) and remove it from the body
+-- The lifted function needs an env as the first parameter (holds free variables)
+-- This only lifts one def at a time
+-- Returns map of free variables
+-- Returns map of which function is whose parent
+-- Returns modified AST
 liftDefs :: CStatement -> State (FreeVars, ParentMap) CStatement
 liftDefs stmt@(DefFun tret ifun params body) =
     maybe (return stmt) liftNested (findFirstDefFun body) -- find a def nested inside the current one
@@ -118,15 +119,15 @@ lambdaLift stmt = do
     let stmt'' = replaceFreeVarAccess stmt' (-1) m'
     if m' /= m then lambdaLift stmt'' else return stmt''
 
--- free vars are parent free vars + parent params - the variables that arent used
+-- Free vars are parent free vars + parent params - the variables that arent used
 findFreeVars :: CStatement -> CParams -> Int -> FreeVars -> Set.Set CParam
 findFreeVars body parentParams ifun freeVars =
     let usedInNested = Map.keysSet (varUses (getFunctionInfo body emptyFunctionInfo)) -- vars that are used in the nested body
         parentVars = Set.union (Set.fromList parentParams) (Map.findWithDefault Set.empty ifun freeVars)
     in Set.filter (\p -> Set.member (paramId p) usedInNested) parentVars 
 
--- (1a) all of the parent function(s)'s paramteters need to be accessed through the env
--- instead of directly through var
+-- | 1a. all of the parent function(s)'s parameters need to be accessed through the env
+-- instead of directly through a var
 replaceFreeVarAccessExpr :: CExpression -> Int -> FreeVars -> CExpression
 replaceFreeVarAccessExpr (Var t i) ifun freeVars =
     case Map.lookup ifun freeVars of
@@ -141,8 +142,8 @@ replaceFreeVarAccess s currFun m =
         (\x -> replaceFreeVarAccess x currFun m)
         (\e -> replaceFreeVarAccessExpr e currFun m) s
 
--- (2) add env parameters to call sites of hoisted functions
--- if we call a function that is in our lifted set we need to make an env to its call list
+-- | 2. Add env parameters to call sites of hoisted functions
+-- If we call a function that has free variables we need to make an env and add it to its call list
 addEnvParameterExpr :: CExpression -> FreeVars -> CExpression
 addEnvParameterExpr e@(CallExpr tf _ _ _) m =
     let (f', args) = CDefs.collectArgs e
@@ -155,9 +156,9 @@ addEnvParameterExpr e m = mapChildrenExpr (`addEnvParameterExpr` m) e
 addEnvParameters :: CStatement -> FreeVars -> CStatement
 addEnvParameters s m = mapChildrenStmt (`addEnvParameters` m) (`addEnvParameterExpr` m) s
 
--- (3) keep looping make closure factories
--- after we made the first ones and applied closures some funs return closures now
--- so we need to handle them until nothing changes
+-- | 3. Keep looping makeClosureFactories until code stabilises
+-- After we made the first closure factories and applied closures some functions return closures now
+-- So we need to handle them until nothing changes
 applyClosuresPasses :: CStatement -> FreeVars -> ParentMap -> Int -> CStatement
 applyClosuresPasses body freeVarsMap parents freshCounter =
     let (body', closureFuns) = runState (makeClosureFactories body freeVarsMap parents) Map.empty
@@ -166,16 +167,16 @@ applyClosuresPasses body freeVarsMap parents freshCounter =
             let body''' = evalState (applyClosures body' body' closureFuns) freshCounter
             in applyClosuresPasses body''' freeVarsMap parents freshCounter
 
--- (3a) functions which immediately return another function need to return closures instead
--- if the function just returns a var, lookup the var in the map
-    -- if its parent parameters contain the current params, the current function is its parent
-        -- so it needs to be a closure
--- returns map of funid to the fun it makes a closure for
--- returns set of ids of parameter vars that also become closures (can't be in the same set as the functions because they are closures not functions that return closures
-    -- so they can;t have the call statement)
+-- | 3a. Functions which only return a lifted function need to return a closure instead
+-- If the function just returns a var, lookup the var in the free variable map
+    -- If the variable has free variables it must have been lifted
+    -- If the current function is its parent then it must be transformed into a closure
+    -- Only allocates the closure if it isn't already allocated (since this gets called in a loop)
+-- Returns a map of function ids to the functions they make a closure for
+-- Returns the modified AST
 makeClosureFactories ::  CStatement -> FreeVars -> ParentMap -> State ClosureFuns CStatement
-makeClosureFactories (DefFun tret ifun params body) _ _
-    | tret == CTClosure = return (DefFun tret ifun params body) -- for the looping so that it eventually terminates
+makeClosureFactories (DefFun tret ifun params body) _ _ -- for the looping so that it eventually terminates
+    | tret == CTClosure = return (DefFun tret ifun params body)
 makeClosureFactories (DefFun tret ifun params body) m parents =
     let funRet = findReturn body
         retId = case funRet of (Var _ i) -> i; (Val (ClosureV i)) -> i; _ -> (-1)
@@ -191,21 +192,19 @@ makeClosureFactories (DefFun tret ifun params body) m parents =
 makeClosureFactories (Seq x y) m parents = Seq <$> makeClosureFactories x m parents <*> makeClosureFactories y m parents
 makeClosureFactories x _ _ = return x
 
+
+-- | Follows map of which closure factories wrap which inner function
+-- until we find the inner most function (or return a void pointer)
 getClosureFnType :: CStatement -> Int -> ClosureFuns -> CType
 getClosureFnType stmt innerFun closureFuns = 
     fromMaybe (CTPtr CTVoid) (getFunType stmt (followClosureIFun innerFun closureFuns))
 
--- (3b) change calls to closures to applications
--- the callexpr needs to be with the number of args it actually has
--- once we have the closure we can apply it with the remaining arguments
-    -- I define a variable that gets sequenced before the call which holds the closure
-    -- so that it doesn't need to be computed many times
--- If a closure function is passed as an argument it needs a closure allocation -> (Var _ i) case
+-- | 3b. Change calls to closures to applications of closures
+-- First we need to call the function that generates the closure with the number of args it needs
+-- Once we have the closure we can apply it with the remaining arguments
+    -- A variable is defined that gets sequenced before the call which holds the closure
+    -- So that the closure doesn't need to be computed many times
 applyClosuresExpr :: CExpression -> CStatement -> ClosureFuns -> State Int (CStatement, CExpression)
-applyClosuresExpr (Var t i) _ closureFuns =
-    if Map.member i closureFuns
-    then return (AllocClosure i, Val (ClosureV i))
-    else return (Skip, Var t i)
 applyClosuresExpr (CallExpr tf tx f x) stmt closureFuns =
     let (f', args) = CDefs.collectArgs (CallExpr tf tx f x)
         fId = case f' of Var _ i -> i ; _ -> -1
@@ -290,11 +289,10 @@ applyClosures (UpdateVar t i x) stmt closureFuns = do
     return $ Seq pre (UpdateVar t i x')
 applyClosures x _ _ = return x
 
--- (4) add env  allocations for all the functions we call in the body of this function
--- we can call a function several times so we shouldn't redefine the same env (only depends on our param)
--- all functions that were lifted need an env alloc
--- env alloc only needs the current param if this function its its parent
-    -- don't add duplicates, so not if its already alloced, or in the current params
+-- | 4. Add env allocations for all the functions we call in the body of this function
+-- We can call a function several times so we shouldn't redefine the same env (could be a parameter)
+-- All functions that were lifted need an env allocation
+-- Env allocations only need the parameters of this function its its parent
 addEnvAllocs :: CStatement -> CStatement -> FreeVars -> CStatement
 addEnvAllocs (DefFun tret ifun params body) stmt freeVarsMap =
     let funInfo = getFunctionInfo body emptyFunctionInfo
@@ -308,6 +306,7 @@ addEnvAllocs (Seq x y) stmt liftedFuns =
     Seq (addEnvAllocs x stmt liftedFuns) (addEnvAllocs y stmt liftedFuns)
 addEnvAllocs x _ _ = x
 
+-- | Allocates a single environment, converts direct and indirect CParams to CArgs
 allocateEnvironment :: Int -> Int -> FreeVars -> CParams -> CStatement
 allocateEnvironment i ifun freeVarsMap params =
     case Map.lookup i freeVarsMap of
@@ -319,7 +318,8 @@ allocateEnvironment i ifun freeVarsMap params =
             in  AllocEnv i ifun (Map.union directParams' parentParams')
         _ -> Skip
 
--- follow the id of the current function in the parent map so see if the first int is the parent of the second
+-- | Follow the id of the current function in the parent map
+-- To see if the second int is the parent of the first
 isParentOf :: Int -> Int -> ParentMap -> Bool
 isParentOf child parent parentMap =
     case Map.lookup child parentMap of
@@ -328,20 +328,21 @@ isParentOf child parent parentMap =
             | otherwise -> isParentOf i parent parentMap
         Nothing -> False
 
+-- | Convert direct CParams to CArg arguments
 paramsToArgVars :: CParams -> CArgMap
 paramsToArgVars [] = Map.empty
 paramsToArgVars [CParam i t] = Map.singleton i (CArg t (Var t i))
 paramsToArgVars [CParamEnv i] = Map.singleton i (CArg (CTPtr CTVoid) (Val (EnvV i)))
 paramsToArgVars (i:is) = Map.union (paramsToArgVars [i]) (paramsToArgVars is)
 
+-- | Convert indirect CParams to CArg arguments
 paramsToArgGetEnv :: CParams -> Int -> CArgMap
 paramsToArgGetEnv [] _ = Map.empty
 paramsToArgGetEnv [CParam i t] parent = Map.singleton i (CArg t (GetEnvField t parent i))
 paramsToArgGetEnv [CParamEnv i] parent = Map.singleton i (CArg (CTPtr CTVoid) (GetEnvField (CTPtr CTVoid) parent i))
 paramsToArgGetEnv (i:is) parent = Map.union (paramsToArgGetEnv [i] parent) (paramsToArgGetEnv is parent)
 
------- (5) Pass to add box/unbox
-
+-- | 5. Pass to add boxing to closure applications
 addBoxing :: CStatement -> CStatement
 addBoxing = mapChildrenStmt addBoxing addBoxingExpr
 
@@ -359,6 +360,7 @@ followClosureIFun i m =
         Just next -> followClosureIFun next m
         _ -> i
 
+-- | Keep applying arguments to a closure and cast the final result
 applyWithCast :: CType -> CExpression -> CArgs -> State Int (CStatement, CExpression)
 applyWithCast _ base [] = return (Skip, base)
 applyWithCast retType base [CArg t a] = return (Skip, CastExpr retType (ApplyClosure t base a))
@@ -368,6 +370,7 @@ applyWithCast retType base (CArg t a : rest) = do
     (innerStmt, finalExpr) <- applyWithCast retType (Val (ClosureV closId)) rest
     return (Seq closVar innerStmt, finalExpr)
 
+-- | Find a return statement inside a statement
 findReturn :: CStatement -> CExpression
 findReturn (Return x) = x
 findReturn (Seq _ y) = findReturn y
@@ -375,13 +378,24 @@ findReturn (If _ x _) = findReturn x
 findReturn (While _ x) = findReturn x
 findReturn _ = error "no return"
 
+-- | Maybe find a return statement inside a statement
+findReturnMaybe :: CStatement -> Maybe CExpression
+findReturnMaybe (Return x) = Just x
+findReturnMaybe (Seq _ y) = findReturnMaybe y
+findReturnMaybe (If _ x _) = findReturnMaybe x
+findReturnMaybe (While _ x) = findReturnMaybe x
+findReturnMaybe _ = Nothing
+
+-- | Replace a return statement to return a closure (for closure factories)
 replaceReturnClosure :: CStatement -> Int -> CStatement
 replaceReturnClosure (Return _) i = Return (Val (ClosureV i))
 replaceReturnClosure s i = mapChildrenStmt (`replaceReturnClosure` i) id s
 
+-- | Rebuild a list of arguments and a function into a CallExpr sequence
 rebuildCall :: CType -> CExpression -> CArgs -> CExpression
 rebuildCall tf = foldl (\acc (CArg ta a) -> CallExpr tf ta acc a)
 
+-- | Find the first function definition in a statement
 findFirstDefFun :: CStatement -> Maybe CStatement
 findFirstDefFun stmt@DefFun{} = Just stmt
 findFirstDefFun (Seq x y) =
@@ -396,6 +410,7 @@ findFirstDefFun (If _ x y) =
         _ -> xdef
 findFirstDefFun _ = Nothing
 
+-- | Remove a function definition from a statement
 removeDefFun :: CStatement -> Int -> CStatement
 removeDefFun (DefFun tret ifun' params body) ifun
     | ifun == ifun' = Skip
@@ -443,6 +458,7 @@ removeFirstReturn (If c t e) = If c (removeFirstReturn t) (removeFirstReturn e)
 removeFirstReturn (While c x) = While c (removeFirstReturn x)
 removeFirstReturn x = x
 
+-- | Split the main body from the body definitions to add printing in main
 splitTopLevel :: CStatement -> (CStatement, CStatement)
 splitTopLevel (Seq l@DefFun{} y) =
     let (funs, body) = splitTopLevel y
@@ -477,6 +493,11 @@ liftLambdasAndMerge canMerge body freshInt =
         body5 = addBoxing body4
     in (body5, freeVarsMap)
 
+-- | The printing code is modified to add printing to main
+-- In order to see the output of the generated code (needs to do it for functions as well because getExpr isn't perfect)
+-- If the program does not return anything (i.e. its just a function definition)
+-- Then it generates main without anything inside
+-- For the compiler to work generally, just remove the printing generation ("case getTypeExpr ret of ...")
 printCCode :: CStatement -> FreeVars -> String
 printCCode finalBody freeVars =
     let finalDefs = getDefs finalBody
@@ -491,9 +512,8 @@ printCCode finalBody freeVars =
                     "\n#include <stdint.h>" ++
                     "\n#include \"../lib.c\"\n"
         (funPart, mainBody) = splitTopLevel finalBody
-        retExpr = findReturn mainBody
+        retExpr = findReturnMaybe mainBody
         mainBodyWithoutRet = removeFirstReturn mainBody
-        retImpl = showCExpression retExpr finalMergeMap
         mainBodyImpl = showCStmt 1 finalMergeMap mainBodyWithoutRet
         funImpl = showCStmt 0 finalMergeMap funPart
 
@@ -503,10 +523,15 @@ printCCode finalBody freeVars =
             "\n\n// closure defitions" ++ showCStmt 0 Map.empty envStructs ++
             "\n// function implementations" ++ funImpl ++
             "\n// main\nint main(void) {" ++ mainBodyImpl ++
-                    case getTypeExpr retExpr of
-                        CTInt -> "\n  printInt("
-                        CTListInt -> "\n  printListInt("
-                        CTFun _ CTInt -> "\n  printInt("
-                        CTFun _ CTListInt -> "\n  printListInt("
-                        _ ->error "cannot print"
-            ++ retImpl ++ ");\n" ++ "  return 0;\n}\n"
+                case retExpr of
+                    Just ret -> 
+                        let retImpl = showCExpression ret finalMergeMap
+                        in case getTypeExpr ret of
+                            CTInt -> "\n  printInt(" ++ retImpl ++ ");\n"
+                            CTListInt -> "\n  printListInt(" ++ retImpl ++ ");\n"
+                            CTFun _ CTInt -> "\n  printInt(" ++ retImpl ++ ");\n"
+                            CTFun _ CTListInt -> "\n  printListInt(" ++ retImpl ++ ");\n"
+                            _ -> "\n  " ++ retImpl ++ ";\n"
+                    _ -> ""
+                    
+             ++ "  return 0;\n}\n"

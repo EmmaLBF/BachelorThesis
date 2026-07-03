@@ -37,6 +37,9 @@ data NamedLang a where
 --  Translation from AbsLang
 -- ─────────────────────────────────────────────
 
+-- Translation pass names lambdas with globally unique integers
+-- Applies lambda arguments so we have no functions as parameters
+
 translate :: AL.Lang a -> State Int (NamedLang a)
 translate (AL.Lam f) = do
   c <- fresh
