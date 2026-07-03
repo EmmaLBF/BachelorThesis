@@ -39,3 +39,5 @@ This project was made with GHC version 8.10.7
 1. Build the cabal file with `cabal build --ghc-options="-g -fbreak-on-exception"`.
 2. Load `Main.hs` in ghci.
 3. Run `main` to compile all of the example programs.
+
+If you don't want it to append printing you can get rid of it in C.hs
