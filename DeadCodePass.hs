@@ -15,7 +15,7 @@ import Utils
 -- (1) REMOVE ENVIRONMENT PARAMETER FROM FUNCTIONS
 -- ─────────────────────────────────────────────
 
--- collects list of functions that had their envs removed
+-- Collects list of functions that had their envs removed
 -- removes first env params for functions where it is not used
 removeEnvs :: CStatement -> CStatement
 removeEnvs body =
@@ -26,14 +26,14 @@ removeEnvs body =
           ]
    in demoteEnvs (removeUselessEnvParam body (-1) l)
 
--- (1b) remove collected envs
+-- | 1b. Remove collected envs
 removeUselessEnvParam :: CStatement -> Int -> RemovedEnvs -> CStatement
 removeUselessEnvParam (DefFun t ifun params body) _ s =
   let p' = [p | p <- params, case p of CParamEnv i -> i /= ifun || ifun `notElem` s; _ -> True]
    in DefFun t ifun p' (removeUselessEnvParam body ifun s)
 removeUselessEnvParam s ifun m = mapChildrenStmt (\x -> removeUselessEnvParam x ifun m) (\e -> removeUselessEnvParamExpr e ifun m) s
 
--- (1c) drop the env parameter from the call expressions that are affected
+-- | 1c. Drop the env parameter from the call expressions that are affected
 -- remove env access to just var access
 removeUselessEnvParamExpr :: CExpression -> Int -> RemovedEnvs -> CExpression
 removeUselessEnvParamExpr (GetEnvField t envId varId) ifun s
@@ -58,7 +58,7 @@ propagateCopies stmt =
       stmt' = replaceCopies stmt (aliasesGlobal info)
    in if stmt == stmt' then stmt' else propagateCopies stmt'
 
--- (2a) replaces all var defs of form v2 = v3 or v2 = env5
+-- | 2a. replaces all var defs of form v2 = v3 or v2 = env5
 replaceCopies :: CStatement -> Map.Map Int CArg -> CStatement
 replaceCopies s m = mapChildrenStmt (`replaceCopies` m) (`replaceCopiesExpr` m) s
 

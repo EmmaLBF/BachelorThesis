@@ -20,8 +20,11 @@ data CParam where
   CParam :: Int -> CType -> CParam
   CParamEnv  :: Int -> CParam -- void* env parameter
   deriving (Show, Ord)
+
 type CParams = [CParam]
+
 type CParamMap = Map.Map Int CParam
+
 instance Eq CParam where
   CParam i _ == CParam j _ = i == j
   CParamEnv i == CParamEnv j = i == j
@@ -43,8 +46,11 @@ data CType
 
 data CArg where
   CArg :: CType -> CExpression -> CArg
+
 type CArgs = [CArg]
+
 type CArgMap = Map.Map Int CArg
+
 instance Show CArg where
     show (CArg _ x) = showCExpression x Map.empty
 
@@ -79,13 +85,14 @@ data CExpression where
     IsEmpty :: CType -> CExpression -> CExpression
     IndexList :: CType -> CExpression -> CExpression -> CExpression
     -- Lambda
-    ApplyClosure :: CType -> CExpression -> CExpression -> CExpression  -- apply(f, arg), type of arg passed
-    GetEnvField :: CType -> Int -> Int -> CExpression  -- ((Env_vN*)env)->vM, with type for cast
+    ApplyClosure :: CType -> CExpression -> CExpression -> CExpression
+    GetEnvField :: CType -> Int -> Int -> CExpression  -- type, envId, varId
     CallExpr :: CType -> CType -> CExpression -> CExpression -> CExpression
     -- Casting
     CastExpr :: CType -> CExpression -> CExpression
     Box :: CType -> CExpression -> CExpression
     Unbox :: CType -> CExpression -> CExpression
+
 instance Eq CExpression where
     l == r = showCExpression l Map.empty == showCExpression r Map.empty
 
@@ -98,20 +105,20 @@ data CStatement where
     UpdateVar :: CType -> Int -> CExpression -> CStatement
     While :: CExpression -> CStatement -> CStatement
     Skip :: CStatement
-    DefEnvStruct :: Int -> CParams -> CStatement -- same, but fields are concrete types
+    DefEnvStruct :: Int -> CParams -> CStatement
     AllocClosure :: Int -> CStatement -- closureId
     AllocEnv :: Int -> Int -> CArgMap -> CStatement -- envId parentId params
+
 instance Eq CStatement where
     l == r = showCStmt 0 Map.empty l == showCStmt 0 Map.empty r
 
 type ClosureFuns = Map.Map Int Int -- maps a function id (that returns a closure) to the function said closure contains
-type ClosureParams = Set.Set Int -- set of params which are closures
 type MergedMap = Map.Map Int Int -- maps a function id to the number of new parameters it has (for later printing calls/apply corretcly)
-type FreeVars = Map.Map Int (Set.Set CParam) -- maps a function id to the set of Cparams of all of the functions it is nested in
+type FreeVars = Map.Map Int (Set.Set CParam) -- maps a function id to its free variables
 type ParentMap = Map.Map Int Int -- maps lambda to the id of its direct parent lambda
-type RemovedEnvs = Set.Set Int
-type RemovedClos = Set.Set Int
-type VarsByValue = Set.Set Int
+type RemovedEnvs = Set.Set Int -- set of envs to be removed
+type RemovedClos = Set.Set Int -- set of closures to be removed
+type VarsByValue = Set.Set Int -- set of variables which are only used by value
 type VarUses = Map.Map Int Int -- var id mapped to number of uses
 
 data GlobalInfo = GlobalInfo
@@ -137,12 +144,14 @@ data FunctionInfo = FunctionInfo
 --  Helpers
 -- ─────────────────────────────────────────────
 
+-- | Collect list of arguments and final function in nested CallExpr nodes
 collectArgs :: CExpression -> (CExpression, CArgs)
 collectArgs (CallExpr _ tx f x) =
     let (f', as) = collectArgs f
     in (f', as ++ [CArg tx x])
 collectArgs e = (e, [])
 
+-- | Collect list of arguments and final function in nested ApplyClosure nodes
 collectArgsApply :: CExpression -> (CExpression, CArgs)
 collectArgsApply (ApplyClosure tx f x) =
     let (f', as) = collectArgsApply f
@@ -156,7 +165,7 @@ collectArgsApply e = (e, [])
 showCArg :: CArg -> MergedMap -> String
 showCArg (CArg _ x) = showCExpression x
 
--- convert haskell type to my CType
+-- | Convert Haskell type to CType
 fromTypeRep :: TypeRep -> CType
 fromTypeRep p =
     let args = typeRepArgs p
@@ -185,7 +194,7 @@ printPairType x = case x of
     CTPtr ct -> printPairType ct ++ "Ptr"
     CTFun ct ct' -> "Fun" ++ printPairType ct ++ printPairType ct'
 
--- print type for var decl, give string "v" + id
+-- | Print type for var declaration, give string "v" + id
 printDecl :: String -> CType -> String
 printDecl name CTInt = "int " ++ name
 printDecl name CTBool = "bool " ++ name
@@ -198,7 +207,7 @@ printDecl name CTClosure = "Closure* " ++ name
 printDecl name (CTPtr t) = printDecl ("*" ++ name) t
 printDecl name (CTFun a b) = printFunPtr name a b
 
--- print type for function pointers, need to have recursive ()* with args
+-- | Print type for function pointers, need to have recursive ()* with args
 printFunPtr :: String -> CType -> CType -> String
 printFunPtr name arg ret =
     case ret of
@@ -269,6 +278,8 @@ showListLibFunType CTInt = "Int"
 showListLibFunType CTBool = "Bool"
 showListLibFunType _ = ""
 
+-- | Needs to be passed the map of functions to their amount of parameters
+-- So that calls and applications can be merged correctly
 showCExpression :: CExpression -> MergedMap -> String
 showCExpression (EmptyList _) _ = "NULL"
 showCExpression (Val v) _ = showCValue v
@@ -334,6 +345,7 @@ showCExpression (CallExpr tf tx f arg) m =
             Nothing -> foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")") (showCExpression func m) args
         _ -> foldl (\acc a -> acc ++ "(" ++ head (formatArgs [a]) ++ ")") (showCExpression func m) args
 
+-- If statements that just return in the first branch have the else omitted
 showCStmt :: Int -> MergedMap -> CStatement -> String
 showCStmt indent m (UpdateVar _ i x) = "\n" ++ indentStr indent ++ "v" ++ show i ++ " = " ++ showCExpression x m ++ ";"
 showCStmt indent m (If cond t f) =

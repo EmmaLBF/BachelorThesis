@@ -16,6 +16,10 @@ import Unsafe.Coerce (unsafeCoerce)
 --  Data Types
 -- ─────────────────────────────────────────────
 
+-- This stage of the compiler generates imperative style IR
+-- It separates into expressions and statements
+-- Adds mutable variables and conditional branching
+
 data CParam where
   CParam :: Typeable a => Int -> Proxy a -> CParam
 
@@ -71,9 +75,12 @@ data CStatement a where
   While :: CExpression Bool -> CStatement a -> CStatement a
   Skip :: CStatement a
 
+-- Data structure for evaluation
+-- Since some statements don't return anything
+-- We need a structure to just continue the execution 
 data ExecResult a where
-  Continue :: Map.Map Int CVal -> ExecResult a
-  ReturnVal :: Typeable a => CValue a -> Map.Map Int CVal -> ExecResult a
+  Continue :: CValMap -> ExecResult a
+  ReturnVal :: Typeable a => CValue a -> CValMap -> ExecResult a
 
 -- ─────────────────────────────────────────────
 --  Helpers
@@ -89,6 +96,8 @@ fresh = do
 --  Translate from NamedLang
 -- ─────────────────────────────────────────────
 
+-- Catches nodes that need to become statements
+-- Like if statements and functions definitions
 translate :: Typeable a => NL.NamedLang a -> State Int (CStatement a)
 translate (NL.Apply f x) = do
   (fs, fE) <- translateSub f
@@ -168,6 +177,8 @@ translateSub e = do
   i <- fresh
   return ([unsafeCoerce (bindResult i stmt)], Var i)
 
+-- Bind the result of the statement to an integer
+-- So that a variable with that integer can be used in translation to refer to this statement
 bindResult :: Int -> CStatement a -> CStatement a
 bindResult i (Return x) = DefVar i x
 bindResult i (Seq x y) = Seq x (bindResult i y)
@@ -178,6 +189,7 @@ bindResult i def@(DefFun ifun (_, _ :: Proxy arg) (_ :: CStatement b)) =
    in Seq def (DefVar i var)
 bindResult _ s = s
 
+-- Append a return statement to a function definition that doesn't return anything
 ensureReturn :: CStatement a -> CStatement a
 ensureReturn stmt = case stmt of
   DefFun ifun1 _ _ -> Seq stmt (Return (Var ifun1))
@@ -187,6 +199,33 @@ ensureReturn stmt = case stmt of
 -- ─────────────────────────────────────────────
 --  Replace Bindings
 -- ─────────────────────────────────────────────
+
+-- remove var definitions for variables that are defined exactly once
+-- by replacing references to them with their value
+optimizeBindings :: CStatement a -> CStatement a
+optimizeBindings stmt =
+  let varDefs = collectBindings stmt Map.empty
+      varDefCount = collectVarDefs stmt Map.empty
+      bindings = Map.filterWithKey (\i _ -> Map.lookup i varDefCount == Just 1) varDefs
+   in replaceVarBindingStmt stmt bindings
+
+-- map stores for each var we have unbound what its value is now
+-- so if we had let v8 = v7 in ..., store v8 -> v7 in map
+collectBindings :: CStatement a -> CArgMap -> CArgMap
+collectBindings (DefVar i x) m = Map.insert i (CArg x) m
+collectBindings (Seq x y) m = collectBindings x (collectBindings y m)
+collectBindings (If _ x y) m = collectBindings x (collectBindings y m)
+collectBindings (While _ x) m = collectBindings x m
+collectBindings (DefFun _ _ body) m = collectBindings body m
+collectBindings _ m = m
+
+collectVarDefs :: CStatement a -> Map.Map Int Int -> Map.Map Int Int
+collectVarDefs (DefVar i _) m = Map.insertWith (+) i 1 m
+collectVarDefs (Seq x y) m = collectVarDefs x (collectVarDefs y m)
+collectVarDefs (If _ x y) m = collectVarDefs x (collectVarDefs y m)
+collectVarDefs (While _ x) m = collectVarDefs x m
+collectVarDefs (DefFun _ _ body) m = collectVarDefs body m
+collectVarDefs _ m = m
 
 replaceVarBinding :: CExpression a -> CArgMap -> CExpression a
 replaceVarBinding (Var i) m =
@@ -222,33 +261,6 @@ replaceVarBindingStmt (DefVar i x) m =
     _ -> DefVar i (replaceVarBinding x m)
 replaceVarBindingStmt (UpdateVar i x) m = UpdateVar i (replaceVarBinding x m)
 replaceVarBindingStmt Skip _ = Skip
-
-collectVarDefs :: CStatement a -> Map.Map Int Int -> Map.Map Int Int
-collectVarDefs (DefVar i _) m = Map.insertWith (+) i 1 m
-collectVarDefs (Seq x y) m = collectVarDefs x (collectVarDefs y m)
-collectVarDefs (If _ x y) m = collectVarDefs x (collectVarDefs y m)
-collectVarDefs (While _ x) m = collectVarDefs x m
-collectVarDefs (DefFun _ _ body) m = collectVarDefs body m
-collectVarDefs _ m = m
-
--- map stores for each var we have unbound what its value is now
--- so if we had let v8 = v7 in ..., store v8 -> v7 in map
-collectBindings :: CStatement a -> CArgMap -> CArgMap
-collectBindings (DefVar i x) m = Map.insert i (CArg x) m
-collectBindings (Seq x y) m = collectBindings x (collectBindings y m)
-collectBindings (If _ x y) m = collectBindings x (collectBindings y m)
-collectBindings (While _ x) m = collectBindings x m
-collectBindings (DefFun _ _ body) m = collectBindings body m
-collectBindings _ m = m
-
--- remove var definitions for variables that are defined exactly once
--- by replacing references to them with their value
-optimizeBindings :: CStatement a -> CStatement a
-optimizeBindings stmt =
-  let varDefs = collectBindings stmt Map.empty
-      varDefCount = collectVarDefs stmt Map.empty
-      bindings = Map.filterWithKey (\i _ -> Map.lookup i varDefCount == Just 1) varDefs
-   in replaceVarBindingStmt stmt bindings
 
 -- ─────────────────────────────────────────────
 --  Evaluation
